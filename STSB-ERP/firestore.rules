@@ -53,14 +53,14 @@ service cloud.firestore {
     }
 
     function zoneAllowed(docZone) {
-      // super_admin always sees all zones regardless of their zone field
+      // Fail closed for ordinary users. Only super admins can access global/unzoned records.
       return isSuperAdmin()
-          || userDoc().zone == null
-          || userDoc().zone == ''
-          || userDoc().zone == 'all'
-          || docZone == null
-          || docZone == ''
-          || userDoc().zone == docZone;
+          || (userDoc().zone != null
+              && userDoc().zone != ''
+              && userDoc().zone != 'all'
+              && docZone != null
+              && docZone != ''
+              && userDoc().zone == docZone);
     }
 
 
@@ -68,9 +68,16 @@ service cloud.firestore {
     //  users — primary user profiles
     // ──────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read:   if isAuth() && (request.auth.uid == userId || isERPUser());
-      allow create, update: if isERPUser()
-                         || (isAuth() && request.auth.uid == userId);
+      allow read: if isAuth() && (request.auth.uid == userId || isERPUser());
+      // Provisioning roles is server/admin-only; self-service is restricted to safe profile fields.
+      allow create: if isERPUser();
+      allow update: if isERPUser()
+          || (isAuth()
+              && request.auth.uid == userId
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'name','email','phone','displayName','photoURL','fcmToken',
+                'lastSeen','updatedAt','lastLocationAt'
+              ]));
       allow delete: if isSuperAdmin() || isAdmin();
     }
 
