@@ -1,0 +1,30 @@
+<!-- ══ DELIVERIES (admin management view) ══ -->
+      <div id="pageDeliveries" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">🚚 Delivery Management</div>
+            <div style="font-size:11px;color:var(--tx3)">Assign confirmed orders to delivery men</div></div>
+        </div>
+        <div class="fbar">
+          <div class="srch"><input class="finp" placeholder="Search orders, outlets..." oninput="loadDeliveries()" id="delivAdminSrch"></div>
+          <select class="finp btn-ghost" id="delivAdminStatus" style="width:140px;padding:9px 12px;font-size:12px" onchange="loadDeliveries()">
+            <option value="">All Status</option>
+            <option value="Confirmed">Confirmed (Unassigned)</option>
+            <option value="Assigned">Assigned</option>
+            <option value="In Transit">In Transit</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Failed">Failed</option>
+          </select>
+          <select class="finp btn-ghost" id="delivManFilter" style="width:160px;padding:9px 12px;font-size:12px" onchange="loadDeliveries()">
+            <option value="">All Delivery Men</option>
+          </select>
+        </div>
+        <div class="sgrid" id="delivAdminStats"></div>
+        <div class="card">
+          <div class="twrap">
+            <table>
+              <thead><tr><th>Order #</th><th>Outlet</th><th>Route</th><th>Total</th><th>Delivery Man</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="delivAdminTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>

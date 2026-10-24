@@ -1,0 +1,32 @@
+<!-- ══ ORDERS ══ -->
+      <div id="pageOrders" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">📦 Orders</div>
+            <div style="font-size:11px;color:var(--tx3)" id="ordersRoleNote"></div></div>
+          <div style="display:flex;gap:7px">
+            <button class="btn btn-ghost btn-sm" onclick="openQRScanner()" title="Scan outlet QR">📷 Scan QR</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportOrders()" id="exportOrdersBtn" style="display:none">📥 Export CSV</button>
+            <button class="btn btn-primary btn-sm" onclick="openNewOrder()">+ New Order</button>
+          </div>
+        </div>
+        <div class="fbar">
+          <div class="srch"><input class="finp" placeholder="Search by ID, outlet, rep..." oninput="loadOrders()" id="ordSrch"></div>
+          <select class="finp btn-ghost" id="ordStatus" style="width:130px;padding:9px 12px;font-size:12px" onchange="loadOrders()">
+            <option value="">All Status</option>
+            <option>Pending</option><option>Confirmed</option><option>Delivered</option><option>Cancelled</option>
+          </select>
+          <select class="finp btn-ghost" id="ordRepFilter" style="width:160px;padding:9px 12px;font-size:12px;display:none" onchange="loadOrders()">
+            <option value="">All Reps</option>
+          </select>
+          <input type="date" id="ordDateFrom" class="finp btn-ghost" style="width:135px;padding:9px 12px;font-size:12px" onchange="loadOrders()" placeholder="From">
+          <input type="date" id="ordDateTo" class="finp btn-ghost" style="width:135px;padding:9px 12px;font-size:12px" onchange="loadOrders()" placeholder="To">
+        </div>
+        <div class="card">
+          <div class="twrap">
+            <table>
+              <thead><tr><th>Order #</th><th>Outlet</th><th>Rep</th><th>Items</th><th>Total</th><th>Date</th><th>Status</th><th>Delivery</th><th>Actions</th></tr></thead>
+              <tbody id="ordersTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>

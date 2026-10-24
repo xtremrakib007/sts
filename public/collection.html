@@ -1,0 +1,24 @@
+<!-- ══ COLLECTION ══ -->
+      <div id="pageCollection" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">💰 Collection</div>
+            <div style="font-size:11px;color:var(--tx3)">Track payment collections</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="exportCollections()" id="exportCollBtn" style="display:none">&#128229; Export CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="openNewCollection()">+ Record</button>
+        </div>
+        <div class="col-sum" id="colSummary"></div>
+        <div class="fbar">
+          <div class="srch"><input class="finp" placeholder="Search..." oninput="loadCollections()" id="colSrch"></div>
+          <input type="date" id="colFrom" class="finp btn-ghost" style="width:135px;padding:9px 12px;font-size:12px">
+          <input type="date" id="colTo" class="finp btn-ghost" style="width:135px;padding:9px 12px;font-size:12px">
+          <button class="btn btn-ghost btn-sm" onclick="loadCollections()">Filter</button>
+        </div>
+        <div class="card">
+          <div class="twrap">
+            <table>
+              <thead><tr><th>Receipt #</th><th>Outlet</th><th>Rep</th><th>Amount</th><th>Mode</th><th>Date</th><th>Notes</th><th>Del</th></thead>
+              <tbody id="colTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>

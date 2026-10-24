@@ -1,0 +1,290 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════
+//  STSB ERP — Firestore Security Rules (unprefixed collections)
+//  Collections: users, orders, collections, products, inventory,
+//               invoices, suppliers, transfers, hqOrders, config,
+//               userLocations, attendance, visits, fcmTokens
+// ═══════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ──────────────────────────────────────────────────────────
+    //  HELPERS
+    // ──────────────────────────────────────────────────────────
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Reads user profile from the ACTUAL `users` collection
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function isERPUser() {
+      return isAuth() && role() in ['admin', 'sub_admin', 'super_admin'];
+    }
+
+    function isSuperAdmin() {
+      return isAuth() && role() == 'super_admin';
+    }
+
+    function isAdmin() {
+      return isAuth() && role() == 'admin';
+    }
+
+    function isSalesRep() {
+      return isAuth() && role() == 'sales_rep';
+    }
+
+    function isDeliveryMan() {
+      return isAuth() && role() == 'delivery_man';
+    }
+
+    function isKnownUser() {
+      return isAuth() && role() in
+        ['super_admin', 'admin', 'sub_admin', 'sales_rep', 'delivery_man'];
+    }
+
+    function zoneAllowed(docZone) {
+      // super_admin always sees all zones regardless of their zone field
+      return isSuperAdmin()
+          || userDoc().zone == null
+          || userDoc().zone == ''
+          || userDoc().zone == 'all'
+          || docZone == null
+          || docZone == ''
+          || userDoc().zone == docZone;
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  users — primary user profiles
+    // ──────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read:   if isAuth() && (request.auth.uid == userId || isERPUser());
+      allow create, update: if isERPUser()
+                         || (isAuth() && request.auth.uid == userId);
+      allow delete: if isSuperAdmin() || isAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  config — company profile & system settings
+    // ──────────────────────────────────────────────────────────
+    match /config/{docId} {
+      allow read:  if isKnownUser();
+      allow write: if isERPUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  products — catalogue (Sales App reads, ERP writes)
+    // ──────────────────────────────────────────────────────────
+    match /products/{productId} {
+      allow read:  if isKnownUser();
+      allow write: if isERPUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  inventory — stock (ERP only)
+    // ──────────────────────────────────────────────────────────
+    match /inventory/{itemId} {
+      allow read:  if isERPUser();
+      allow write: if isERPUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  orders — sales orders
+    // ──────────────────────────────────────────────────────────
+    match /orders/{orderId} {
+      allow read: if isAuth() && (
+        isERPUser()
+        || (isSalesRep()    && resource.data.repId == request.auth.uid)
+        || (isDeliveryMan() && zoneAllowed(resource.data.zone))
+      );
+
+      allow create: if isSalesRep()
+        && request.resource.data.repId == request.auth.uid;
+
+      allow update: if isERPUser()
+        || (isSalesRep()
+            && resource.data.repId == request.auth.uid
+            && resource.data.status in ['pending', 'draft', 'discount_rejected']);
+
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  collections — payment collections
+    // ──────────────────────────────────────────────────────────
+    match /collections/{collId} {
+      allow read: if isAuth() && (
+        isERPUser()
+        || (isSalesRep() && resource.data.submittedBy == request.auth.uid)
+      );
+
+      allow create: if isSalesRep()
+        && request.resource.data.submittedBy == request.auth.uid;
+
+      allow update: if isERPUser();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  invoices — ERP only
+    // ──────────────────────────────────────────────────────────
+    match /invoices/{invoiceId} {
+      allow read:   if isERPUser();
+      allow create: if isERPUser();
+      allow update: if isERPUser();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  suppliers — ERP only
+    // ──────────────────────────────────────────────────────────
+    match /suppliers/{supplierId} {
+      allow read:   if isERPUser();
+      allow create: if isERPUser();
+      allow update: if isERPUser();
+      allow delete: if isSuperAdmin() || isAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  transfers — HQ stock transfers (ERP only)
+    // ──────────────────────────────────────────────────────────
+    match /transfers/{transferId} {
+      allow read:   if isERPUser();
+      allow create: if isERPUser();
+      allow update: if isERPUser();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  hqOrders — HQ purchase orders (ERP only)
+    // ──────────────────────────────────────────────────────────
+    match /hqOrders/{hqOrderId} {
+      allow read:   if isERPUser();
+      allow create: if isERPUser();
+      allow update: if isERPUser();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  discounts — ERP manages, Sales App reads
+    // ──────────────────────────────────────────────────────────
+    match /discounts/{docId} {
+      allow read:  if isKnownUser();
+      allow write: if isERPUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  deliveries — ERP creates, field staff updates
+    // ──────────────────────────────────────────────────────────
+    match /deliveries/{docId} {
+      allow read:   if isKnownUser();
+      allow create: if isERPUser();
+      allow update: if isERPUser() || isDeliveryMan();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  visits — field staff creates, ERP reads
+    // ──────────────────────────────────────────────────────────
+    match /visits/{docId} {
+      allow read:   if isERPUser();
+      allow create: if isSalesRep() || isDeliveryMan();
+      allow update: if isERPUser();
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  userLocations — GPS pings (field staff writes own)
+    // ──────────────────────────────────────────────────────────
+    match /userLocations/{userId} {
+      allow read:  if isERPUser();
+      allow write: if isAuth() && request.auth.uid == userId && isKnownUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  attendance — field staff writes own, ERP reads all
+    // ──────────────────────────────────────────────────────────
+    match /attendance/{recordId} {
+      allow read: if isERPUser();
+      allow create: if isAuth() && isKnownUser()
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuth() && isKnownUser()
+        && resource.data.uid == request.auth.uid;
+      allow delete: if isSuperAdmin();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  fcmTokens — any authenticated user writes own token
+    // ──────────────────────────────────────────────────────────
+    match /fcmTokens/{tokenId} {
+      allow read:  if isERPUser();
+      allow write: if isKnownUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  stsb_* prefixed collections (ERP-only legacy data)
+    //  Kept so existing ERP-only data (invoices, inventory etc.)
+    //  is still accessible if any docs remain there.
+    // ──────────────────────────────────────────────────────────
+    match /stsb_users/{userId} {
+      allow read, write: if isERPUser();
+    }
+    match /stsb_config/{docId} {
+      allow read, write: if isERPUser();
+    }
+    match /stsb_products/{docId} {
+      allow read: if isKnownUser();
+      allow write: if isERPUser();
+    }
+    match /stsb_inventory/{docId} {
+      allow read, write: if isERPUser();
+    }
+    match /stsb_invoices/{docId} {
+      allow read, write: if isERPUser();
+    }
+    match /stsb_suppliers/{docId} {
+      allow read, write: if isERPUser();
+    }
+    match /stsb_transfers/{docId} {
+      allow read, write: if isERPUser();
+    }
+    match /stsb_hqOrders/{docId} {
+      allow read, write: if isERPUser();
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    //  CATCH-ALL — deny everything else
+    // ──────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+  }
+}

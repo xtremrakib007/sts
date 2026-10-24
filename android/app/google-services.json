@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "53800678989",
+    "firebase_url": "https://stfm-sales-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "stfm-sales",
+    "storage_bucket": "stfm-sales.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:53800678989:android:d57d39ac43cbbcf2084e04",
+        "android_client_info": {
+          "package_name": "com.sairahtrading.stfm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "53800678989-8bnva7vebak57r5rqb9kcgt5bubr5o0n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_11aVt_kBTYeJ5RbyOAxbYlgkqk8Ma6M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "53800678989-8bnva7vebak57r5rqb9kcgt5bubr5o0n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

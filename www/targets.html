@@ -1,0 +1,26 @@
+<div class="moverlay" id="mSalesTarget">
+  <div class="modal" style="max-width:420px">
+    <div class="mhdr"><div class="mttl">🎯 Set Sales Target</div><button class="mcls" onclick="closeM('mSalesTarget')">✕</button></div>
+    <div class="mbody">
+      <div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.2);border-radius:var(--r2);padding:10px 13px;margin-bottom:14px;font-size:12px;color:var(--tx2)">
+        🎯 Set monthly sales targets — overall or per sales rep. Targets are shown on the dashboard ring chart.
+      </div>
+      <div class="fgrp"><label class="flbl">Target For</label>
+        <select id="targetForUser" class="finp" onchange="loadCurrentTarget()">
+          <option value="__all__">Overall (All Reps Combined)</option>
+        </select>
+      </div>
+      <div class="fgrp"><label class="flbl">Target Month</label>
+        <input type="month" id="targetMonth" class="finp" onchange="loadCurrentTarget()">
+      </div>
+      <div class="fgrp"><label class="flbl">Monthly Target (RM) *</label>
+        <input type="number" id="targetAmount" class="finp" placeholder="e.g. 500000" min="0" step="100">
+      </div>
+      <div id="currentTargetInfo" style="font-size:12px;color:var(--tx3);padding:8px 10px;background:var(--s2);border-radius:var(--r2);border:1px solid var(--bdr);display:none"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mSalesTarget')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveSalesTarget()">💾 Save Target</button>
+    </div>
+  </div>
+</div>

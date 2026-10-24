@@ -1,0 +1,236 @@
+
+<h2 class="sr-only">Interactive overview of the Sales Force Automation mobile app PRD — 32 modules across 3 MVP phases, with role access and feature details</h2>
+<style>
+  :root {
+    --pill-h: 28px;
+  }
+  .sfa-wrap { padding: 1rem 0 2rem; font-size: 14px; }
+  .sfa-header { margin-bottom: 1.5rem; }
+  .sfa-title { font-size: 18px; font-weight: 500; color: var(--color-text-primary); margin: 0 0 4px; }
+  .sfa-sub { font-size: 13px; color: var(--color-text-secondary); margin: 0 0 1rem; }
+
+  .phase-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .ptab { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 5px 14px; font-size: 13px; cursor: pointer; color: var(--color-text-secondary); transition: all .15s; }
+  .ptab.active { background: var(--color-background-primary); border-color: var(--color-border-primary); color: var(--color-text-primary); font-weight: 500; }
+  .ptab:hover:not(.active) { border-color: var(--color-border-secondary); color: var(--color-text-primary); }
+
+  .role-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+  .role-label { font-size: 12px; color: var(--color-text-tertiary); margin-right: 4px; }
+  .role-pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; cursor: pointer; border: 0.5px solid transparent; transition: all .15s; }
+  .role-pill.all  { background: #EEEDFE; color: #3C3489; border-color: #AFA9EC; }
+  .role-pill.sr   { background: #E1F5EE; color: #085041; border-color: #5DCAA5; }
+  .role-pill.rm   { background: #FAEEDA; color: #633806; border-color: #EF9F27; }
+  .role-pill.hos  { background: #FAECE7; color: #712B13; border-color: #D85A30; }
+  .role-pill.md   { background: #E6F1FB; color: #0C447C; border-color: #378ADD; }
+  .role-pill.dim  { opacity: .4; }
+
+  .module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .mod-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px; cursor: pointer; transition: border-color .15s; position: relative; }
+  .mod-card:hover { border-color: var(--color-border-secondary); }
+  .mod-card.selected { border-color: var(--color-border-info); box-shadow: inset 0 0 0 1px var(--color-border-info); }
+  .mod-card.hidden { display: none; }
+
+  .mod-num { font-size: 11px; color: var(--color-text-tertiary); font-weight: 400; margin: 0 0 4px; }
+  .mod-name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin: 0 0 8px; line-height: 1.3; }
+  .mod-roles { display: flex; gap: 3px; flex-wrap: wrap; }
+  .badge-sr  { background: #E1F5EE; color: #085041; }
+  .badge-rm  { background: #FAEEDA; color: #633806; }
+  .badge-hos { background: #FAECE7; color: #712B13; }
+  .badge-md  { background: #E6F1FB; color: #0C447C; }
+  .badge-all { background: #EEEDFE; color: #3C3489; }
+  .mbadge { font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 500; }
+
+  .phase-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+  .pd1 { background: #1D9E75; }
+  .pd2 { background: #EF9F27; }
+  .pd3 { background: #378ADD; }
+  .mod-phase { position: absolute; top: 10px; right: 10px; }
+
+  .detail-panel { margin-top: 1.5rem; background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 1.25rem; border: 0.5px solid var(--color-border-tertiary); display: none; }
+  .detail-panel.open { display: block; }
+  .dp-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+  .dp-title { font-size: 16px; font-weight: 500; color: var(--color-text-primary); margin: 0; }
+  .dp-close { background: none; border: none; cursor: pointer; color: var(--color-text-tertiary); font-size: 18px; line-height: 1; padding: 0; }
+  .dp-close:hover { color: var(--color-text-primary); }
+  .dp-feats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1rem; }
+  .dfeat { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 4px 10px; font-size: 12px; color: var(--color-text-secondary); }
+  .dp-meta { display: flex; gap: 1rem; font-size: 12px; color: var(--color-text-tertiary); flex-wrap: wrap; }
+  .dp-ask { margin-top: 1rem; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1.5rem; }
+  .stat-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 12px 14px; }
+  .stat-n { font-size: 22px; font-weight: 500; color: var(--color-text-primary); line-height: 1; margin-bottom: 3px; }
+  .stat-l { font-size: 12px; color: var(--color-text-secondary); }
+
+  @media (max-width: 480px) {
+    .stats-row { grid-template-columns: repeat(2,1fr); }
+    .module-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+<div class="sfa-wrap">
+  <div class="sfa-header">
+    <p class="sfa-title">Sales Force Automation — PRD v1.0</p>
+    <p class="sfa-sub">32 modules · 4 user roles · 3 MVP phases · Multi-tenant SaaS</p>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-n">32</div><div class="stat-l">Total modules</div></div>
+    <div class="stat-card"><div class="stat-n">4</div><div class="stat-l">User roles</div></div>
+    <div class="stat-card"><div class="stat-n">Phase 1</div><div class="stat-l">10 core modules</div></div>
+    <div class="stat-card"><div class="stat-n">Offline</div><div class="stat-l">First architecture</div></div>
+  </div>
+
+  <div class="phase-tabs">
+    <button class="ptab active" onclick="filterPhase('all',this)">All phases</button>
+    <button class="ptab" onclick="filterPhase('1',this)"><span class="phase-dot pd1"></span>Phase 1 — Core</button>
+    <button class="ptab" onclick="filterPhase('2',this)"><span class="phase-dot pd2"></span>Phase 2 — Monitoring</button>
+    <button class="ptab" onclick="filterPhase('3',this)"><span class="phase-dot pd3"></span>Phase 3 — Intelligence</button>
+  </div>
+
+  <div class="role-row">
+    <span class="role-label">Filter by role:</span>
+    <span class="role-pill all" onclick="filterRole('all',this)">All roles</span>
+    <span class="role-pill sr"  onclick="filterRole('SR',this)">Sales Rep (SR)</span>
+    <span class="role-pill rm"  onclick="filterRole('RM',this)">Regional Mgr (RM)</span>
+    <span class="role-pill hos" onclick="filterRole('HOS',this)">Head of Sales</span>
+    <span class="role-pill md"  onclick="filterRole('MD',this)">Managing Director</span>
+  </div>
+
+  <div class="module-grid" id="mod-grid"></div>
+
+  <div class="detail-panel" id="detail">
+    <div class="dp-header">
+      <p class="dp-title" id="dp-title"></p>
+      <button class="dp-close" onclick="closeDetail()" aria-label="Close">×</button>
+    </div>
+    <div class="dp-feats" id="dp-feats"></div>
+    <div class="dp-meta" id="dp-meta"></div>
+    <div class="dp-ask">
+      <button onclick="askModule()" style="font-size:13px;">Ask Claude about this module ↗</button>
+    </div>
+  </div>
+</div>
+<script>
+const MODULES = [
+  {n:1,name:"Authentication",phase:1,roles:["SR","RM","HOS","MD"],features:["Company code login","Device binding","Biometric login","Session management","Force logout","Account lock","Forgot password","Fake GPS detection"]},
+  {n:2,name:"Dashboard",phase:1,roles:["SR","RM","HOS","MD"],features:["SR: attendance, route, orders, targets","RM: team sales & attendance","HOS: regional performance","MD: company KPIs & trends"]},
+  {n:3,name:"Attendance",phase:1,roles:["SR","RM","HOS","MD"],features:["Check in/out","Selfie capture","GPS validation","Auto checkout","Fake GPS detection","Working hours"]},
+  {n:4,name:"Route Management",phase:1,roles:["SR","RM","HOS","MD"],features:["Daily route & sequence","Route map","Nearby outlets","Route optimisation","Geo-fencing","Compliance tracking"]},
+  {n:5,name:"Outlet Management",phase:1,roles:["SR"],features:["Outlet list & search","Outlet profile","Timeline & last visit","Outstanding balance","Contact information"]},
+  {n:6,name:"Outlet Visit",phase:1,roles:["SR"],features:["Check in/out with GPS","Visit duration","Visit notes","Outlet photo","Timestamp recording"]},
+  {n:7,name:"Order Management",phase:1,roles:["SR"],features:["Product catalogue & search","Barcode scan","Cart & draft orders","Digital signature","Credit limit check","Stock & pricing validation"]},
+  {n:8,name:"Non-Productive Visit",phase:1,roles:["SR"],features:["NP reason capture","Outlet photo","Notes","GPS & timestamp capture"]},
+  {n:9,name:"Collections",phase:1,roles:["SR"],features:["Outstanding invoice list","Cash, bank transfer, cheque","Receipt generation","Customer signature"]},
+  {n:10,name:"Statement",phase:1,roles:["SR","RM"],features:["Outstanding statement","Invoice history","Payment history","Aging analysis"]},
+  {n:11,name:"Target Management",phase:1,roles:["SR","RM","HOS","MD"],features:["Monthly & daily targets","Achievement %","Remaining target","Performance indicators"]},
+  {n:12,name:"Promotions",phase:2,roles:["SR"],features:["Bundle offers","Discount schemes","Free goods","Campaign tracking","Promotion notifications"]},
+  {n:13,name:"Reports",phase:1,roles:["RM","HOS","MD"],features:["Daily & monthly sales","Product sales","Attendance summary","Outlet productivity","Productive/NP call reports"]},
+  {n:14,name:"Notifications",phase:2,roles:["SR","RM","HOS","MD"],features:["Push notifications","Announcements","Promotion alerts","Route updates","Approval alerts"]},
+  {n:15,name:"GPS Tracking",phase:2,roles:["RM","HOS","MD"],features:["Live location","Route tracking","Visit timeline","Last known location"]},
+  {n:16,name:"Live Attendance Monitoring",phase:2,roles:["RM","HOS","MD"],features:["Present/absent users","Check-in status","Check-out status"]},
+  {n:17,name:"Team Productivity Monitoring",phase:2,roles:["RM","HOS","MD"],features:["Salesman ranking","Outlet productivity","Route efficiency","Strike rate","LPC analysis"]},
+  {n:18,name:"New Outlet Request",phase:2,roles:["SR","RM","HOS","MD"],features:["Outlet registration","GPS capture","Outlet photo","Owner details","Approval workflow"]},
+  {n:19,name:"Outlet Closure Request",phase:2,roles:["SR","RM","HOS","MD"],features:["Closure reason","Shop photo","GPS verification","Approval workflow"]},
+  {n:20,name:"Return Management",phase:2,roles:["SR"],features:["Damaged, expired, wrong delivery, customer returns","Photo evidence","Return history"]},
+  {n:21,name:"Competitor Intelligence",phase:3,roles:["SR"],features:["Competitor product & pricing","Promotion tracking","Display photo","Market notes"]},
+  {n:22,name:"Merchandising",phase:3,roles:["SR"],features:["Shelf audit","Display audit","POSM audit","Shelf photo","Out of stock reporting"]},
+  {n:23,name:"Complaint Management",phase:3,roles:["SR","RM"],features:["Complaint registration","Photo attachment","Priority assignment","Resolution tracking"]},
+  {n:24,name:"Survey Management",phase:3,roles:["SR"],features:["Dynamic forms","Market survey","Product survey","Retail audit","Customer feedback"]},
+  {n:25,name:"Route Compliance",phase:2,roles:["RM","HOS","MD"],features:["Planned vs visited outlets","Missed outlets","Extra visits","Compliance %"]},
+  {n:26,name:"Daily Journey Plan",phase:2,roles:["SR","RM","HOS","MD"],features:["Planned vs actual route","Planned vs completed visits","Completion percentage"]},
+  {n:27,name:"Team Visit Monitoring",phase:2,roles:["RM","HOS","MD"],features:["Current outlet","Visit duration","Orders created","Collections received","Live status"]},
+  {n:28,name:"Sync Center",phase:1,roles:["SR"],features:["Last sync time","Pending orders/visits/collections","Manual sync"]},
+  {n:29,name:"Audit Trail",phase:1,roles:["RM","HOS","MD"],features:["User activity logs","Order changes","Visit modifications","Collection changes","Device logs"]},
+  {n:30,name:"Media Center",phase:2,roles:["SR","RM","HOS","MD"],features:["Outlet & visit photos","Merchandising photos","Timestamp & GPS watermark"]},
+  {n:31,name:"Settings",phase:1,roles:["SR","RM","HOS","MD"],features:["Profile","Language & theme","Sync status","Device information","Logout"]},
+  {n:32,name:"App Update Management",phase:1,roles:["SR","RM","HOS","MD"],features:["Version check","Force & optional update","Release notes"]},
+];
+
+const ROLE_CLASS = {SR:"badge-sr",RM:"badge-rm",HOS:"badge-hos",MD:"badge-md"};
+const ROLE_LABEL = {SR:"SR",RM:"RM",HOS:"HOS",MD:"MD"};
+const PHASE_DOT = {1:"pd1",2:"pd2",3:"pd3"};
+
+let activePhase = "all";
+let activeRole  = "all";
+let selectedMod = null;
+
+function roleBadgeHTML(roles) {
+  if (roles.length === 4) return `<span class="mbadge badge-all">All roles</span>`;
+  return roles.map(r => `<span class="mbadge ${ROLE_CLASS[r]}">${ROLE_LABEL[r]}</span>`).join("");
+}
+
+function buildGrid() {
+  const grid = document.getElementById("mod-grid");
+  grid.innerHTML = "";
+  MODULES.forEach(m => {
+    const card = document.createElement("div");
+    card.className = "mod-card";
+    card.dataset.phase = m.phase;
+    card.dataset.roles = m.roles.join(",");
+    card.dataset.idx = m.n;
+    card.innerHTML = `
+      <div class="mod-phase"><span class="phase-dot ${PHASE_DOT[m.phase]}"></span></div>
+      <div class="mod-num">Module ${String(m.n).padStart(2,"0")}</div>
+      <div class="mod-name">${m.name}</div>
+      <div class="mod-roles">${roleBadgeHTML(m.roles)}</div>
+    `;
+    card.onclick = () => openDetail(m, card);
+    grid.appendChild(card);
+  });
+  applyFilters();
+}
+
+function applyFilters() {
+  document.querySelectorAll(".mod-card").forEach(card => {
+    const phaseOk = activePhase === "all" || card.dataset.phase === activePhase;
+    const roleOk  = activeRole  === "all" || card.dataset.roles.split(",").includes(activeRole);
+    card.classList.toggle("hidden", !(phaseOk && roleOk));
+  });
+}
+
+function filterPhase(ph, btn) {
+  activePhase = ph;
+  document.querySelectorAll(".ptab").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  applyFilters();
+}
+
+function filterRole(role, pill) {
+  activeRole = role;
+  document.querySelectorAll(".role-pill").forEach(p => p.classList.remove("active","dim"));
+  pill.classList.add("active");
+  applyFilters();
+}
+
+function openDetail(m, card) {
+  if (selectedMod !== null) {
+    document.querySelector(`.mod-card[data-idx="${selectedMod}"]`)?.classList.remove("selected");
+  }
+  selectedMod = m.n;
+  card.classList.add("selected");
+
+  document.getElementById("dp-title").textContent = `Module ${String(m.n).padStart(2,"0")} — ${m.name}`;
+  document.getElementById("dp-feats").innerHTML = m.features.map(f => `<span class="dfeat">${f}</span>`).join("");
+  const phaseName = {1:"Phase 1 — Core MVP",2:"Phase 2 — Monitoring & Ops",3:"Phase 3 — Intelligence"};
+  document.getElementById("dp-meta").innerHTML = `<span><i class="ti ti-layers-intersect" aria-hidden="true"></i> ${phaseName[m.phase]}</span><span><i class="ti ti-users" aria-hidden="true"></i> ${m.roles.length === 4 ? "All roles" : m.roles.join(", ")}</span><span><i class="ti ti-list-check" aria-hidden="true"></i> ${m.features.length} features</span>`;
+  const panel = document.getElementById("detail");
+  panel.classList.add("open");
+  panel._module = m;
+  setTimeout(() => panel.scrollIntoView({behavior:"smooth",block:"nearest"}), 50);
+}
+
+function closeDetail() {
+  document.getElementById("detail").classList.remove("open");
+  if (selectedMod !== null) {
+    document.querySelector(`.mod-card[data-idx="${selectedMod}"]`)?.classList.remove("selected");
+    selectedMod = null;
+  }
+}
+
+function askModule() {
+  const m = document.getElementById("detail")._module;
+  if (m) sendPrompt(`Tell me more about Module ${m.n}: ${m.name} — what should I think about when designing this module for an FMCG sales app?`);
+}
+
+buildGrid();
+</script>

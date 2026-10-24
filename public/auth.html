@@ -1,0 +1,58 @@
+<div class="moverlay" id="mForgotPwd">
+  <div class="modal" style="max-width:400px">
+    <div class="mhdr"><div class="mttl">🔓 Reset Password</div><button class="mcls" onclick="closeM('mForgotPwd')">✕</button></div>
+    <div class="mbody">
+      <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:var(--r2);padding:10px 13px;margin-bottom:14px;font-size:12px;color:var(--tx2)">
+        📧 Enter your email address and we'll send a password reset link. Check your inbox (and spam folder).
+      </div>
+      <div class="fgrp">
+        <label class="flbl">Email Address *</label>
+        <input id="fpEmail" type="email" class="finp" placeholder="you@company.com">
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mForgotPwd')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="sendPasswordReset()">📧 Send Reset Link</button>
+    </div>
+  </div>
+</div>
+
+<div class="moverlay" id="mChangePwd">
+  <div class="modal" style="max-width:420px">
+    <div class="mhdr"><div class="mttl">🔑 Change Password</div><button class="mcls" onclick="closeM('mChangePwd')">✕</button></div>
+    <div class="mbody">
+      <div style="background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r2);padding:10px 13px;margin-bottom:14px;font-size:12px;color:var(--tx2)">
+        Changing password for <strong id="cpUserLabel" style="color:var(--acc)">—</strong>
+      </div>
+      <div class="fgrp">
+        <label class="flbl">Current Password *</label>
+        <div style="position:relative">
+          <input id="cpCurrent" type="password" class="finp" placeholder="Enter current password" style="padding-right:44px">
+          <button onclick="togglePwdVisibility('cpCurrent',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--tx3);cursor:pointer;font-size:16px;padding:4px">👁</button>
+        </div>
+      </div>
+      <div class="fgrp">
+        <label class="flbl">New Password *</label>
+        <div style="position:relative">
+          <input id="cpNew" type="password" class="finp" placeholder="Min 6 characters" style="padding-right:44px" oninput="checkPwdStrength(this.value)">
+          <button onclick="togglePwdVisibility('cpNew',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--tx3);cursor:pointer;font-size:16px;padding:4px">👁</button>
+        </div>
+        <div id="pwdStrengthBar" style="margin-top:6px;height:4px;border-radius:2px;background:var(--bdr);overflow:hidden;display:none">
+          <div id="pwdStrengthFill" style="height:100%;border-radius:2px;transition:.25s ease;width:0%"></div>
+        </div>
+        <div id="pwdStrengthLabel" style="font-size:10px;color:var(--tx3);margin-top:3px"></div>
+      </div>
+      <div class="fgrp" style="margin-bottom:0">
+        <label class="flbl">Confirm New Password *</label>
+        <div style="position:relative">
+          <input id="cpConfirm" type="password" class="finp" placeholder="Repeat new password" style="padding-right:44px">
+          <button onclick="togglePwdVisibility('cpConfirm',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--tx3);cursor:pointer;font-size:16px;padding:4px">👁</button>
+        </div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mChangePwd')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="doChangePassword()">🔑 Update Password</button>
+    </div>
+  </div>
+</div>

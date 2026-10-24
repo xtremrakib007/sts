@@ -1,0 +1,22 @@
+<div class="moverlay" id="mSelfie">
+  <div class="modal" style="max-width:340px">
+    <div class="mhdr"><div class="mttl" id="mSelfieTitle">📷 Take Selfie</div><button class="mcls" onclick="cancelSelfie()">✕</button></div>
+    <div class="mbody" style="text-align:center">
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:12px" id="mSelfieInst">Position your face clearly in the frame</div>
+      <div style="position:relative;width:100%;border-radius:var(--r);overflow:hidden;border:2px solid var(--bdr);background:var(--s2)">
+        <video id="mCamVideo" autoplay playsinline muted style="width:100%;display:block;border-radius:calc(var(--r)-2px)"></video>
+      </div>
+      <canvas id="mCamCanvas" style="display:none"></canvas>
+      <div id="mSelfiePreview" style="display:none;margin-top:10px">
+        <img id="mSelfieImg" style="width:100%;border-radius:var(--r);border:2px solid var(--grn)">
+        <div style="font-size:12px;color:var(--grn);margin-top:6px">✅ Ready — confirm below</div>
+      </div>
+      <div style="font-size:11px;color:var(--tx3);margin-top:10px" id="mSelfieTs"></div>
+    </div>
+    <div class="mfoot" style="justify-content:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="retakeSelfie()">🔄 Retake</button>
+      <button class="btn btn-grn btn-sm" id="mSelfieCapBtn" onclick="captureSelfie()">📸 Capture</button>
+      <button class="btn btn-primary btn-sm" id="mSelfieConfBtn" onclick="confirmSelfie()" style="display:none">✅ Confirm</button>
+    </div>
+  </div>
+</div>

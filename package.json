@@ -1,0 +1,25 @@
+{
+  "name": "stfm-sales-app",
+  "version": "1.0.0",
+  "description": "STFM - Sairah Trading Sales & Distribution Management",
+  "main": "index.js",
+  "scripts": {
+    "build": "node build.js",
+    "sync": "node build.js && npx cap sync android",
+    "open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/camera": "^6.1.3",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/geolocation": "^6.1.0",
+    "@capacitor/push-notifications": "^6.0.3",
+    "@capacitor/splash-screen": "^6.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.1",
+    "html-minifier-terser": "^7.2.0",
+    "terser": "^5.39.0"
+  }
+}

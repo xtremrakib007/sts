@@ -1,0 +1,27 @@
+{
+  "appId": "com.sairahtrading.stfm",
+  "appName": "STSB",
+  "webDir": "www",
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": true,
+      "showSpinner": false
+    }
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "url": "https://stfm-sales.web.app",
+    "androidScheme": "https"
+  },
+  "splashScreen": {
+    "backgroundColor": "#ffffff"
+  }
+}

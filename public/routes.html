@@ -1,0 +1,12 @@
+<!-- ══ ROUTES (admin/sub_admin only) ══ -->
+      <div id="pageRoutes" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">🗺️ Routes</div>
+            <div style="font-size:11px;color:var(--tx3)">Manage delivery routes. Outlets must be assigned to a route.</div></div>
+          <button class="btn btn-primary btn-sm" onclick="openNewRoute()">+ Add Route</button>
+        </div>
+        <div class="fbar">
+          <div class="srch"><input class="finp" placeholder="Search routes..." oninput="loadRoutes()" id="routeSrch"></div>
+        </div>
+        <div id="routeTree"></div>
+      </div>

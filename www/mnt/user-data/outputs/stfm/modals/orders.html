@@ -1,0 +1,131 @@
+<div id="orderCatalog" style="display:none;position:fixed;inset:0;z-index:1000;background:var(--bg);flex-direction:column;overflow:hidden;">
+
+  <!-- Step 1: Outlet + Date header -->
+  <div id="ocStep1" style="display:flex;flex-direction:column;height:100%">
+    <div style="padding:16px;background:var(--s1);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:12px;">
+      <button class="mcls" onclick="closeOrderCatalog()" style="flex-shrink:0">✕</button>
+      <div style="flex:1">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">📦 New Order</div>
+        <div style="font-size:11px;color:var(--tx3)">Step 1 of 2 — Select outlet</div>
+      </div>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:18px 16px;">
+      <div class="fgrp"><label class="flbl">Route (optional filter)</label>
+        <select id="ordRoute" class="finp" style="font-size:15px;padding:13px 14px" onchange="ocFilterOutletsByRoute()"><option value="">All Routes</option></select></div>
+      <div class="fgrp"><label class="flbl">Outlet *</label>
+        <select id="ordOutlet" class="finp" style="font-size:15px;padding:13px 14px"><option value="">Select outlet...</option></select></div>
+      <div class="fgrp"><label class="flbl">Order Date</label>
+        <input type="date" id="ordDate" class="finp" style="font-size:15px;padding:13px 14px"></div>
+      <div class="fgrp"><label class="flbl">Notes (optional)</label>
+        <textarea id="ordNotes" class="finp" placeholder="Special instructions..." style="min-height:72px"></textarea></div>
+    </div>
+    <div style="padding:14px 16px;background:var(--s1);border-top:1px solid var(--bdr)">
+      <button class="btn btn-primary" onclick="ocGoProducts()" style="font-size:15px">Browse Products →</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Category + Product Catalog -->
+  <div id="ocStep2" style="display:none;flex-direction:column;height:100%">
+    <!-- Topbar -->
+    <div style="padding:12px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <button class="btn btn-ghost btn-sm" onclick="ocBack()" style="padding:7px 10px">← Back</button>
+      <div style="flex:1">
+        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700">Choose Products</div>
+        <div style="font-size:11px;color:var(--tx3)" id="ocOutletLabel">—</div>
+      </div>
+      <!-- Cart FAB counter -->
+      <button class="btn btn-grn btn-sm" onclick="ocGoCart()" id="ocCartBtn" style="display:none;position:relative;padding:7px 14px;gap:6px">
+        🛒 <span id="ocCartCount">0</span>
+      </button>
+    </div>
+
+    <!-- Product Search -->
+    <div style="padding:8px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);flex-shrink:0">
+      <input id="ocSearch" class="finp" placeholder="🔍 Search products by name or category..."
+        style="margin:0;font-size:14px;padding:9px 13px"
+        oninput="ocSearchProducts()">
+    </div>
+
+    <!-- Category pills -->
+    <div id="ocCatBar" style="display:flex;gap:8px;overflow-x:auto;padding:10px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);flex-shrink:0;-webkit-overflow-scrolling:touch;scrollbar-width:none"></div>
+
+    <!-- Product list (categories + items) -->
+    <div id="ocProductList" style="flex:1;overflow-y:auto;padding:12px 14px;-webkit-overflow-scrolling:touch"></div>
+  </div>
+
+  <!-- Step 3: Cart + Review -->
+  <div id="ocStep3" style="display:none;flex-direction:column;height:100%">
+    <div style="padding:12px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <button class="btn btn-ghost btn-sm" onclick="ocBackToProducts()" style="padding:7px 10px">← Products</button>
+      <div style="flex:1;font-family:'Syne',sans-serif;font-size:15px;font-weight:700">🛒 Review Cart</div>
+    </div>
+    <div id="ocCartList" style="flex:1;overflow-y:auto;padding:12px 14px;-webkit-overflow-scrolling:touch"></div>
+    <div style="padding:14px 16px;background:var(--s1);border-top:1px solid var(--bdr);flex-shrink:0">
+      <!-- Subtotal row -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px" id="ocSubtotalRow">
+        <span style="font-size:12px;color:var(--tx3)">Subtotal</span>
+        <span style="font-size:13px;font-weight:600" id="ocSubtotalAmt">RM 0.00</span>
+      </div>
+      <!-- Discount row (hidden when no discount) -->
+      <div style="display:none;justify-content:space-between;align-items:center;margin-bottom:4px" id="ocDiscountRow">
+        <span style="font-size:12px;color:var(--ylw)">🏷️ Total Discount <span style="font-size:10px">(pending approval)</span></span>
+        <span style="font-size:13px;font-weight:700;color:var(--ylw)" id="ocDiscountAmt">−RM 0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-top:8px;border-top:1px solid var(--bdr)">
+        <span style="font-size:13px;color:var(--tx2);font-weight:600">ORDER TOTAL</span>
+        <span style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--acc)" id="ocCartTotal">RM 0.00</span>
+      </div>
+      <div style="font-size:11px;color:var(--tx3);margin-bottom:10px;display:flex;align-items:center;gap:5px">⚠️ Item discounts require admin approval before taking effect</div>
+      <button class="btn btn-primary" onclick="saveOrder()" style="font-size:15px">✅ Place Order</button>
+    </div>
+  </div>
+</div>
+
+<div id="mQtyPicker" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.75);align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)">
+  <div style="background:var(--s1);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px))">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <div id="qpPhoto" style="width:56px;height:56px;border-radius:10px;background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;overflow:hidden"></div>
+      <div style="flex:1">
+        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700" id="qpName">Product</div>
+        <div style="font-size:12px;color:var(--acc);font-weight:700" id="qpPrice">৳0.00</div>
+      </div>
+      <button class="mcls" onclick="closeQtyPicker()">✕</button>
+    </div>
+    <!-- Unit toggle -->
+    <div style="display:flex;gap:8px;margin-bottom:14px" id="qpUnitRow">
+      <button id="qpBtnCtn" class="btn btn-sm" onclick="qpSetUnit('ctn')" style="flex:1;font-size:13px">📦 CTN</button>
+      <button id="qpBtnPcs" class="btn btn-ghost btn-sm" onclick="qpSetUnit('pcs')" style="flex:1;font-size:13px">🔢 PCS</button>
+    </div>
+    <div style="font-size:11px;color:var(--tx3);margin-bottom:10px;text-align:center" id="qpUnitNote"></div>
+    <!-- Quantity stepper -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:6px">
+      <button onclick="qpStep(-1)" style="width:52px;height:52px;border-radius:50%;background:var(--s2);border:2px solid var(--bdr);font-size:22px;font-weight:700;color:var(--tx);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:var(--tr);flex-shrink:0" onmousedown="this.style.transform='scale(.92)'" onmouseup="this.style.transform=''" ontouchstart="this.style.transform='scale(.92)'" ontouchend="this.style.transform=''">−</button>
+      <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px">
+        <input type="number" id="qpQtyDisp" min="1" value="1"
+          style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;text-align:center;width:110px;background:var(--s2);border:2px solid var(--bdr);border-radius:var(--r2);color:var(--tx);padding:6px 4px;outline:none;-moz-appearance:textfield;"
+          oninput="qpManualQty(this.value)" onfocus="this.select()">
+        <div style="font-size:11px;color:var(--tx3)" id="qpQtyUnit">pcs</div>
+      </div>
+      <button onclick="qpStep(1)" style="width:52px;height:52px;border-radius:50%;background:var(--acc);border:none;font-size:22px;font-weight:700;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:var(--tr);flex-shrink:0" onmousedown="this.style.transform='scale(.92)'" onmouseup="this.style.transform=''" ontouchstart="this.style.transform='scale(.92)'" ontouchend="this.style.transform=''">+</button>
+    </div>
+    <div style="font-size:11px;color:var(--tx3);text-align:center;margin-bottom:10px">Tap ＋/－ or type quantity directly</div>
+    <div style="text-align:center;font-size:13px;color:var(--tx2);margin-bottom:16px" id="qpSubtotal"></div>
+    <button class="btn btn-primary" onclick="qpAddToCart()" style="font-size:15px">🛒 Add to Cart</button>
+  </div>
+</div>
+
+<div class="moverlay" id="mOrderDetail">
+  <div class="modal modal-lg" style="max-width:620px">
+    <div class="mhdr" style="border-bottom:2px solid var(--bdr)">
+      <div class="mttl" id="mOrdDetTitle">Invoice</div>
+      <div style="display:flex;gap:7px;align-items:center">
+        <button class="btn btn-ghost btn-xs" onclick="printInvoice()" title="Print">🖨️ Print</button>
+        <button class="btn btn-ghost btn-xs" onclick="downloadInvoicePDF()" title="Save PDF">📄 PDF</button>
+        <button class="btn btn-ghost btn-xs" onclick="shareInvoice()" title="Share">🔗 Share</button>
+        <button class="mcls" onclick="closeM('mOrderDetail')">✕</button>
+      </div>
+    </div>
+    <div class="mbody" id="mOrdDetBody" style="padding:0"></div>
+    <div class="mfoot"><button class="btn btn-ghost btn-sm" onclick="closeM('mOrderDetail')">Close</button></div>
+  </div>
+</div>

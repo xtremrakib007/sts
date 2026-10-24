@@ -1,0 +1,16 @@
+<!-- ══ USERS (admin only) ══ -->
+      <div id="pageUsers" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">👥 User Management</div>
+            <div style="font-size:11px;color:var(--tx3)">Manage sales reps and sub-admins</div></div>
+          <button class="btn btn-primary btn-sm" onclick="openNewUser()">+ Add User</button>
+        </div>
+        <div class="card">
+          <div class="twrap">
+            <table>
+              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Phone</th><th>Zone</th><th>Status</th><th>Actions</th></thead>
+              <tbody id="usersTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>

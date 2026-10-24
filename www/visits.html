@@ -1,0 +1,43 @@
+<div class="moverlay" id="mNPVisit">
+  <div class="modal">
+    <div class="mhdr"><div class="mttl">📝 Non-Productive Visit</div><button class="mcls" onclick="closeM('mNPVisit')">✕</button></div>
+    <div class="mbody">
+      <div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:var(--r2);padding:10px 13px;margin-bottom:14px;font-size:12px;color:var(--tx2)">
+        📋 Log visits where no order was placed — closed outlet, owner unavailable, product not needed, etc.
+      </div>
+      <div class="fgrp"><label class="flbl">Outlet *</label>
+        <select id="npOutlet" class="finp"><option value="">Select outlet...</option></select></div>
+      <div class="fgrp"><label class="flbl">Visit Date</label>
+        <input type="date" id="npDate" class="finp"></div>
+      <div class="fgrp"><label class="flbl">Reason *</label>
+        <select id="npReason" class="finp">
+          <option value="">Select reason...</option>
+          <option>Outlet Closed</option>
+          <option>Owner Not Available</option>
+          <option>No Stock Needed</option>
+          <option>Payment Issues</option>
+          <option>Will Order Later</option>
+          <option>Competitor Locked</option>
+          <option>Others</option>
+        </select></div>
+      <div class="fgrp"><label class="flbl">Notes / Details</label>
+        <textarea id="npNotes" class="finp" placeholder="Describe the visit situation..." style="min-height:72px"></textarea></div>
+      <div class="fgrp">
+        <label class="flbl">📷 Visit Photo (optional)</label>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+          <div id="npPhotoPreview" style="width:72px;height:72px;border-radius:10px;background:var(--s2);border:2px dashed var(--bdr);display:flex;align-items:center;justify-content:center;font-size:28px;overflow:hidden;flex-shrink:0">📷</div>
+          <div>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('npPhotoFile').click()">📸 Take / Choose Photo</button>
+            <div style="font-size:10px;color:var(--tx3);margin-top:4px">Optional — helps show visit proof</div>
+            <input type="file" id="npPhotoFile" accept="image/*" capture="environment" style="display:none" onchange="previewNPPhoto(this)">
+          </div>
+        </div>
+        <input type="hidden" id="npPhotoData">
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mNPVisit')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveNPVisit()">📝 Log Visit</button>
+    </div>
+  </div>
+</div>

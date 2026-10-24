@@ -1,0 +1,23 @@
+<!-- ══ OUTLETS ══ -->
+      <div id="pageOutlets" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">🏪 Outlets</div>
+            <div style="font-size:11px;color:var(--tx3)">Manage customer outlets. Opening balance requires admin approval.</div></div>
+          <div style="display:flex;gap:7px">
+            <button class="btn btn-ghost btn-sm" onclick="openNPVisit(null)" title="Log visit with no order">📝 NP Visit</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportOutlets()" id="exportOutletsBtn" style="display:none">📥 Export CSV</button>
+            <button class="btn btn-primary btn-sm" id="addOutletBtn" onclick="openNewOutlet()">+ Add Outlet</button>
+          </div>
+        </div>
+        <div id="pendingBalancesSection" style="display:none;margin-bottom:18px">
+          <div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:10px;color:var(--ylw)">
+            ⏳ Pending Opening Balance Approvals
+          </div>
+          <div id="pendingBalancesList"></div>
+        </div>
+        <div class="fbar" style="margin-bottom:14px">
+          <div class="srch"><input class="finp" placeholder="Search outlets, routes, reps..." oninput="loadOutlets()" id="outSrch"></div>
+        </div>
+        <!-- Accordion tree: rep → route → outlets -->
+        <div id="outletTree"></div>
+      </div>

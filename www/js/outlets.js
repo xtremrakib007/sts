@@ -1,0 +1,968 @@
+// ═══════════════ OUTLETS — ACCORDION TREE ═══════════════
+// State: which rep-node and route-node are open
+const _outletOpen={rep:null, route:null};
+
+async function loadOutlets() {
+  await loadCachedData();
+  const addBtn=document.getElementById('addOutletBtn');
+  if(addBtn)addBtn.style.display=isDeliveryMan()?'none':'';
+  const srch=(document.getElementById('outSrch')?.value||'').toLowerCase();
+
+  // Pending balances (admin)
+  if(isAdmin()){
+    const pending=allOutlets.filter(o=>o.balanceStatus==='pending'&&o.openingBalance>0);
+    document.getElementById('pendingBalancesSection').style.display=pending.length?'':'none';
+    document.getElementById('pendingBalancesList').innerHTML=pending.map(o=>`
+      <div class="apv-card">
+        <div class="apv-info">
+          <div class="apv-title">${o.name} <span class="bdg bdg-ylw" style="margin-left:6px">Pending Balance</span></div>
+          <div class="apv-sub">Opening Balance: ${fmt(o.openingBalance)} · Type: ${o.type} · Area: ${o.area||'—'}</div>
+        </div>
+        <div class="apv-actions">
+          <button class="btn btn-grn btn-xs" onclick="approveBalance('${o.id}')">✓ Approve</button>
+          <button class="btn btn-red btn-xs" onclick="rejectBalance('${o.id}')">✕ Reject</button>
+        </div>
+      </div>`).join('');
+    const outletApvBadge=document.getElementById('outletApvBadge');
+    if(outletApvBadge){outletApvBadge.textContent=pending.length;outletApvBadge.style.display=pending.length?'':'none';}
+  }
+
+  // Load order/collection stats lazily
+  const [ordDocs2,colDocs2]=await Promise.all([sfGet('orders'),sfGet('collections')]);
+  const orders=ordDocs2.map(d=>d.data());
+  const cols=colDocs2.map(d=>d.data());
+
+  const tree=document.getElementById('outletTree');
+  if(!tree)return;
+
+  // ★ Distance-sort outlets if GPS available
+  function distKm(o){
+    if(!_gpsGranted||!_userLat||!_userLng||!o.lat||!o.lng)return Infinity;
+    return haversineKm(_userLat,_userLng,Number(o.lat),Number(o.lng));
+  }
+  function fmtDist(km){
+    if(km===Infinity)return '';
+    if(km<1)return `${Math.round(km*1000)}m`;
+    return `${km.toFixed(1)}km`;
+  }
+
+  // Outlet card builder (shared by all views)
+  // Compact grid tile — lives inside .tree-body2 (grid layout)
+  function buildOutletCard(o,i){
+    const oOrders=orders.filter(x=>x.outletId===o.id&&x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
+    const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+x.amount,0);
+    const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?o.openingBalance:0));
+    const hasPhone=!!o.phone;
+    const hasPinned=!!(o.lat&&o.lng);
+    const clr=o.color||COLORS[i%COLORS.length];
+    const km=distKm(o);
+    const distBadge=km!==Infinity?`<span style="font-size:9px;color:var(--blu);font-weight:600">📍${fmtDist(km)}</span>`:'';
+    return`<div class="oc-grid" onclick="viewOutlet('${o.id}')">
+      <div class="oc-grid-top">
+        <div class="oc-grid-ava" style="background:${clr}">${o.name[0]}</div>
+        <div style="flex:1;min-width:0"><div class="oc-grid-name">${o.name}</div>${distBadge}</div>
+      </div>
+      <div class="oc-grid-sub">${o.type}${o.area?' · '+o.area:''}</div>
+      <div class="oc-grid-sub" style="color:${due>0?'var(--red)':'var(--tx3)'}">Due: <strong>${fmt(due)}</strong></div>
+      <div class="oc-grid-btns" onclick="event.stopPropagation()">
+        <button class="btn btn-primary btn-xs" onclick="openNewOrder('${o.id}')" title="Order">📦</button>
+        <button class="btn btn-ylw btn-xs" onclick="openNPVisit('${o.id}')" title="NP Visit">📝</button>
+        ${hasPhone?`<button class="btn btn-grn btn-xs" onclick="openWhatsApp('${o.id}')" title="WhatsApp">💬</button>`:''}
+        ${hasPinned?`<button class="btn btn-blu btn-xs" onclick="openDirections('${o.id}')" title="Directions">🗺️</button>`:''}
+        <button class="btn btn-ghost btn-xs" onclick="editOutlet('${o.id}')" title="Edit">✏️</button>
+        ${isAdmin()?`<button class="btn btn-red btn-xs" onclick="delOutlet('${o.id}')" title="Delete">🗑</button>`:''}
+      </div>
+    </div>`;
+  }
+
+  // Sort helper: by distance (pinned outlets first, then by km)
+  function sortByDist(arr){
+    return [...arr].sort((a,b)=>{
+      const da=distKm(a),db=distKm(b);
+      return da-db;
+    });
+  }
+
+  // Delivery man: flat list of their outlets sorted by distance
+  if(isDeliveryMan()){
+    const {where:wdm}=window.__SF;
+    let allowedIds=new Set();
+    try{const myO=await sfGet('orders',[wdm('deliveryManId','==',CU.uid)]);allowedIds=new Set(myO.map(d=>d.data().outletId));}catch(e){}
+    const myOutlets=sortByDist(allOutlets.filter(o=>allowedIds.has(o.id)));
+    tree.innerHTML=myOutlets.length
+      ?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">${myOutlets.map((o,i)=>buildOutletCard(o,i)).join('')}</div>`
+      :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets assigned to your deliveries</div>';
+    return;
+  }
+
+  // For sales rep: route → outlets (2 levels)
+  if(!isAdmin()){
+    const myOutlets=allOutlets.filter(o=>o.createdBy===CU.uid||o.assignedRepId===CU.uid);
+    const myRouteIds=[...new Set(myOutlets.map(o=>o.routeId).filter(Boolean))];
+    const myRoutes=allRoutes.filter(r=>myRouteIds.includes(r.id)||r.repId===CU.uid);
+    if(!myRoutes.length&&!myOutlets.length){
+      tree.innerHTML='<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets or routes assigned yet</div>';return;
+    }
+    // Build route folders
+    const html=myRoutes.map((r,ri)=>{
+      const routeOutlets=sortByDist(myOutlets.filter(o=>o.routeId===r.id).filter(o=>!srch||o.name.toLowerCase().includes(srch)||r.name.toLowerCase().includes(srch)));
+      const isOpen=_outletOpen.route===r.id;
+      return`<div class="tree-l2" id="otl2-${r.id}">
+        <div class="tree-hdr2 ${isOpen?'open':''}" onclick="toggleOutletRoute('${r.id}')">
+          <span class="tree-chevron">▶</span>
+          <span style="font-size:16px">🗺️</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700">${r.name}</div>
+            <div style="font-size:10px;color:var(--tx3)">${routeOutlets.length} outlet${routeOutlets.length!==1?'s':''}</div>
+          </div>
+          ${isAdmin()?`<button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();editRoute('${r.id}')">✏️</button>`:''}
+        </div>
+        <div class="tree-body2 ${isOpen?'open':''}" id="otbody2-${r.id}">
+          ${routeOutlets.length?routeOutlets.map((o,i)=>buildOutletCard(o,i)).join(''):'<div style="font-size:12px;color:var(--tx3);padding:6px">No outlets on this route</div>'}
+        </div>
+      </div>`;
+    }).join('');
+    // Unrouted outlets sorted by distance
+    const unrouted=sortByDist(myOutlets.filter(o=>!o.routeId).filter(o=>!srch||o.name.toLowerCase().includes(srch)));
+    tree.innerHTML=html+(unrouted.length?`<div class="tree-l2"><div class="tree-hdr2" onclick="toggleOutletRoute('__unrouted__')"><span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span><div style="flex:1"><div style="font-size:13px;font-weight:700">Unassigned to Route</div><div style="font-size:10px;color:var(--tx3)">${unrouted.length} outlet${unrouted.length!==1?'s':''}</div></div></div><div class="tree-body2" id="otbody2-__unrouted__">${unrouted.map((o,i)=>buildOutletCard(o,i)).join('')}</div></div>`:'');
+    return;
+  }
+
+  // Admin: rep → route → outlets (3 levels)
+  const reps=allUsers.filter(u=>u.role==='sales_rep');
+  const allSrchOutlets=allOutlets.filter(o=>!srch||o.name.toLowerCase().includes(srch)||(o.route||'').toLowerCase().includes(srch));
+
+  let html=reps.map((rep,ri)=>{
+    const repOutlets=allSrchOutlets.filter(o=>o.createdBy===rep.uid||o.assignedRepId===rep.uid);
+    if(srch&&!repOutlets.length&&!rep.name.toLowerCase().includes(srch))return'';
+    const repRouteIds=[...new Set(repOutlets.map(o=>o.routeId).filter(Boolean))];
+    const repRoutes=allRoutes.filter(r=>repRouteIds.includes(r.id)||r.repId===rep.uid);
+    const isRepOpen=_outletOpen.rep===rep.uid;
+    return`<div class="tree-node" id="otrep-${rep.uid}">
+      <div class="tree-hdr ${isRepOpen?'open':''}" onclick="toggleOutletRep('${rep.uid}')">
+        <span class="tree-chevron">▶</span>
+        <div class="ava ava-sm" style="background:var(--blu);flex-shrink:0">${rep.name[0]}</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700">${rep.name}</div>
+          <div style="font-size:10px;color:var(--tx3)">${repOutlets.length} outlet${repOutlets.length!==1?'s':''} · ${repRoutes.length} route${repRoutes.length!==1?'s':''}</div>
+        </div>
+        <span class="bdg bdg-blu" style="font-size:10px">${rep.phone||''}</span>
+      </div>
+      <div class="tree-body ${isRepOpen?'open':''}" id="otrepbody-${rep.uid}">
+        ${repRoutes.map(r=>{
+          const routeOutlets=sortByDist(repOutlets.filter(o=>o.routeId===r.id));
+          const isOpen=_outletOpen.route===r.id;
+          return`<div class="tree-l2" id="otl2-${r.id}">
+            <div class="tree-hdr2 ${isOpen?'open':''}" onclick="toggleOutletRoute('${r.id}')">
+              <span class="tree-chevron">▶</span>
+              <span style="font-size:15px">🗺️</span>
+              <div style="flex:1">
+                <div style="font-size:12px;font-weight:700">${r.name}</div>
+                <div style="font-size:10px;color:var(--tx3)">${routeOutlets.length} outlet${routeOutlets.length!==1?'s':''}</div>
+              </div>
+              <div onclick="event.stopPropagation();editRoute('${r.id}')" style="font-size:11px;cursor:pointer;color:var(--tx3);padding:4px 6px">✏️</div>
+            </div>
+            <div class="tree-body2 ${isOpen?'open':''}" id="otbody2-${r.id}">
+              ${routeOutlets.length?routeOutlets.map((o,i)=>buildOutletCard(o,i)).join(''):'<div style="font-size:12px;color:var(--tx3);padding:6px">No outlets on this route</div>'}
+            </div>
+          </div>`;
+        }).join('')}
+        ${repOutlets.filter(o=>!o.routeId).length?`<div style="font-size:11px;color:var(--ylw);padding:6px">⚠️ ${repOutlets.filter(o=>!o.routeId).length} outlet(s) not assigned to a route</div>`:''}
+        ${!repRoutes.length?'<div style="font-size:12px;color:var(--tx3);padding:6px">No routes assigned</div>':''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Truly unassigned outlets: no assignedRepId AND no createdBy
+  // (Sales rep outlets are excluded — they auto-get assignedRepId on save)
+  const orphans=allSrchOutlets.filter(o=>!o.assignedRepId&&!o.createdBy);
+  if(orphans.length){
+    const isOrphanOpen=_outletOpen.rep==='__orphan__';
+    html+=`<div class="tree-node" id="otrep-__orphan__">
+      <div class="tree-hdr ${isOrphanOpen?'open':''}" onclick="toggleOutletRep('__orphan__')">
+        <span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:var(--ylw)">Unassigned Outlets (${orphans.length})</div>
+          <div style="font-size:10px;color:var(--tx3)">No rep assigned — tap Assign to set one</div>
+        </div>
+        <span class="bdg bdg-ylw" style="font-size:10px">${orphans.length}</span>
+      </div>
+      <div class="tree-body ${isOrphanOpen?'open':''}" id="otrepbody-__orphan__">
+        ${orphans.map(o=>`
+          <div class="oc-mini" style="border-left:3px solid var(--ylw)">
+            <div class="oc-mini-ava" style="background:${o.color||'var(--ylw)'}">${o.name[0]}</div>
+            <div class="oc-mini-info" style="cursor:pointer" onclick="viewOutlet('${o.id}')">
+              <div class="oc-mini-name">${o.name}</div>
+              <div class="oc-mini-sub">${o.type||''}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
+            </div>
+            <div class="oc-mini-btns" onclick="event.stopPropagation()">
+              <button class="btn btn-ylw btn-xs" onclick="adminAssignRep('${o.id}')">👤 Assign</button>
+              <button class="btn btn-primary btn-xs" onclick="openNewOrder('${o.id}')">📦</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  tree.innerHTML=html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
+}
+
+function toggleOutletRep(repUid){
+  const wasOpen=_outletOpen.rep===repUid;
+  // Close all reps
+  document.querySelectorAll('[id^="otrep-"]').forEach(n=>{
+    n.querySelector('.tree-hdr')?.classList.remove('open');
+    n.querySelector('.tree-body')?.classList.remove('open');
+  });
+  _outletOpen.route=null;
+  if(!wasOpen){
+    _outletOpen.rep=repUid;
+    const hdr=document.querySelector(`#otrep-${CSS.escape(repUid)} .tree-hdr`);
+    const body=document.getElementById(`otrepbody-${repUid}`);
+    if(hdr)hdr.classList.add('open');
+    if(body)body.classList.add('open');
+  } else {
+    _outletOpen.rep=null;
+  }
+}
+
+function toggleOutletRoute(routeId){
+  const wasOpen=_outletOpen.route===routeId;
+  // Close all routes
+  document.querySelectorAll('[id^="otl2-"]').forEach(n=>{
+    n.querySelector('.tree-hdr2')?.classList.remove('open');
+    n.querySelector('.tree-body2')?.classList.remove('open');
+  });
+  if(!wasOpen){
+    _outletOpen.route=routeId;
+    const hdr=document.querySelector(`#otl2-${CSS.escape(routeId)} .tree-hdr2`);
+    const body=document.getElementById(`otbody2-${routeId}`);
+    if(hdr)hdr.classList.add('open');
+    if(body)body.classList.add('open');
+  } else {
+    _outletOpen.route=null;
+  }
+}
+
+// ── Admin: assign a rep to an outlet that has none ──
+async function adminAssignRep(outletId) {
+  if(!isAdmin()){showToast('Admin only','error');return;}
+  const o=allOutlets.find(x=>x.id===outletId);if(!o)return;
+  const reps=allUsers.filter(u=>u.role==='sales_rep'&&u.status!=='disabled');
+  if(!reps.length){showToast('No active sales reps found','warn');return;}
+  const list=reps.map((u,i)=>(i+1)+') '+u.name+(u.phone?' ('+u.phone+')':'')).join(', ');
+  const num=window.prompt('Assign "'+o.name+'" to rep. Options: '+list+'. Enter number 1-'+reps.length+':');
+  if(!num)return;
+  const idx=parseInt(num,10)-1;
+  if(isNaN(idx)||idx<0||idx>=reps.length){showToast('Invalid - enter 1 to '+reps.length,'warn');return;}
+  const rep=reps[idx];
+  try{
+    await sfUpdate('outlets',outletId,{assignedRepId:rep.uid,assignedRepName:rep.name});
+    showToast('"'+o.name+'" assigned to '+rep.name+' OK','success');
+    await loadCachedData();
+    loadOutlets();
+  }catch(e){showToast('Error: '+e.message,'error');}
+}
+
+async function openNewOutlet() {
+  // Ensure routes and users are loaded before populating dropdowns
+  // try/catch so a Firestore error never silently blocks the modal from opening
+  // loadCachedData not needed here — cache is kept fresh by invalidateCache() on writes
+  document.getElementById('mOutletTitle').textContent='🏪 Add Outlet';
+  document.getElementById('oEditId').value='';
+  ['oName','oArea','oCon','oPhn','oLotNum','oAddr','oROC','oCategoryOthers','oCreditCustomDays'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const oEthEl=document.getElementById('oEthnicity');if(oEthEl)oEthEl.value='';
+  const oCatEl=document.getElementById('oCategory');if(oCatEl)oCatEl.value='';
+  document.getElementById('oCategoryOthersRow').style.display='none';
+  // Reset payment type radios
+  document.getElementById('oTypeCash').checked=false;
+  document.getElementById('oTypeCredit').checked=false;
+  document.getElementById('oCreditFields').style.display='none';
+  const oCTEl=document.getElementById('oCreditTerm');if(oCTEl)oCTEl.value='';
+  const oCLEl=document.getElementById('oCreditLimit');if(oCLEl)oCLEl.value='';
+  document.getElementById('oCreditCustomDaysRow').style.display='none';
+  clearOutletLocation();
+  clearOutletPhoto('signboard');
+  clearOutletPhoto('cover');
+  cancelOutletCamera();
+  _populateRouteDropdown('oRoute','');
+  _populateOutletRepDropdown('');
+  // Admin sees rep assignment field; reps do not
+  const oRepRow=document.getElementById('oRepRow');
+  if(oRepRow)oRepRow.style.display=isAdmin()?'':'none';
+  // Unlock name field for new outlet
+  const nameEl=document.getElementById('oName');
+  if(nameEl){nameEl.readOnly=false;nameEl.style.background='';nameEl.style.color='';nameEl.title='';}
+  const lockBadge=document.getElementById('oNameLockBadge');
+  if(lockBadge)lockBadge.style.display='none';
+  openM('mOutlet');
+}
+
+function _populateOutletRepDropdown(selectedUid) {
+  const el=document.getElementById('oAssignedRep');if(!el)return;
+  const reps=allUsers.filter(u=>u.role==='sales_rep'&&u.status!=='disabled');
+  el.innerHTML='<option value="">Unassigned</option>'+
+    reps.map(u=>`<option value="${u.uid}" ${u.uid===selectedUid?'selected':''}>${u.name}</option>`).join('');
+}
+
+/* ── Outlet form UI helpers ─────────────────────── */
+function onOutletCategoryChange(){
+  const val=document.getElementById('oCategory')?.value;
+  document.getElementById('oCategoryOthersRow').style.display=val==='others'?'':'none';
+}
+function onOutletPayTypeChange(){
+  const isCr=document.getElementById('oTypeCredit')?.checked;
+  document.getElementById('oCreditFields').style.display=isCr?'':'none';
+  const oCTEl=document.getElementById('oCreditTerm');if(oCTEl&&!isCr)oCTEl.value='';
+  if(!isCr){const el=document.getElementById('oCreditCustomDaysRow');if(el)el.style.display='none';}
+}
+document.addEventListener('change',function(e){
+  if(e.target&&e.target.id==='oCreditTerm'){
+    document.getElementById('oCreditCustomDaysRow').style.display=e.target.value==='custom'?'':'none';
+  }
+});
+
+/* ── Outlet photo helpers ─────────────────────── */
+let _oPhotoCamStream=null;
+let _oPhotoCamTarget=null; // 'signboard' | 'cover'
+
+function clearOutletPhoto(which){
+  // 'cover' is an alias for 'interior' (HTML uses 'cover', legacy JS uses 'interior')
+  const key=which==='signboard'?'signboard':'cover';
+  if(key==='signboard'){
+    // Reset avatar back to default icon
+    const ava=document.getElementById('oSignboardAva');
+    if(ava){ava.innerHTML='🏬';ava.style.background='';}
+    // Hide preview, show empty state
+    const preview=document.getElementById('oSignboardPhotoPreview');
+    if(preview)preview.style.display='none';
+    const empty=document.getElementById('oSignboardEmpty');
+    if(empty)empty.style.display='';
+    const hint=document.getElementById('oSignboardHint');
+    if(hint){hint.style.display='';hint.textContent='Required — take a photo or upload from gallery';}
+  } else {
+    // Reset cover banner
+    const img=document.getElementById('oCoverImg');
+    if(img){img.src='';img.style.display='none';}
+    const emp=document.getElementById('oCoverEmpty');
+    if(emp)emp.style.display='';
+  }
+}
+
+function onOutletPhotoFile(which,input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const img=new Image();
+  const objUrl=URL.createObjectURL(file);
+  img.onload=function(){
+    const maxW=1024,maxH=1024;
+    let w=img.naturalWidth,h=img.naturalHeight;
+    if(w>maxW||h>maxH){const s=Math.min(maxW/w,maxH/h);w=Math.round(w*s);h=Math.round(h*s);}
+    const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+    canvas.getContext('2d').drawImage(img,0,0,w,h);
+    const dataUrl=canvas.toDataURL('image/jpeg',0.78);
+    URL.revokeObjectURL(objUrl);
+    _setOutletPhoto(which,dataUrl);
+  };
+  img.onerror=function(){
+    URL.revokeObjectURL(objUrl);
+    const reader=new FileReader();
+    reader.onload=function(e){_setOutletPhoto(which,e.target.result);};
+    reader.readAsDataURL(file);
+  };
+  img.src=objUrl;
+  input.value='';
+}
+
+// Pick photo from gallery using Capacitor Camera plugin (Android app) or file input (PWA)
+async function pickOutletPhotoFromGallery(which){
+  const isCapacitor=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+  if(isCapacitor){
+    try{
+      const {Camera,CameraSource,CameraResultType}=window.Capacitor.Plugins;
+      const photo=await Camera.getPhoto({resultType:CameraResultType.DataUrl,source:CameraSource.Photos,quality:80,width:1024});
+      if(photo&&photo.dataUrl) _setOutletPhoto(which,photo.dataUrl);
+    }catch(e){
+      if(e&&e.message&&e.message.toLowerCase().includes('cancel'))return;
+      showToast('Could not open gallery: '+e.message,'error');
+    }
+  } else {
+    // PWA fallback — trigger hidden file input
+    const inputId=which==='signboard'?'oSignboardFileInput':'oCoverFileInput';
+    const el=document.getElementById(inputId);
+    if(el)el.click();
+  }
+}
+
+function _setOutletPhoto(which,dataUrl){
+  const key=which==='signboard'?'signboard':'cover';
+  if(key==='signboard'){
+    // Update avatar thumbnail
+    const ava=document.getElementById('oSignboardAva');
+    if(ava) ava.innerHTML=`<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`;
+    // Show full preview card
+    const preview=document.getElementById('oSignboardPhotoPreview');
+    const previewImg=document.getElementById('oSignboardPhotoImg');
+    if(previewImg){previewImg.src=dataUrl;}
+    if(preview)preview.style.display='';
+    // Shrink empty state to just action buttons (keep camera/gallery accessible)
+    const hint=document.getElementById('oSignboardHint');
+    if(hint)hint.style.display='none';
+  } else {
+    // Show photo in the cover banner
+    const img=document.getElementById('oCoverImg');
+    if(img){img.src=dataUrl;img.style.display='';}
+    const emp=document.getElementById('oCoverEmpty');
+    if(emp)emp.style.display='none';
+  }
+}
+
+async function captureOutletPhoto(which){
+  const isCapacitor=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+  if(isCapacitor){
+    try{
+      const {Camera,CameraSource,CameraResultType}=window.Capacitor.Plugins;
+      const photo=await Camera.getPhoto({resultType:CameraResultType.DataUrl,source:CameraSource.Camera,quality:80,width:1024,correctOrientation:true});
+      if(photo&&photo.dataUrl) _setOutletPhoto(which,photo.dataUrl);
+    }catch(e){
+      if(e&&e.message&&e.message.toLowerCase().includes('cancel'))return;
+      showToast('Could not open camera: '+e.message,'error');
+    }
+    return;
+  }
+  // PWA: use in-page video camera
+  _oPhotoCamTarget=which;
+  const wrap=document.getElementById('oPhotoCamWrap');
+  const lbl=document.getElementById('oPhotoCamLabel');
+  const video=document.getElementById('oPhotoCamVideo');
+  if(!wrap||!video)return;
+  if(lbl)lbl.textContent=which==='signboard'?'📷 Capture Signboard Photo':'📷 Capture Cover Photo';
+  try{
+    _oPhotoCamStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+    video.srcObject=_oPhotoCamStream;
+    wrap.style.display='';
+    wrap.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }catch(err){
+    showToast('Camera access denied: '+err.message,'error');
+  }
+}
+
+function snapOutletPhoto(){
+  const video=document.getElementById('oPhotoCamVideo');
+  const canvas=document.getElementById('oPhotoCamCanvas');
+  if(!video||!canvas)return;
+  canvas.width=video.videoWidth||640;
+  canvas.height=video.videoHeight||480;
+  canvas.getContext('2d').drawImage(video,0,0);
+  // Compress to ~1024px wide at 78% quality for fast saves
+  const offscreen=document.createElement('canvas');
+  const maxW=1024;const scale=Math.min(1,maxW/canvas.width);
+  offscreen.width=Math.round(canvas.width*scale);
+  offscreen.height=Math.round(canvas.height*scale);
+  offscreen.getContext('2d').drawImage(canvas,0,0,offscreen.width,offscreen.height);
+  const dataUrl=offscreen.toDataURL('image/jpeg',0.78);
+  _setOutletPhoto(_oPhotoCamTarget,dataUrl);
+  cancelOutletCamera();
+}
+
+function cancelOutletCamera(){
+  if(_oPhotoCamStream){_oPhotoCamStream.getTracks().forEach(t=>t.stop());_oPhotoCamStream=null;}
+  const wrap=document.getElementById('oPhotoCamWrap');
+  if(wrap)wrap.style.display='none';
+  const video=document.getElementById('oPhotoCamVideo');
+  if(video)video.srcObject=null;
+  _oPhotoCamTarget=null;
+}
+
+async function editOutlet(id) {
+  const o=allOutlets.find(x=>x.id===id);if(!o)return;
+  // Sales rep can only edit their own outlets
+  if(!isAdmin() && o.createdBy !== CU.uid){showToast('You can only edit your own outlets','error');return;}
+  document.getElementById('mOutletTitle').textContent='✏️ Edit Outlet';
+  document.getElementById('oEditId').value=id;
+  document.getElementById('oName').value=o.name;
+  // Category
+  const oCatEl=document.getElementById('oCategory');
+  if(oCatEl){oCatEl.value=o.category||'';}
+  const othersRow=document.getElementById('oCategoryOthersRow');
+  if(othersRow)othersRow.style.display=o.category==='others'?'':'none';
+  const oCOEl=document.getElementById('oCategoryOthers');if(oCOEl)oCOEl.value=o.categoryOthers||'';
+  // Payment type
+  const payType=o.paymentType||'cash';
+  const cashRadio=document.getElementById('oTypeCash');
+  const creditRadio=document.getElementById('oTypeCredit');
+  if(cashRadio)cashRadio.checked=payType==='cash';
+  if(creditRadio)creditRadio.checked=payType==='credit';
+  document.getElementById('oCreditFields').style.display=payType==='credit'?'':'none';
+  const oCTEl=document.getElementById('oCreditTerm');if(oCTEl)oCTEl.value=o.creditTerm||'';
+  const oCLEl=document.getElementById('oCreditLimit');if(oCLEl)oCLEl.value=o.creditLimit||'';
+  const customDaysRow=document.getElementById('oCreditCustomDaysRow');
+  if(customDaysRow)customDaysRow.style.display=o.creditTerm==='custom'?'':'none';
+  const oCCDEl=document.getElementById('oCreditCustomDays');if(oCCDEl)oCCDEl.value=o.creditCustomDays||'';
+  // Other fields
+  document.getElementById('oArea').value=o.area||'';
+  document.getElementById('oCon').value=o.contact||'';
+  document.getElementById('oPhn').value=o.phone||'';
+  // Split stored address back into lot/unit + street body
+  // Lot patterns: "No 56", "Unit 3A", "Lot 7", "PT 1234", or leading digits
+  const savedAddr=o.address||'';
+  const lotMatch=savedAddr.match(/^(No\.?\s*\S[^,]*|Unit\s+[^,]+|Lot\s+[^,]+|PT\s+[^,]+|\d+[^,]*),\s*/i);
+  const lotEl2=document.getElementById('oLotNum');
+  const addrEl2=document.getElementById('oAddr');
+  if(lotMatch&&lotEl2){
+    lotEl2.value=lotMatch[1].trim();
+    if(addrEl2) addrEl2.value=savedAddr.slice(lotMatch[0].length).trim();
+  } else {
+    if(lotEl2) lotEl2.value='';
+    if(addrEl2) addrEl2.value=savedAddr;
+  }
+  const oROCEl=document.getElementById('oROC');if(oROCEl)oROCEl.value=o.roc||'';
+  const oEthEl=document.getElementById('oEthnicity');if(oEthEl)oEthEl.value=o.ethnicity||'';
+  _populateRouteDropdown('oRoute', o.routeId||o.route||'');
+  _populateOutletRepDropdown(o.assignedRepId||'');
+  const oRepRow=document.getElementById('oRepRow');
+  if(oRepRow)oRepRow.style.display=isAdmin()?'':'none';
+
+  // Photos
+  clearOutletPhoto('signboard');clearOutletPhoto('cover');cancelOutletCamera();
+  if(o.signboardPhoto){
+    const ava=document.getElementById('oSignboardAva');
+    if(ava) ava.innerHTML=`<img src="${o.signboardPhoto}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`;
+    const preview=document.getElementById('oSignboardPhotoPreview');
+    const previewImg=document.getElementById('oSignboardPhotoImg');
+    if(previewImg) previewImg.src=o.signboardPhoto;
+    if(preview) preview.style.display='';
+    const hint=document.getElementById('oSignboardHint');
+    if(hint) hint.style.display='none';
+  }
+  if(o.coverPhoto||o.interiorPhoto){
+    const coverSrc=o.coverPhoto||o.interiorPhoto;
+    const img=document.getElementById('oCoverImg');
+    if(img){img.src=coverSrc;img.style.display='';}
+    const emp=document.getElementById('oCoverEmpty');
+    if(emp) emp.style.display='none';
+  }
+
+  // Lock outlet name for non-strict-admin
+  const nameEl=document.getElementById('oName');
+  if(nameEl){
+    const isLocked=CU&&CU.role==='sales_rep';
+    nameEl.readOnly=isLocked;
+    nameEl.style.background=isLocked?'var(--s3)':'';
+    nameEl.style.color=isLocked?'var(--tx3)':'';
+    nameEl.title=isLocked?'Outlet name can only be changed by Admin':'';
+    // Show/hide lock badge
+    let lockBadge=document.getElementById('oNameLockBadge');
+    if(!lockBadge){
+      lockBadge=document.createElement('div');
+      lockBadge.id='oNameLockBadge';
+      lockBadge.style.cssText='font-size:10px;color:var(--ylw);margin-top:4px;display:flex;align-items:center;gap:4px';
+      nameEl.parentNode.insertBefore(lockBadge,nameEl.nextSibling);
+    }
+    lockBadge.style.display=isLocked?'flex':'none';
+    lockBadge.innerHTML='🔒 Outlet name is locked — only Admin can change it';
+  }
+
+  // Restore saved location
+  const latEl=document.getElementById('oLat');
+  const lngEl=document.getElementById('oLng');
+  if(latEl) latEl.value=o.lat||'';
+  if(lngEl) lngEl.value=o.lng||'';
+  if(o.lat&&o.lng){
+    const d=document.getElementById('outletLocDisplay');
+    if(d) d.innerHTML=`<span style="color:var(--grn)">✅ ${Number(o.lat).toFixed(6)}, ${Number(o.lng).toFixed(6)}</span>`;
+    const clr=document.getElementById('clearLocBtn');if(clr)clr.style.display='inline-flex';
+  } else {
+    clearOutletLocation();
+  }
+  openM('mOutlet');
+}
+
+async function saveOutlet() {
+  try {
+    const nameEl=document.getElementById('oName');
+    const editId=document.getElementById('oEditId').value;
+    const existing=editId?allOutlets.find(o=>o.id===editId):null;
+    const isSalesRep=CU&&CU.role==='sales_rep';
+    const name=isSalesRep&&existing?existing.name:(nameEl?nameEl.value.trim():'');
+    const category=document.getElementById('oCategory')?.value||'';
+    const categoryOthers=category==='others'?(document.getElementById('oCategoryOthers')?.value.trim()||''):'';
+    const paymentType=document.querySelector('input[name="oPayType"]:checked')?.value||'';
+    const creditTerm=paymentType==='credit'?(document.getElementById('oCreditTerm')?.value||''):'';
+    const creditLimit=paymentType==='credit'?(parseFloat(document.getElementById('oCreditLimit')?.value)||0):0;
+    const creditCustomDays=creditTerm==='custom'?(parseInt(document.getElementById('oCreditCustomDays')?.value)||0):0;
+    const area=document.getElementById('oArea').value.trim();
+    const contact=document.getElementById('oCon').value.trim();
+    const phone=document.getElementById('oPhn').value.trim();
+    const lotNum=document.getElementById('oLotNum')?.value.trim()||'';
+    const addrBody=document.getElementById('oAddr')?.value.trim()||'';
+    // Combine into full address: "No 56, Jalan X, Taman Y, 31450 Ipoh, Perak, Malaysia"
+    const address=[lotNum,addrBody].filter(Boolean).join(', ');
+    const roc=document.getElementById('oROC')?.value.trim()||'';
+    const ethnicity=document.getElementById('oEthnicity')?.value||'';
+    // Signboard photo — read from new preview img or fallback to avatar img
+    const signboardPreviewImg=document.getElementById('oSignboardPhotoImg');
+    const signboardAva=document.getElementById('oSignboardAva');
+    const signboardAvaImg=signboardAva?signboardAva.querySelector('img'):null;
+    const _sbSrc=(signboardPreviewImg&&signboardPreviewImg.src&&signboardPreviewImg.src!==window.location.href&&signboardPreviewImg.src!=='')?signboardPreviewImg.src:
+                  (signboardAvaImg&&signboardAvaImg.src&&!signboardAvaImg.src.endsWith(window.location.href))?signboardAvaImg.src:'';
+    const signboardPhoto=_sbSrc||'';
+    const interiorImg=document.getElementById('oCoverImg');
+    const interiorPhoto=(interiorImg&&interiorImg.src&&!interiorImg.src.endsWith(window.location.href))?interiorImg.src:'';
+
+    if(!name){showToast('Outlet name is required','error');return;}
+    if(!category){showToast('Select a category','error');return;}
+    if(category==='others'&&!categoryOthers){showToast('Please specify the category','error');return;}
+    if(!paymentType){showToast('Select payment type (Cash or Credit)','error');return;}
+    if(paymentType==='credit'){
+      if(!creditTerm){showToast('Select credit term','error');return;}
+      if(creditTerm==='custom'&&!creditCustomDays){showToast('Enter custom credit days','error');return;}
+      if(!creditLimit){showToast('Enter credit limit amount','error');return;}
+    }
+    if(!area){showToast('Area/Zone is required','error');return;}
+    if(!phone){showToast('Phone number is required','error');return;}
+    if(!contact){showToast('Contact person name is required','error');return;}
+    if(!address){showToast('Address is required — enter lot/unit no and street','error');return;}
+    if(!signboardPhoto){showToast('Signboard photo is required','error');return;}
+
+    const routeEl=document.getElementById('oRoute');
+    const routeId=routeEl?routeEl.value:'';
+    if(!routeId){showToast('Select a route (create routes first under Routes)','warn');return;}
+    const selectedRoute=allRoutes.find(r=>r.id===routeId);
+    const routeNameVal=selectedRoute?selectedRoute.name:'';
+    const rawLat=document.getElementById('oLat')?.value;
+    const rawLng=document.getElementById('oLng')?.value;
+
+    // type is now derived from category for backward compat
+    const typeLegacy=category;
+
+    const data={
+      name, category, categoryOthers, type:typeLegacy,
+      paymentType, creditTerm, creditLimit, creditCustomDays,
+      area, routeId, route:routeNameVal, contact, phone, address, roc, ethnicity,
+      signboardPhoto, coverPhoto: interiorPhoto,
+      assignedRepId:isAdmin()?(document.getElementById('oAssignedRep')?.value||''):CU.uid,
+      assignedRepName:isAdmin()?((allUsers.find(u=>u.uid===document.getElementById('oAssignedRep')?.value)||{}).name||''):CU.name,
+      color:COLORS[allOutlets.length%COLORS.length],
+      lat:rawLat?parseFloat(rawLat):null, lng:rawLng?parseFloat(rawLng):null, zoneId:CU.zoneId||null,
+    };
+
+    if(editId){
+      if(existing&&isSalesRep&&name!==existing.name){showToast('Outlet name cannot be changed. Contact Admin.','error');return;}
+      // Credit outlets: flag for approval if not already approved or if credit fields changed
+      if(paymentType==='credit'){
+        const creditChanged=!existing||existing.paymentType!=='credit'||existing.creditLimit!==creditLimit||existing.creditTerm!==creditTerm;
+        if(creditChanged&&!isAdmin()){data.creditStatus='pending';data.creditRequestedBy=CU.uid;}
+        else if(isAdmin()){data.creditStatus='approved';data.creditApprovedBy=CU.uid;}
+      } else {
+        data.creditStatus='none';
+      }
+      await sfUpdate('outlets',editId,data);
+      showToast('Outlet updated','success');
+    } else {
+      data.createdBy=CU.uid;data.createdByName=CU.name;data.createdAt=new Date().toISOString();
+      if(paymentType==='credit'){
+        data.creditStatus=isAdmin()?'approved':'pending';
+        if(isAdmin())data.creditApprovedBy=CU.uid;
+      } else {
+        data.creditStatus='none';
+      }
+      // Keep legacy openingBalance as 0 for compat
+      data.openingBalance=0;data.balanceStatus='none';
+      await sfAdd('outlets',data);
+      const msg=paymentType==='credit'&&!isAdmin()?'Outlet added — credit terms pending admin approval.':'Outlet added';
+      showToast(msg,'success');
+      // 🔔 Notify admins if credit approval needed
+      if(paymentType==='credit'&&!isAdmin()) notifyAdmins('🏦 Credit Approval Needed',`${CU.name} added outlet "${name}" — credit terms pending approval`,{tag:'credit-pending'});
+    }
+    closeM('mOutlet');
+    await loadCachedData();
+    loadOutlets();updateBadges();updateSidebarStats();
+  } catch(e) {
+    console.error('saveOutlet error:',e);
+    showToast('Error saving outlet: '+e.message,'error');
+  }
+}
+
+function _populateRouteDropdown(selectId, selectedVal) {
+  const el=document.getElementById(selectId);
+  if(!el)return;
+  el.innerHTML='<option value="">Select route...</option>'+
+    allRoutes.map(r=>`<option value="${r.id}" ${r.id===selectedVal?'selected':''}>${r.name}</option>`).join('');
+}
+
+// ── Outlet location helpers ──
+function pinOutletLocation() {
+  if(!navigator.geolocation){showToast('Geolocation not supported','error');return;}
+  showToast('Getting GPS location…','info');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const lat=pos.coords.latitude.toFixed(6);
+    const lng=pos.coords.longitude.toFixed(6);
+    const acc=Math.round(pos.coords.accuracy);
+    const latEl=document.getElementById('oLat');
+    const lngEl=document.getElementById('oLng');
+    if(latEl)latEl.value=lat;
+    if(lngEl)lngEl.value=lng;
+    const d=document.getElementById('outletLocDisplay');
+    if(d)d.innerHTML=`<span style="color:var(--grn)">✅ ${lat}, ${lng}</span><span style="font-size:10px;color:var(--tx3);margin-left:6px">(±${acc}m)</span>`;
+    const clr=document.getElementById('clearLocBtn');if(clr)clr.style.display='inline-flex';
+    showToast('Location pinned ✅','success');
+  },err=>{
+    showToast('Could not get location. Enable GPS and try again.','error');
+    console.warn('GPS error',err.message);
+  },{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+}
+
+function clearOutletLocation() {
+  const latEl=document.getElementById('oLat');if(latEl)latEl.value='';
+  const lngEl=document.getElementById('oLng');if(lngEl)lngEl.value='';
+  const d=document.getElementById('outletLocDisplay');if(d)d.textContent='Not pinned yet';
+  const clr=document.getElementById('clearLocBtn');if(clr)clr.style.display='none';
+}
+
+async function autoFillAddress() {
+  if(!navigator.geolocation){showToast('Geolocation not supported','error');return;}
+  showToast('Getting location…','info');
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat=pos.coords.latitude;
+    const lng=pos.coords.longitude;
+    // Pin coordinates
+    const latEl=document.getElementById('oLat');if(latEl)latEl.value=lat.toFixed(6);
+    const lngEl=document.getElementById('oLng');if(lngEl)lngEl.value=lng.toFixed(6);
+    const d=document.getElementById('outletLocDisplay');
+    const acc=Math.round(pos.coords.accuracy);
+    if(d)d.innerHTML=`<span style="color:var(--grn)">✅ ${lat.toFixed(6)}, ${lng.toFixed(6)}</span><span style="font-size:10px;color:var(--tx3);margin-left:6px">(±${acc}m)</span>`;
+    const clr=document.getElementById('clearLocBtn');if(clr)clr.style.display='inline-flex';
+    try {
+      // zoom=18 = building level; addressdetails=1 gives structured fields; namedetails=1 gives building name
+      const url=`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&namedetails=1&zoom=18`;
+      const resp=await fetch(url,{headers:{'Accept-Language':'en','User-Agent':'STFM-App'}});
+      const json=await resp.json();
+      if(json&&json.address){
+        const a=json.address;
+
+        // ── Lot / unit number ──────────────────────────────────────────────
+        // OSM may have it in house_number; also check top-level name for "No X / Lot X / PT X"
+        let lotNum=a.house_number||'';
+        if(!lotNum){
+          const topName=json.name||(json.namedetails&&json.namedetails.name)||'';
+          if(/^(No\.?\s*\d|Lot\s*\d|PT\s*\d|Unit\s*\d|\d)/i.test(topName)) lotNum=topName;
+        }
+        // Only fill lot field if OSM returned something AND field is currently empty
+        const lotEl=document.getElementById('oLotNum');
+        if(lotEl&&lotNum&&!lotEl.value) lotEl.value=lotNum;
+
+        // ── Street ────────────────────────────────────────────────────────
+        const road=a.road||a.street||a.pedestrian||a.path||'';
+        // ── Estate / taman / suburb ───────────────────────────────────────
+        const suburb=a.neighbourhood||a.suburb||a.quarter||a.residential||a.village||a.hamlet||'';
+        // ── Postcode + city ───────────────────────────────────────────────
+        const city=a.city||a.town||a.municipality||a.county||'';
+        const postcodeCity=[a.postcode,city].filter(Boolean).join(' ');
+        // ── State, Country ────────────────────────────────────────────────
+        const tail=[a.state,a.country].filter(Boolean).join(', ');
+
+        const addrBody=[road,suburb,postcodeCity,tail].filter(Boolean).join(', ');
+        const addrEl=document.getElementById('oAddr');
+        if(addrEl) addrEl.value=addrBody||json.display_name||'';
+
+        const gotLot=!!(lotEl&&lotEl.value);
+        showToast(gotLot?'Address & lot filled ✅':'Address filled — enter lot/unit no manually ✅','success');
+      } else {
+        showToast('Location pinned. Address not found — enter manually.','warn');
+      }
+    } catch(e){
+      console.warn('[autoFillAddress]',e.message);
+      showToast('Location pinned. Could not fetch address.','warn');
+    }
+  },err=>{
+    showToast('Could not get location. Enable GPS.','error');
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+}
+
+function openWhatsApp(outletId) {
+  const o=allOutlets.find(x=>x.id===outletId);if(!o||!o.phone)return;
+  const raw=o.phone.replace(/\D/g,'');
+  const intl=raw.startsWith('0')?'6'+raw:raw.startsWith('60')?raw:'60'+raw;
+  const msg=encodeURIComponent(`Hello ${o.name}, I am your sales rep from Sairah Trading. I would like to assist with your order.`);
+  const waUrl=`https://wa.me/${intl}?text=${msg}`;
+  const wabUrl=`https://wa.me/${intl}?text=${msg}`;
+
+  // Show a small picker modal
+  const existing=document.getElementById('waPickerModal');
+  if(existing)existing.remove();
+  const el=document.createElement('div');
+  el.id='waPickerModal';
+  el.style.cssText='position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.65);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  el.innerHTML=`
+    <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));animation:slideUpBanner .25s ease">
+      <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:4px;text-align:center">💬 Open in WhatsApp</div>
+      <div style="font-size:12px;color:var(--tx2);text-align:center;margin-bottom:18px">${o.name} · ${o.phone}</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="window.open('${waUrl}','_blank');document.getElementById('waPickerModal').remove()"
+          style="display:flex;align-items:center;gap:13px;padding:14px 16px;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;color:var(--tx);font-size:14px;font-weight:600;transition:var(--tr)"
+          onmouseover="this.style.borderColor='#25D366'" onmouseout="this.style.borderColor='var(--bdr)'">
+          <span style="font-size:26px">💬</span>
+          <div style="text-align:left"><div>WhatsApp</div><div style="font-size:11px;color:var(--tx3);font-weight:400">Standard personal/business chat</div></div>
+        </button>
+        <button onclick="window.open('whatsapp://send?phone=${intl}&text=${msg}','_blank');setTimeout(()=>{if(document.hidden===false)window.open('${waUrl}','_blank')},1500);document.getElementById('waPickerModal').remove()"
+          style="display:flex;align-items:center;gap:13px;padding:14px 16px;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;color:var(--tx);font-size:14px;font-weight:600;transition:var(--tr)"
+          onmouseover="this.style.borderColor='#128C7E'" onmouseout="this.style.borderColor='var(--bdr)'">
+          <span style="font-size:26px">🏢</span>
+          <div style="text-align:left"><div>WhatsApp Business</div><div style="font-size:11px;color:var(--tx3);font-weight:400">For business accounts & catalogues</div></div>
+        </button>
+        <button onclick="document.getElementById('waPickerModal').remove()"
+          style="padding:12px;background:transparent;border:1px solid var(--bdr);border-radius:var(--r2);cursor:pointer;color:var(--tx2);font-size:13px;font-weight:600">
+          Cancel
+        </button>
+      </div>
+    </div>`;
+  el.addEventListener('click',e=>{if(e.target===el)el.remove();});
+  document.body.appendChild(el);
+}
+
+function openDirections(outletId) {
+  const o=allOutlets.find(x=>x.id===outletId);if(!o)return;
+  if(!o.lat||!o.lng){showToast('No location pinned for this outlet','warn');return;}
+  const label=encodeURIComponent(o.name);
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}&destination_place_id=${label}&travelmode=driving`,'_blank');
+}
+
+function viewOutletQR(outletId) {
+  const o=allOutlets.find(x=>x.id===outletId);if(!o)return;
+  const base=window.location.origin+window.location.pathname.replace(/\/$/,'');
+  const url=`${base}?oc=${outletId}`;
+  const qrImg=`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=0d1117&margin=12&ecc=M`;
+  document.getElementById('mQRTitle').textContent=`📷 ${o.name}`;
+  document.getElementById('mQRSubtitle').textContent=`Scan to open order for ${o.name}`;
+  document.getElementById('mQRCode').innerHTML=`<img src="${qrImg}" style="width:220px;height:220px;border-radius:8px;display:block" alt="QR Code" onerror="this.alt='QR load failed — check internet'">`;
+  document.getElementById('mQRUrl').textContent=url;
+  window.__currentQROutlet={id:outletId,name:o.name,url};
+  openM('mOutletQR');
+}
+
+function downloadOutletQR() {
+  const q=window.__currentQROutlet;if(!q)return;
+  const qrHigh=`https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(q.url)}&bgcolor=ffffff&color=0d1117&margin=20&ecc=M`;
+  // Open in new tab so user can long-press save (mobile) or right-click save (desktop)
+  const w=window.open('','_blank');
+  if(w){
+    w.document.write(`<!DOCTYPE html><html><head><title>QR – ${q.name}</title>
+    <style>body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f5;font-family:sans-serif;gap:14px}
+    img{border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.15);max-width:90vw}
+    p{font-size:13px;color:#666;text-align:center;max-width:320px}
+    h2{font-size:16px;font-weight:700;margin:0}</style></head>
+    <body><h2>${q.name}</h2><img src="${qrHigh}" alt="QR Code"><p>Long-press (mobile) or right-click → Save image to download.<br><small>${q.url}</small></p></body></html>`);
+  }
+}
+
+async function approveBalance(id) {
+  if(!isAdmin()){showToast('Only admin can approve balances','error');return;}
+  await sfUpdate('outlets',id,{balanceStatus:'approved',balanceApprovedBy:CU.uid,balanceApprovedAt:new Date().toISOString()});
+  showToast('Opening balance approved ✅','success');
+  await loadCachedData();loadOutlets();renderDashboard();updateBadges();
+}
+
+async function rejectBalance(id) {
+  if(!isAdmin()){showToast('Only admin can manage balances','error');return;}
+  await sfUpdate('outlets',id,{balanceStatus:'rejected',openingBalance:0});
+  showToast('Opening balance rejected','warn');
+  await loadCachedData();loadOutlets();updateBadges();
+}
+
+async function delOutlet(id) {
+  if(!isAdmin()){showToast('Only admin can delete outlets','error');return;}
+  const o=allOutlets.find(x=>x.id===id);
+  const label=o?o.name:`Outlet ${id}`;
+  if(isStrictAdmin()){
+    if(!confirm(`Delete "${label}"? This cannot be undone.`))return;
+    const _oZone=(o&&o._zoneId)||_ownerZoneFilter||((!isOwner()&&CU.zoneId)?CU.zoneId:null);
+    await Promise.all([
+      window.__SF.deleteDoc(window.__SF.doc(window.__SF.db,'outlets',id)).catch(()=>{}),
+      _oZone?window.__SF.deleteDoc(window.__SF.doc(window.__SF.db,'zones',_oZone,'outlets',id)).catch(()=>{}):Promise.resolve()
+    ]);
+    showToast('Outlet deleted','warn');
+    await loadCachedData();loadOutlets();
+  } else {
+    await requestDeleteApproval('outlet',id,label);
+  }
+}
+
+async function viewOutlet(id) {
+  const o=allOutlets.find(x=>x.id===id);if(!o)return;
+  const [ordD,colD]=await Promise.all([sfGet('orders'),sfGet('collections')]);
+  const oOrders=ordD.map(d=>({_docId:d.id,...d.data()})).filter(x=>x.outletId===id);
+  const oCols=colD.map(d=>d.data()).filter(x=>x.outletId===id);
+  const totalSales=oOrders.filter(x=>x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
+  const totalPaid=oCols.reduce((s,x)=>s+x.amount,0);
+  const approvedBalance=o.balanceStatus==='approved'?o.openingBalance:0;
+  const hasPinned=!!(o.lat&&o.lng);
+  const hasPhone=!!o.phone;
+
+  const _coverSrc = o.signboardPhoto || o.coverPhoto || o.interiorPhoto || '';
+  document.getElementById('mODTitle').textContent=o.name;
+  document.getElementById('mODBody').innerHTML=`
+    ${_coverSrc ? `
+    <!-- Signboard cover photo -->
+    <div style="margin:-16px -16px 0 -16px;position:relative;height:185px;overflow:hidden;border-radius:16px 16px 0 0;background:var(--s2)">
+      <img src="${_coverSrc}" style="width:100%;height:100%;object-fit:cover;display:block"
+           onerror="this.parentElement.style.display='none'">
+      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.08) 0%,rgba(0,0,0,.55) 100%)"></div>
+      <!-- Outlet name overlay on cover -->
+      <div style="position:absolute;bottom:12px;left:14px;right:14px">
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.name}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.82)">${o.type}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
+      </div>
+    </div>` : ''}
+    <!-- Header row -->
+    <div style="display:flex;gap:11px;align-items:center;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--bdr);${_coverSrc?'margin-top:12px':''}">
+      <div class="oava" style="background:${o.color||COLORS[0]};width:48px;height:48px;border-radius:10px;font-size:18px;flex-shrink:0;overflow:hidden;padding:0">${o.signboardPhoto?`<img src="${o.signboardPhoto}" style="width:100%;height:100%;object-fit:cover;display:block">`:`${o.name[0]}`}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">${o.name}</div>
+        <div style="font-size:12px;color:var(--tx2)">${o.type}${o.ethnicity?' · 👥 '+o.ethnicity:''}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
+        ${hasPhone?`<div style="font-size:11px;color:var(--tx3)">📞 ${o.phone}${o.contact?' · 👤 '+o.contact:''}</div>`:''}
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div style="display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="btn btn-primary btn-sm" style="flex:1;min-width:100px" onclick="closeM('mOutletDetail');openNewOrder('${o.id}')">📦 New Order</button>
+      ${hasPhone?`<button class="btn btn-grn btn-sm" style="flex:1;min-width:90px" onclick="openWhatsApp('${o.id}')">💬 WhatsApp</button>`:''}
+      <button class="btn btn-blu btn-sm" style="flex:1;min-width:90px" onclick="openDirections('${o.id}')" title="${hasPinned?'Open directions':'No location pinned'}">🗺️ Direction</button>
+      <button class="btn btn-ghost btn-sm" style="flex:1;min-width:70px" onclick="viewOutletQR('${o.id}')">📷 QR Code</button>
+    </div>
+
+    <!-- GPS pin info -->
+    <div style="background:${hasPinned?'rgba(34,197,94,.07)':'rgba(34,197,94,.05)'};border:1px solid ${hasPinned?'rgba(34,197,94,.2)':'var(--bdr)'};border-radius:var(--r2);padding:9px 12px;margin-bottom:14px;font-size:12px;display:flex;align-items:center;gap:9px">
+      <span style="font-size:18px">${hasPinned?'📍':'🔘'}</span>
+      <div style="flex:1">
+        ${hasPinned
+          ? `<div style="font-weight:700;color:var(--grn);margin-bottom:2px">Location Pinned</div>
+             <div style="color:var(--tx3)">${Number(o.lat).toFixed(6)}, ${Number(o.lng).toFixed(6)}</div>`
+          : `<div style="font-weight:600;color:var(--tx2)">No location pin set</div>
+             <div style="color:var(--tx3)">Edit outlet and tap "Pin Current Location" while at the outlet</div>`}
+      </div>
+      ${hasPinned?`<a href="https://www.google.com/maps?q=${o.lat},${o.lng}" target="_blank" style="font-size:11px;color:var(--blu);text-decoration:none;white-space:nowrap">🗺️ View</a>`:''}
+    </div>
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:14px">
+      <div style="background:var(--s2);border-radius:var(--r2);padding:11px;text-align:center"><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--acc)">${fmt(totalSales)}</div><div style="font-size:10px;color:var(--tx3)">Total Sales</div></div>
+      <div style="background:var(--s2);border-radius:var(--r2);padding:11px;text-align:center"><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--grn)">${fmt(totalPaid)}</div><div style="font-size:10px;color:var(--tx3)">Collected</div></div>
+      <div style="background:var(--s2);border-radius:var(--r2);padding:11px;text-align:center"><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--red)">${fmt(Math.max(0,totalSales-totalPaid+approvedBalance))}</div><div style="font-size:10px;color:var(--tx3)">Outstanding</div></div>
+    </div>
+
+    ${o.openingBalance>0?`<div style="background:${o.balanceStatus==='approved'?'rgba(34,197,94,.07)':'rgba(245,158,11,.07)'};border:1px solid ${o.balanceStatus==='approved'?'rgba(34,197,94,.2)':'rgba(245,158,11,.2)'};border-radius:var(--r2);padding:10px;margin-bottom:12px;font-size:12px">Opening Balance: ${fmt(o.openingBalance)} — <strong>${o.balanceStatus==='approved'?'✅ Approved':o.balanceStatus==='rejected'?'❌ Rejected':'⏳ Pending Admin Approval'}</strong></div>`:''}
+    ${o.address?`<div style="background:var(--s2);border-radius:var(--r2);padding:10px;margin-bottom:12px;font-size:12px;color:var(--tx2)">📍 ${o.address}</div>`:''}
+
+    <div style="font-size:11px;color:var(--tx3);font-weight:700;margin-bottom:8px;letter-spacing:.5px">RECENT ORDERS</div>
+    ${oOrders.slice(-5).reverse().map(ord=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(30,45,69,.4);font-size:12px;gap:8px">
+        <span style="font-weight:600;font-size:11px;flex-shrink:0">${ord.id||ord._docId}</span>
+        <span style="color:var(--tx2);flex-shrink:0">${ord.date||'—'}</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:700;color:var(--acc);flex-shrink:0">${fmt(ord.total)}</span>
+        <span class="bdg bdg-${ord.status==='Delivered'?'grn':ord.status==='Pending'?'ylw':ord.status==='Cancelled'?'red':'blu'}" style="font-size:10px;flex-shrink:0">${ord.status}</span>
+      </div>`).join('')||'<div style="color:var(--tx3);font-size:12px;padding:6px 0">No orders yet</div>'}
+  `;
+  openM('mOutletDetail');
+}
+

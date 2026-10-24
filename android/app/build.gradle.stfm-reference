@@ -1,0 +1,72 @@
+// android/app/build.gradle
+// Copy this content into your android/app/build.gradle after running: npx cap add android
+
+apply plugin: 'com.android.application'
+
+android {
+    namespace "com.sairah.stfm"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.sairah.stfm"
+        minSdk 22
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+            // Don't compress web assets
+            noCompress 'html', 'htm', 'js', 'css', 'json', 'svg', 'ttf', 'woff', 'woff2'
+        }
+    }
+
+    signingConfigs {
+        release {
+            // ★ UPDATE THESE PATHS AND PASSWORDS ★
+            storeFile file("../../stfm-release.jks")  // path to your keystore
+            storePassword System.getenv("KEYSTORE_PASS") ?: "YOUR_KEYSTORE_PASSWORD"
+            keyAlias "stfm"
+            keyPassword System.getenv("KEY_PASS") ?: "YOUR_KEY_PASSWORD"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources false  // Keep false - web assets must not be shrunk
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:1.2.0"
+    implementation "androidx.core:core-splashscreen:1.0.1"
+
+    // Capacitor core
+    implementation project(':capacitor-android')
+    implementation project(':capacitor-cordova-android-plugins')
+
+    // Firebase (for FCM push notifications)
+    implementation platform('com.google.firebase:firebase-bom:33.0.0')
+    implementation 'com.google.firebase:firebase-messaging'
+}
+
+// Apply Google Services plugin for FCM
+apply plugin: 'com.google.gms.google-services'

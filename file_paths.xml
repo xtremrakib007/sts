@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Place this at: android/app/src/main/res/xml/file_paths.xml
+  Create the /res/xml/ folder if it does not exist.
+  This file tells FileProvider which directories it is allowed to share
+  with the camera app so captured photos can be returned to your app.
+-->
+<paths>
+    <!-- External storage root (used by camera to save photos) -->
+    <external-path
+        name="my_images"
+        path="." />
+
+    <!-- App-specific external files (preferred on Android 10+) -->
+    <external-files-path
+        name="my_external_files"
+        path="." />
+
+    <!-- App-specific external cache (temp camera captures) -->
+    <external-cache-path
+        name="my_external_cache"
+        path="." />
+
+    <!-- Internal cache (fallback) -->
+    <cache-path
+        name="my_cache"
+        path="." />
+
+    <!-- Internal files (fallback) -->
+    <files-path
+        name="my_internal_files"
+        path="." />
+</paths>

@@ -1,0 +1,23 @@
+<!-- ══ PRODUCTS (admin/sub_admin only) ══ -->
+      <div id="pageProducts" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">🛒 Products</div>
+            <div style="font-size:11px;color:var(--tx3)">Manage product catalogue, stock & pricing</div></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="openCsvImport()">📥 Import CSV/Excel</button>
+            <button class="btn btn-primary btn-sm" onclick="openNewProduct()">+ Add Product</button>
+          </div>
+        </div>
+        <div class="fbar">
+          <div class="srch"><input class="finp" placeholder="Search products..." oninput="loadProducts()" id="prodSrch"></div>
+          <select class="finp btn-ghost" id="prodCatFilter" style="width:150px;padding:9px 12px;font-size:12px" onchange="loadProducts()">
+            <option value="">All Categories</option>
+          </select>
+          <select class="finp btn-ghost" id="prodStockFilter" style="width:130px;padding:9px 12px;font-size:12px" onchange="loadProducts()">
+            <option value="">All Stock</option>
+            <option value="in_stock">In Stock</option>
+            <option value="out_of_stock">Out of Stock</option>
+          </select>
+        </div>
+        <div id="productsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px"></div>
+      </div>

@@ -1,0 +1,19 @@
+<!-- ══ DELIVERY (delivery man view) ══ -->
+      <div id="pageDelivery" class="page">
+        <div style="margin-bottom:16px">
+          <div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">🚚 My Deliveries</div>
+          <div style="font-size:11px;color:var(--tx3)">Orders assigned to you for delivery</div>
+        </div>
+        <div class="fbar">
+          <div class="srch"><input class="finp" placeholder="Search deliveries..." oninput="loadMyDeliveries()" id="delivSrch"></div>
+          <select class="finp btn-ghost" id="delivStatusFilter" style="width:130px;padding:9px 12px;font-size:12px" onchange="loadMyDeliveries()">
+            <option value="">All Status</option>
+            <option value="Assigned">Assigned</option>
+            <option value="In Transit">In Transit</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Failed">Failed</option>
+          </select>
+        </div>
+        <div class="col-sum" id="delivSummary"></div>
+        <div id="deliveryList"></div>
+      </div>

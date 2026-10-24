@@ -1,0 +1,20 @@
+<!-- ══ ZONES (owner only) ══ -->
+      <div id="pageZones" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div>
+            <div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">🗂️ Zone Management</div>
+            <div style="font-size:11px;color:var(--tx3)">Zones are fully isolated — each zone's data lives in its own Firestore path</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openNewZone()">+ New Zone</button>
+        </div>
+        <div style="background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.2);border-radius:var(--r2);padding:12px 15px;margin-bottom:16px;font-size:12px;color:var(--tx2)">
+          <div style="font-weight:700;color:var(--acc);margin-bottom:6px">👑 How Zones Work — Same App, Fully Isolated</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div>① Create zones below — each zone gets a unique Firestore path <code style="background:var(--s2);padding:1px 5px;border-radius:4px">zones/ZONE_ID/...</code></div>
+            <div>② Create users and assign them to a zone (in 👥 Users page)</div>
+            <div>③ When a user logs in, they <strong>only see their own zone's data</strong> — orders, outlets, collections, routes, everything</div>
+            <div>④ You (Owner) see <strong>all zones</strong> from the dashboard with a cross-zone summary</div>
+          </div>
+        </div>
+        <div id="zonesGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px"></div>
+      </div>

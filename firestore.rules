@@ -1,0 +1,504 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STFM — Firestore Security Rules
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Role hierarchy (stored in users/{uid}.role + .isOwner):
+//   Owner / Super Admin  — role="admin", isOwner=true  → full cross-zone access
+//   Admin (zone)         — role="admin", isOwner=false → own zone only
+//   Sub Admin            — role="sub_admin"             → own zone, limited deletes
+//   Sales Rep            — role="sales_rep"             → own zone, own records
+//   Delivery Man         — role="delivery_man"          → own zone, assigned orders
+//
+// Portal users (stored in portalUsers/{uid}):
+//   Separate Auth accounts — can read/create/update their own records only
+//   Collections: orders, outlets, collections, products (root level)
+//
+// KEY FIX: ud() is now safe — returns empty map {} if user doc missing,
+// so portal users (not in /users) no longer crash rule evaluation.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Safe user doc fetch — returns {} if document doesn't exist
+    // This prevents crashes when portal users (not in /users) hit any rule
+    function ud() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+
+    // Safe portal user doc fetch — returns {} if not a portal user
+    function pd() {
+      return exists(/databases/$(database)/documents/portalUsers/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/portalUsers/$(request.auth.uid)).data
+        : {};
+    }
+
+    // STFM role predicates
+    function _isOwner(u)       { return u.get('role','') == 'admin' && u.get('isOwner', false) == true; }
+    function _isAdmin(u)       { return u.get('role','') == 'admin'; }
+    function _isSubAdmin(u)    { return u.get('role','') == 'sub_admin'; }
+    function _isAdminOrSub(u)  { return u.get('role','') == 'admin' || u.get('role','') == 'sub_admin'; }
+    function _isSalesRep(u)    { return u.get('role','') == 'sales_rep'; }
+    function _isDeliveryMan(u) { return u.get('role','') == 'delivery_man'; }
+    function _isFieldUser(u)   { return u.get('role','') == 'sales_rep' || u.get('role','') == 'delivery_man'; }
+
+    // Zone helpers
+    function _inZone(u, zoneId)      { return _isOwner(u) || u.get('zoneId','') == zoneId; }
+    function _isZoneAdmin(u, zoneId) { return _isOwner(u) || (_isAdminOrSub(u) && u.get('zoneId','') == zoneId); }
+
+    // Portal user check — is this auth uid a registered portal user?
+    function isPortalUser() {
+      return isSignedIn() && exists(/databases/$(database)/documents/portalUsers/$(request.auth.uid));
+    }
+
+    // Is this a valid STFM internal user (has a role)?
+    function isStfmUser() {
+      return isSignedIn() && ud().get('role','') != '';
+    }
+
+    function isAnyActiveUser() { return isSignedIn(); }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PORTAL USERS  /portalUsers/{uid}
+    // Separate collection for portal-only accounts
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /portalUsers/{uid} {
+      // Portal user can read/update their own profile
+      allow read:   if isSignedIn() && (request.auth.uid == uid || _isAdminOrSub(ud()));
+      // Self-registration on first login
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      // Self-update limited fields only
+      allow update: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          || (
+            request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'name','phone','company','address','fcmToken','lastSeen','updatedAt'
+              ])
+          )
+        );
+      allow delete: if isSignedIn() && _isOwner(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // USERS  /users/{uid}
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn() && (
+          _isOwner(ud())
+          || (
+            _isAdminOrSub(ud())
+            && request.resource.data.get('zoneId','') == ud().get('zoneId','')
+            && request.resource.data.role in ['sub_admin','sales_rep','delivery_man']
+          )
+          || request.auth.uid == uid
+        );
+
+      allow update: if isSignedIn() && (
+          _isOwner(ud())
+          || (_isAdminOrSub(ud()) && resource.data.get('zoneId','') == ud().get('zoneId',''))
+          || (
+            request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'fcmToken','lastSeen','pushEnabled','name','phone','avatar',
+                'lastLat','lastLng','lastLocationAt','lastAccuracy'
+              ])
+          )
+        );
+
+      allow delete: if isSignedIn() && _isOwner(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ZONES  /zones/{zoneId}
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /zones/{zoneId} {
+      allow read:           if isAnyActiveUser();
+      allow create, update: if isSignedIn() && _isOwner(ud());
+      allow delete:         if isSignedIn() && _isOwner(ud());
+
+      // ── Zone sub-collections ──────────────────────────────────────────────
+
+      match /orders/{orderId} {
+        allow read: if isSignedIn() && _inZone(ud(), zoneId);
+
+        allow create: if isSignedIn()
+          && _inZone(ud(), zoneId)
+          && (_isSalesRep(ud()) || _isAdminOrSub(ud()))
+          && request.resource.data.createdBy == request.auth.uid;
+
+        allow update: if isSignedIn() && (
+            _isZoneAdmin(ud(), zoneId)
+            || (
+              _isSalesRep(ud()) && _inZone(ud(), zoneId)
+              && resource.data.createdBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['items','total','notes','updatedAt','discount'])
+            )
+            || (
+              _isDeliveryMan(ud()) && _inZone(ud(), zoneId)
+              && resource.data.deliveryManId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['status','deliveryNote','deliveredAt','failReason','updatedAt'])
+            )
+          );
+
+        allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
+      }
+
+      match /outlets/{outletId} {
+        allow read:   if isSignedIn() && _inZone(ud(), zoneId);
+        allow create,
+              update: if isSignedIn() && (
+                  _isZoneAdmin(ud(), zoneId)
+                  || (_isSalesRep(ud()) && _inZone(ud(), zoneId))
+                );
+        allow delete: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+      }
+
+      match /collections/{colId} {
+        allow read: if isSignedIn() && (
+            _isZoneAdmin(ud(), zoneId) || _isFieldUser(ud()) && _inZone(ud(), zoneId)
+          );
+        allow create: if isSignedIn()
+          && _inZone(ud(), zoneId)
+          && (
+            _isAdminOrSub(ud())
+            || (_isSalesRep(ud()) && request.resource.data.createdBy == request.auth.uid)
+          );
+        allow update: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+        allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
+      }
+
+      match /products/{productId} {
+        allow read:   if isSignedIn() && _inZone(ud(), zoneId);
+        allow create,
+              update: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+        allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
+      }
+
+      match /productOverrides/{productId} {
+        allow read:  if isSignedIn() && _inZone(ud(), zoneId);
+        allow write: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+      }
+
+      match /attendance/{recordId} {
+        allow read: if isSignedIn() && (
+            _isZoneAdmin(ud(), zoneId) || (_isFieldUser(ud()) && _inZone(ud(), zoneId))
+          );
+        allow create: if isSignedIn()
+          && _inZone(ud(), zoneId)
+          && request.resource.data.userId == request.auth.uid;
+        allow update: if isSignedIn() && _isAdminOrSub(ud()) && _inZone(ud(), zoneId);
+        allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
+      }
+
+      match /visits/{visitId} {
+        allow read: if isSignedIn() && (
+            _isZoneAdmin(ud(), zoneId) || (_isSalesRep(ud()) && _inZone(ud(), zoneId))
+          );
+        allow create: if isSignedIn()
+          && _inZone(ud(), zoneId)
+          && (
+            _isAdminOrSub(ud())
+            || (_isSalesRep(ud()) && request.resource.data.createdBy == request.auth.uid)
+          );
+        allow update: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+        allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
+      }
+
+      match /routes/{routeId} {
+        allow read:   if isSignedIn() && _inZone(ud(), zoneId);
+        allow create: if isSignedIn() && _inZone(ud(), zoneId)
+          && (_isAdminOrSub(ud()) || _isSalesRep(ud()))
+          && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isSignedIn() && (
+            _isZoneAdmin(ud(), zoneId)
+            || (_isSalesRep(ud()) && _inZone(ud(), zoneId)
+                && resource.data.repId == request.auth.uid)
+          );
+        allow delete: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+      }
+
+      match /broadcasts/{broadcastId} {
+        allow read:  if isSignedIn() && _inZone(ud(), zoneId);
+        allow write: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+      }
+
+      match /targets/{targetId} {
+        allow read: if isSignedIn() && (
+            _isZoneAdmin(ud(), zoneId) || (_isFieldUser(ud()) && _inZone(ud(), zoneId))
+          );
+        allow write: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+      }
+
+      match /deleteRequests/{reqId} {
+        allow read:   if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+        allow create: if isSignedIn() && _inZone(ud(), zoneId);
+        allow update: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+        allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
+      }
+
+      match /users/{uid} {
+        allow read:   if isSignedIn() && (_isZoneAdmin(ud(), zoneId) || request.auth.uid == uid);
+        allow create,
+              delete: if isSignedIn() && _isOwner(ud());
+        allow update: if isSignedIn() && (
+            _isOwner(ud())
+            || (
+              request.auth.uid == uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'fcmToken','fcmUpdatedAt','lastSeen','pushEnabled',
+                  'lastLat','lastLng','lastLocationAt','lastAccuracy'
+                ])
+            )
+          );
+      }
+
+      match /{subCol}/{docId} {
+        allow read:  if isSignedIn() && _inZone(ud(), zoneId);
+        allow write: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ROOT MIRROR COLLECTIONS
+    // Portal users can read + create + update their own records
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (
+          _isAdminOrSub(ud()) || _isSalesRep(ud()) || _isDeliveryMan(ud())
+          // Portal: can only read their own orders
+          || (isPortalUser() && resource.data.createdBy == request.auth.uid)
+        );
+      allow create: if isSignedIn() && (
+          request.resource.data.createdBy == request.auth.uid
+          // Portal users can create orders for themselves
+          && (isStfmUser() || isPortalUser())
+        );
+      allow update: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          || (
+            _isSalesRep(ud())
+            && resource.data.createdBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['items','total','notes','updatedAt','discount'])
+          )
+          || (
+            _isDeliveryMan(ud())
+            && resource.data.deliveryManId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status','deliveryNote','deliveredAt','failReason','updatedAt'])
+          )
+          // Portal: can update limited fields on their own orders
+          || (
+            isPortalUser()
+            && resource.data.createdBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['items','notes','updatedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /outlets/{outletId} {
+      allow read: if isSignedIn() && (
+          _isAdminOrSub(ud()) || _isSalesRep(ud())
+          // Portal: read all outlets (so they can pick delivery address etc.)
+          || isPortalUser()
+        );
+      allow create,
+            update: if isSignedIn() && (
+                _isAdminOrSub(ud()) || _isSalesRep(ud())
+                // Portal: create/update only their own outlet record
+                || (isPortalUser() && request.resource.data.createdBy == request.auth.uid)
+              );
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /collections/{colId} {
+      allow read: if isSignedIn() && (
+          _isAdminOrSub(ud()) || _isSalesRep(ud()) || _isDeliveryMan(ud())
+          // Portal: read only their own payment records
+          || (isPortalUser() && resource.data.createdBy == request.auth.uid)
+        );
+      allow create: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          || (_isSalesRep(ud()) && request.resource.data.createdBy == request.auth.uid)
+          // Portal: create their own payment records
+          || (isPortalUser() && request.resource.data.createdBy == request.auth.uid)
+        );
+      allow update: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          // Portal: update only their own collection, limited fields
+          || (
+            isPortalUser()
+            && resource.data.createdBy == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['notes','updatedAt','proofImage'])
+          )
+        );
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /products/{productId} {
+      // Portal users can read the product catalogue
+      allow read:   if isSignedIn() && (_isAdminOrSub(ud()) || _isSalesRep(ud()) || isPortalUser());
+      allow create,
+            update: if isSignedIn() && _isAdminOrSub(ud());
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /attendance/{recordId} {
+      allow read: if isSignedIn() && (_isAdminOrSub(ud()) || _isFieldUser(ud()));
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && _isAdminOrSub(ud());
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /visits/{visitId} {
+      allow read: if isSignedIn() && (_isAdminOrSub(ud()) || _isSalesRep(ud()));
+      allow create: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          || (_isSalesRep(ud()) && request.resource.data.createdBy == request.auth.uid)
+        );
+      allow update: if isSignedIn() && _isAdminOrSub(ud());
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /routes/{routeId} {
+      allow read:   if isAnyActiveUser();
+      allow create: if isSignedIn()
+        && (_isAdminOrSub(ud()) || _isSalesRep(ud()))
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          || (_isSalesRep(ud()) && resource.data.repId == request.auth.uid)
+        );
+      allow delete: if isSignedIn() && _isAdminOrSub(ud());
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read:  if isAnyActiveUser();
+      allow write: if isSignedIn() && _isAdminOrSub(ud());
+    }
+
+    match /targets/{targetId} {
+      allow read: if isSignedIn() && (_isAdminOrSub(ud()) || _isFieldUser(ud()));
+      allow write: if isSignedIn() && _isAdminOrSub(ud());
+    }
+
+    match /deleteRequests/{reqId} {
+      allow read:   if isSignedIn() && _isAdminOrSub(ud());
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && _isAdminOrSub(ud());
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DEVICE APPROVAL
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /deviceApprovalRequests/{requestId} {
+      allow create: if isSignedIn();
+      allow read:   if isSignedIn() && (
+          _isAdminOrSub(ud()) || request.auth.uid == resource.data.uid
+        );
+      allow update: if isSignedIn() && _isAdminOrSub(ud());
+      allow delete: if isSignedIn() && _isAdmin(ud());
+    }
+
+    match /deviceApprovals/{uid}/devices/{deviceId} {
+      allow read:  if isSignedIn() && (request.auth.uid == uid || _isAdminOrSub(ud()));
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSignedIn() && (
+          _isAdminOrSub(ud())
+          || (
+            request.auth.uid == uid
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['status','approvedBy','approvedAt','rejectedBy','rejectedAt'])
+          )
+        );
+      allow delete: if isSignedIn() && _isAdminOrSub(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CONFIG / SETTINGS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /config/{docId} {
+      allow read:  if isSignedIn() && (_isAdminOrSub(ud()) || _isFieldUser(ud()));
+      allow write: if isSignedIn() && _isOwner(ud());
+    }
+
+    match /settings/{docId} {
+      allow read:  if isSignedIn() && _isAdminOrSub(ud());
+      allow write: if isSignedIn() && _isOwner(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FCM TOKENS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /fcmTokens/{uid} {
+      allow read:   if isSignedIn() && (_isAdminOrSub(ud()) || request.auth.uid == uid);
+      allow create,
+            update: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if isSignedIn() && (_isOwner(ud()) || request.auth.uid == uid);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ADMIN NOTIFICATIONS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /admin_notifications/{id} {
+      allow create: if isSignedIn() && _isAdminOrSub(ud());
+      allow read:   if isSignedIn() && _isAdminOrSub(ud());
+      allow update: if isSignedIn() && _isAdminOrSub(ud());
+    }
+
+    match /notification_history/{id} {
+      allow read:   if isSignedIn() && _isAdminOrSub(ud());
+      allow create: if isSignedIn() && _isAdminOrSub(ud());
+      allow update,
+            delete: if isSignedIn() && _isOwner(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PUSH QUEUE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /pushQueue/{docId} {
+      allow create: if isSignedIn();
+      allow read, update: if isSignedIn() && _isAdminOrSub(ud());
+      allow delete: if isSignedIn() && _isOwner(ud());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CATCH-ALL — deny everything not matched above
+    // ─────────────────────────────────────────────────────────────────────────
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

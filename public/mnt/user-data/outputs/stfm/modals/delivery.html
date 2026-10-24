@@ -1,0 +1,19 @@
+<div class="moverlay" id="mAssignDelivery">
+  <div class="modal" style="max-width:480px">
+    <div class="mhdr"><div class="mttl">🚚 Assign Delivery</div><button class="mcls" onclick="closeM('mAssignDelivery')">✕</button></div>
+    <div class="mbody">
+      <div id="assignDeliveryOrderInfo" style="background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r2);padding:12px;margin-bottom:14px;font-size:12px"></div>
+      <div class="fgrp"><label class="flbl">Assign To *</label>
+        <select id="assignDelivMan" class="finp"><option value="">Select delivery man...</option></select></div>
+      <div class="fgrp"><label class="flbl">Expected Delivery Date</label>
+        <input type="date" id="assignDelivDate" class="finp"></div>
+      <div class="fgrp"><label class="flbl">Notes for Delivery Man</label>
+        <textarea id="assignDelivNotes" class="finp" placeholder="Special instructions..." style="min-height:60px"></textarea></div>
+      <input type="hidden" id="assignDelivOrderId">
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mAssignDelivery')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveDeliveryAssignment()">🚚 Assign</button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,2608 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STSB ERP</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── CSS VARS ── */
+:root {
+  --bg:#09090f;--s1:#111219;--s2:#18191f;--s3:#1f2029;
+  --bdr:rgba(255,255,255,0.07);--tx:#eef0f7;--tx2:#7a7f9a;--tx3:#3e4260;
+  --acc:#00e5a0;--acc2:#00b37d;--blu:#4f8ef7;--ylw:#f5a623;
+  --red:#f05252;--pur:#9b72f5;--ora:#f97316;--pin:#ec4899;
+  --sidebar-w:240px;--hdr-h:56px;
+  --tenant-color:#00e5a0;
+}
+[data-theme="light"] {
+  --bg:#f0f2f9;--s1:#ffffff;--s2:#eaecf5;--s3:#dde0ee;
+  --bdr:rgba(0,0,0,0.08);--tx:#111219;--tx2:#4a5068;--tx3:#9ba3c0;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--tx);overflow:hidden;}
+
+/* ── TENANT SELECT SCREEN ── */
+#tenantScreen{position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:24px;padding:24px;}
+.tenant-logo{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--acc);letter-spacing:-1px;margin-bottom:4px;text-align:center;}
+.tenant-tag{font-size:12px;color:var(--tx3);text-align:center;margin-bottom:16px;}
+.tenant-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;width:100%;max-width:720px;}
+.tenant-card{background:var(--s1);border:1.5px solid var(--bdr);border-radius:16px;padding:20px 22px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}
+.tenant-card:hover{border-color:var(--acc);transform:translateY(-2px);box-shadow:0 12px 40px rgba(0,229,160,.12);}
+.tenant-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--tc,var(--acc));}
+.tc-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:4px;}
+.tc-id{font-size:11px;color:var(--tx3);font-family:'DM Mono',monospace;}
+.tc-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(0,229,160,.12);color:var(--acc);font-weight:700;margin-top:8px;}
+.tenant-add-btn{background:var(--s2);border:1.5px dashed var(--bdr);border-radius:16px;padding:20px 22px;cursor:pointer;color:var(--tx3);font-size:13px;font-weight:600;text-align:center;transition:all .2s;}
+.tenant-add-btn:hover{border-color:var(--acc);color:var(--acc);}
+
+/* ── AUTH ── */
+#authScreen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:none;align-items:center;justify-content:center;}
+.auth-card{background:var(--s1);border:1px solid var(--bdr);border-radius:20px;padding:36px 32px;width:100%;max-width:380px;box-shadow:0 32px 80px rgba(0,0,0,.5);}
+.auth-logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--tenant-color);margin-bottom:2px;}
+.auth-co{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:2px;}
+.auth-sub{font-size:11px;color:var(--tx3);margin-bottom:24px;}
+.auth-inp{width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:10px;padding:11px 14px;font-size:14px;color:var(--tx);outline:none;margin-bottom:10px;font-family:inherit;}
+.auth-inp:focus{border-color:var(--tenant-color);}
+.auth-role-row{display:flex;gap:8px;margin-bottom:12px;}
+.auth-role-btn{flex:1;padding:9px 8px;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--bdr);background:var(--s2);color:var(--tx2);transition:all .15s;font-family:inherit;}
+.auth-role-btn.sel{border-color:var(--tenant-color);background:rgba(0,229,160,.1);color:var(--tenant-color);}
+.auth-btn{width:100%;padding:12px;background:linear-gradient(135deg,var(--tenant-color),var(--acc2));color:#000;font-weight:700;font-size:14px;border:none;border-radius:10px;cursor:pointer;font-family:'Syne',sans-serif;margin-top:4px;}
+.auth-back{font-size:12px;color:var(--tx3);text-align:center;margin-top:12px;cursor:pointer;}
+.auth-back:hover{color:var(--tx);}
+.auth-err{font-size:12px;color:var(--red);margin-top:8px;min-height:18px;}
+
+/* ── LAYOUT ── */
+#app{display:none;height:100vh;overflow:hidden;}
+#app.visible{display:flex;}
+
+/* ── SIDEBAR ── */
+.sidebar{width:var(--sidebar-w);flex-shrink:0;background:var(--s1);border-right:1px solid var(--bdr);display:flex;flex-direction:column;height:100vh;overflow:hidden;position:relative;z-index:10;}
+.sb-logo{padding:16px 18px 12px;border-bottom:1px solid var(--bdr);}
+.sb-logo-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:var(--tenant-color);}
+.sb-logo-tag{font-size:10px;color:var(--tx3);letter-spacing:.5px;text-transform:uppercase;margin-top:2px;}
+.sb-tenant-chip{display:inline-flex;align-items:center;gap:5px;margin-top:6px;background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.15);border-radius:20px;padding:3px 9px;font-size:10px;font-weight:700;color:var(--acc);cursor:pointer;}
+.sb-tenant-chip:hover{background:rgba(0,229,160,.15);}
+.sb-section{padding:12px 12px 3px;font-size:9px;font-weight:700;color:var(--tx3);letter-spacing:1px;text-transform:uppercase;}
+.sb-nav{flex:1;overflow-y:auto;padding:6px 8px;}
+.sb-item{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:10px;font-size:12.5px;font-weight:500;color:var(--tx2);cursor:pointer;transition:all .15s;margin-bottom:2px;user-select:none;}
+.sb-item:hover{background:var(--s2);color:var(--tx);}
+.sb-item.active{background:rgba(0,229,160,.1);color:var(--acc);font-weight:600;}
+.sb-item .ico{font-size:15px;width:18px;text-align:center;flex-shrink:0;}
+.sb-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:20px;padding:1px 6px;}
+.sb-badge-ylw{background:var(--ylw);color:#000;}
+.sb-footer{padding:12px;border-top:1px solid var(--bdr);display:flex;align-items:center;gap:10px;}
+.sb-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--tenant-color),var(--blu));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#000;flex-shrink:0;}
+.sb-user-name{font-size:12px;font-weight:600;color:var(--tx);}
+.sb-user-role{font-size:10px;color:var(--tx3);}
+.sb-logout{margin-left:auto;cursor:pointer;font-size:16px;opacity:.5;}
+.sb-logout:hover{opacity:1;}
+
+/* ── ROLE SWITCHER ── */
+.role-badge{display:inline-flex;align-items:center;gap:5px;background:var(--s3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;color:var(--tx2);}
+
+/* ── MAIN ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{height:var(--hdr-h);flex-shrink:0;background:var(--s1);border-bottom:1px solid var(--bdr);display:flex;align-items:center;padding:0 20px;gap:12px;}
+.topbar-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;flex:1;}
+.topbar-sync{font-size:11px;color:var(--tx3);}
+.topbar-btn{padding:7px 13px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--bdr);background:var(--s2);color:var(--tx);font-family:inherit;}
+.topbar-btn.primary{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#000;border-color:transparent;}
+.content{flex:1;overflow-y:auto;padding:20px;}
+
+/* ── CARDS ── */
+.card{background:var(--s1);border:1px solid var(--bdr);border-radius:14px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:13px;margin-bottom:18px;}
+.kpi{background:var(--s1);border:1px solid var(--bdr);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden;}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--kpi-color,var(--acc));}
+.kpi-ico{font-size:20px;margin-bottom:7px;}
+.kpi-val{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--tx);}
+.kpi-lbl{font-size:11px;color:var(--tx3);margin-top:2px;}
+.kpi-delta{font-size:11px;color:var(--acc);margin-top:3px;font-weight:600;}
+
+/* ── TABLE ── */
+.twrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;}
+th{font-size:10px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;padding:10px 13px;text-align:left;border-bottom:1px solid var(--bdr);white-space:nowrap;}
+td{font-size:13px;color:var(--tx);padding:10px 13px;border-bottom:1px solid var(--bdr);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--s2);}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;}
+.badge-green{background:rgba(0,229,160,.12);color:var(--acc);}
+.badge-blue{background:rgba(79,142,247,.12);color:var(--blu);}
+.badge-yellow{background:rgba(245,166,35,.12);color:var(--ylw);}
+.badge-red{background:rgba(240,82,82,.12);color:var(--red);}
+.badge-purple{background:rgba(155,114,245,.12);color:var(--pur);}
+.badge-gray{background:var(--s3);color:var(--tx3);}
+.badge-orange{background:rgba(249,115,22,.12);color:var(--ora);}
+
+/* ── FORMS ── */
+.fgrp{margin-bottom:13px;}
+.flbl{font-size:11px;font-weight:600;color:var(--tx3);display:block;margin-bottom:5px;text-transform:uppercase;letter-spacing:.3px;}
+.finp{width:100%;background:var(--s2);border:1px solid var(--bdr);border-radius:10px;padding:10px 13px;font-size:13px;color:var(--tx);outline:none;font-family:inherit;}
+.finp:focus{border-color:var(--tenant-color);}
+.finp:disabled{opacity:.5;cursor:not-allowed;}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
+.frow3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px;}
+
+/* ── MODAL ── */
+.moverlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:16px;}
+.moverlay.open{display:flex;}
+.modal{background:var(--s1);border:1px solid var(--bdr);border-radius:18px;width:100%;max-width:540px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}
+.modal.wide{max-width:760px;}
+.mhead{padding:16px 20px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.mhead-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;}
+.mclose{background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer;}
+.mbody{padding:20px;overflow-y:auto;flex:1;}
+.mfoot{padding:14px 20px;border-top:1px solid var(--bdr);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;}
+.btn{padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--bdr);font-family:inherit;transition:all .15s;}
+.btn-primary{background:linear-gradient(135deg,var(--tenant-color),var(--acc2));color:#000;border-color:transparent;}
+.btn-ghost{background:var(--s2);color:var(--tx);}
+.btn-danger{background:rgba(240,82,82,.1);color:var(--red);border-color:rgba(240,82,82,.2);}
+.btn-blue{background:rgba(79,142,247,.1);color:var(--blu);border-color:rgba(79,142,247,.2);}
+.btn-yellow{background:rgba(245,166,35,.1);color:var(--ylw);border-color:rgba(245,166,35,.2);}
+
+/* ── TABS ── */
+.rtabs{display:flex;gap:4px;margin-bottom:18px;background:var(--s1);border:1px solid var(--bdr);border-radius:12px;padding:5px;width:fit-content;flex-wrap:wrap;}
+.rtab{padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--tx3);transition:all .15s;white-space:nowrap;}
+.rtab.active{background:var(--tenant-color);color:#000;}
+
+/* ── ALERT BANNERS ── */
+.alert{border-radius:12px;padding:12px 16px;font-size:13px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.alert-yellow{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);color:var(--ylw);}
+.alert-red{background:rgba(240,82,82,.08);border:1px solid rgba(240,82,82,.2);color:var(--red);}
+.alert-green{background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.2);color:var(--acc);}
+.alert-blue{background:rgba(79,142,247,.08);border:1px solid rgba(79,142,247,.2);color:var(--blu);}
+.alert-action{font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:24px;right:24px;z-index:99999;background:var(--s1);border:1px solid var(--bdr);border-radius:12px;padding:12px 18px;font-size:13px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,.3);transform:translateY(80px);opacity:0;transition:all .25s;pointer-events:none;max-width:340px;}
+#toast.show{transform:translateY(0);opacity:1;}
+#toast.success{border-left:3px solid var(--acc);}
+#toast.error{border-left:3px solid var(--red);}
+#toast.warn{border-left:3px solid var(--ylw);}
+
+/* ── MISC ── */
+.pbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
+.srch-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.srch-inp{background:var(--s2);border:1px solid var(--bdr);border-radius:9px;padding:8px 13px;font-size:13px;color:var(--tx);outline:none;font-family:inherit;width:200px;}
+.srch-inp:focus{border-color:var(--tenant-color);}
+.page-title{font-family:'Syne',sans-serif;font-size:19px;font-weight:800;margin-bottom:3px;}
+.page-sub{font-size:12px;color:var(--tx3);margin-bottom:18px;}
+.stat-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.stat-mini{background:var(--s2);border:1px solid var(--bdr);border-radius:10px;padding:12px 15px;flex:1;min-width:110px;}
+.stat-mini-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;}
+.stat-mini-lbl{font-size:11px;color:var(--tx3);}
+.prog-bar{height:5px;background:var(--s3);border-radius:99px;overflow:hidden;}
+.prog-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--acc),var(--blu));transition:width .6s;}
+
+/* ── DISCOUNT STATUS ── */
+.discount-locked{background:rgba(240,82,82,.08);border:1px solid rgba(240,82,82,.2);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--red);display:flex;align-items:center;gap:8px;}
+.discount-approved{background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.2);border-radius:10px;padding:10px 14px;font-size:12px;color:var(--acc);display:flex;align-items:center;gap:8px;}
+
+/* ── ORDER WORKFLOW ── */
+.workflow-step{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;background:var(--s2);margin-bottom:8px;}
+.wf-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+.wf-dot.done{background:rgba(0,229,160,.15);border:2px solid var(--acc);}
+.wf-dot.active{background:rgba(245,166,35,.15);border:2px solid var(--ylw);}
+.wf-dot.locked{background:var(--s3);border:2px solid var(--bdr);}
+.wf-label{font-size:12px;font-weight:600;}
+.wf-sub{font-size:11px;color:var(--tx3);}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--s3);border-radius:99px;}
+
+/* ── MOBILE ── */
+@media(max-width:700px){
+  .sidebar{position:fixed;left:-260px;top:0;bottom:0;z-index:200;transition:left .25s;}
+  .sidebar.open{left:0;}
+  .frow,.frow3{grid-template-columns:1fr;}
+  .kpi-grid{grid-template-columns:1fr 1fr;}
+  .topbar-sync{display:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- TENANT SELECT SCREEN -->
+<div id="tenantScreen" style="display:none!important">
+  <div>
+    <div class="tenant-logo">⬡ STSB ERP</div>
+    <div class="tenant-tag">Multi-tenant ERP & Sales Platform</div>
+  </div>
+  <div class="tenant-grid" id="tenantGrid">
+    <!-- populated by JS -->
+  </div>
+  <div style="font-size:12px;color:var(--tx3);text-align:center">
+    Select a company workspace to continue
+  </div>
+</div>
+
+<!-- AUTH SCREEN -->
+<div id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo" id="authLogo">⬡ STSB ERP</div>
+    <div class="auth-co" id="authCoName">STSB Trading Sdn Bhd</div>
+    <div class="auth-sub" id="authSub">Enterprise Resource Planning</div>
+    <input class="auth-inp" id="authEmail" type="email" placeholder="Email address" autocomplete="email">
+    <input class="auth-inp" id="authPwd" type="password" placeholder="Password" autocomplete="current-password">
+    <!-- STSB: ERP only — no role selection needed -->
+    <input type="hidden" id="roleErp" value="erp">
+    <button class="auth-btn" id="authBtn" onclick="doLogin()">Sign In to STSB ERP</button>
+    <div class="auth-err" id="authErr"></div>
+    <!-- STSB: no company selection -->
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-name" id="sbLogoName">⬡ STSB ERP</div>
+      <div class="sb-logo-tag" id="sbLogoTag">ERP Operations</div>
+      <div class="sb-tenant-chip" onclick="backToTenants()" title="Switch company">⬡ <span id="sbTenantName">—</span> ↗</div>
+    </div>
+    <div class="sb-nav" id="sbNav">
+      <!-- populated by role -->
+    </div>
+    <div class="sb-footer">
+      <div class="sb-avatar" id="sbAvatar">?</div>
+      <div>
+        <div class="sb-user-name" id="sbName">—</div>
+        <div class="sb-user-role" id="sbRole">—</div>
+      </div>
+      <div class="sb-logout" onclick="doLogout()" title="Sign out">⏏</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbarTitle">Dashboard</div>
+      <span class="topbar-sync" id="topbarSync"></span>
+      <button class="topbar-btn" onclick="toggleTheme()" title="Toggle theme">◐</button>
+      <button class="topbar-btn primary" id="topbarAction" style="display:none"></button>
+    </div>
+    <div class="content" id="mainContent"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ══════════════════════════════════════
+     MODALS
+══════════════════════════════════════ -->
+
+<!-- Company Profile Modal -->
+<div class="moverlay" id="mCompany">
+  <div class="modal wide">
+    <div class="mhead"><div class="mhead-title">🏢 Company Profile</div><button class="mclose" onclick="closeModal('mCompany')">✕</button></div>
+    <div class="mbody">
+      <div class="frow">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;margin-bottom:12px">Company Details</div>
+          <div class="fgrp"><label class="flbl">Company Name *</label><input class="finp" id="coCo" placeholder="Your Company Sdn Bhd"></div>
+          <div class="fgrp"><label class="flbl">Registration No.</label><input class="finp" id="coReg" placeholder="123456-A"></div>
+          <div class="fgrp"><label class="flbl">Phone</label><input class="finp" id="coPhone" placeholder="+60 3-xxxx xxxx"></div>
+          <div class="fgrp"><label class="flbl">Email</label><input class="finp" id="coEmail" type="email" placeholder="info@company.com"></div>
+          <div class="fgrp"><label class="flbl">Website</label><input class="finp" id="coWeb" placeholder="https://company.com"></div>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;margin-bottom:12px">Address & Banking</div>
+          <div class="fgrp"><label class="flbl">Address Line 1</label><input class="finp" id="coAddr1" placeholder="No. 1, Jalan Example"></div>
+          <div class="fgrp"><label class="flbl">Address Line 2</label><input class="finp" id="coAddr2" placeholder="Taman Example"></div>
+          <div class="frow">
+            <div class="fgrp"><label class="flbl">City</label><input class="finp" id="coCity" placeholder="Kuala Lumpur"></div>
+            <div class="fgrp"><label class="flbl">Postcode</label><input class="finp" id="coPostcode" placeholder="50000"></div>
+          </div>
+          <div class="fgrp"><label class="flbl">State</label>
+            <select class="finp" id="coState">
+              <option>Kuala Lumpur</option><option>Selangor</option><option>Johor</option><option>Penang</option><option>Perak</option><option>Kedah</option><option>Kelantan</option><option>Terengganu</option><option>Pahang</option><option>Negeri Sembilan</option><option>Melaka</option><option>Sabah</option><option>Sarawak</option><option>Perlis</option>
+            </select>
+          </div>
+          <div class="fgrp"><label class="flbl">Bank Name</label><input class="finp" id="coBankName" placeholder="Maybank / CIMB"></div>
+          <div class="fgrp"><label class="flbl">Bank Account No.</label><input class="finp" id="coBankAcc" placeholder="1234567890"></div>
+        </div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mCompany')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCompanyProfile()">💾 Save Company Profile</button>
+    </div>
+  </div>
+</div>
+
+<!-- Product Modal -->
+<div class="moverlay" id="mProduct">
+  <div class="modal">
+    <div class="mhead"><div class="mhead-title" id="productModalTitle">Add Product</div><button class="mclose" onclick="closeModal('mProduct')">✕</button></div>
+    <div class="mbody">
+      <input type="hidden" id="productDocId">
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Product Name *</label><input class="finp" id="productName" placeholder="Product name"></div>
+        <div class="fgrp"><label class="flbl">SKU / Code</label><input class="finp" id="productSku" placeholder="SKU-001"></div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Category</label>
+          <select class="finp" id="productCat"><option>General</option><option>Beverages</option><option>Food</option><option>Snacks</option><option>Dairy</option><option>Cleaning</option><option>Packaging</option><option>Raw Material</option><option>Finished Goods</option></select>
+        </div>
+        <div class="fgrp"><label class="flbl">Unit</label>
+          <select class="finp" id="productUnit"><option>pcs</option><option>kg</option><option>litre</option><option>box</option><option>carton</option><option>roll</option><option>dozen</option></select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Selling Price (RM)</label><input class="finp" id="productPrice" type="number" placeholder="0.00"></div>
+        <div class="fgrp"><label class="flbl">Cost Price (RM)</label><input class="finp" id="productCost" type="number" placeholder="0.00"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Max Discount Allowed (%)</label><input class="finp" id="productMaxDiscount" type="number" placeholder="0" min="0" max="100"></div>
+      <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="productNotes" rows="2" placeholder="Description, specs..."></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mProduct')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProduct()">💾 Save Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sales Order Modal (Sales App) -->
+<div class="moverlay" id="mSalesOrder">
+  <div class="modal wide">
+    <div class="mhead"><div class="mhead-title">🛒 New Sales Order</div><button class="mclose" onclick="closeModal('mSalesOrder')">✕</button></div>
+    <div class="mbody">
+      <div class="fgrp"><label class="flbl">Customer / Outlet *</label><input class="finp" id="soCustomer" placeholder="Customer name or outlet"></div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Order Date</label><input class="finp" id="soDate" type="date"></div>
+        <div class="fgrp"><label class="flbl">Payment Terms</label>
+          <select class="finp" id="soPayTerms"><option value="cod">Cash on Delivery</option><option value="credit30">Credit 30 Days</option><option value="credit60">Credit 60 Days</option><option value="prepaid">Prepaid</option></select>
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;margin-top:4px">Order Items</div>
+      <div id="soLineItems"></div>
+      <button class="btn btn-ghost" onclick="addSoLine()" style="width:100%;margin-bottom:14px;font-size:12px">+ Add Item</button>
+      <div id="soDiscountSection" style="display:none">
+        <div class="discount-locked">🔒 <span id="soDiscountMsg">Order contains discount — awaiting ERP approval before processing</span></div>
+      </div>
+      <div class="fgrp" style="margin-top:12px"><label class="flbl">Notes</label><textarea class="finp" id="soNotes" rows="2" placeholder="Special instructions..."></textarea></div>
+      <div style="background:var(--s2);border-radius:10px;padding:12px;font-size:13px;margin-top:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--tx3)">Subtotal</span><span id="soSubtotal" style="font-family:'DM Mono',monospace">RM 0.00</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--tx3)">Discount</span><span id="soDiscount" style="font-family:'DM Mono',monospace;color:var(--red)">- RM 0.00</span></div>
+        <div style="display:flex;justify-content:space-between;font-weight:700;padding-top:8px;border-top:1px solid var(--bdr)"><span>Total</span><span id="soTotal" style="font-family:'DM Mono',monospace;color:var(--acc)">RM 0.00</span></div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mSalesOrder')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSalesOrder()">📤 Submit Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- Discount Approval Modal (ERP) -->
+<div class="moverlay" id="mDiscount">
+  <div class="modal">
+    <div class="mhead"><div class="mhead-title">💬 Discount Approval</div><button class="mclose" onclick="closeModal('mDiscount')">✕</button></div>
+    <div class="mbody" id="mDiscountBody"></div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mDiscount')">Close</button>
+      <button class="btn btn-danger" id="discountRejectBtn">✕ Reject</button>
+      <button class="btn btn-primary" id="discountApproveBtn">✓ Approve</button>
+    </div>
+  </div>
+</div>
+
+<!-- Collection Modal (Sales App) -->
+<div class="moverlay" id="mCollection">
+  <div class="modal">
+    <div class="mhead"><div class="mhead-title">💰 Submit Collection</div><button class="mclose" onclick="closeModal('mCollection')">✕</button></div>
+    <div class="mbody">
+      <div class="alert alert-yellow">⏳ Collections remain <strong>pending</strong> in the app until ERP confirms receipt. Delivery cannot be confirmed until collection is accepted.</div>
+      <div class="fgrp"><label class="flbl">Linked Order / Invoice *</label><input class="finp" id="colOrderRef" placeholder="Order ID or Invoice No."></div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Amount (RM) *</label><input class="finp" id="colAmount" type="number" placeholder="0.00"></div>
+        <div class="fgrp"><label class="flbl">Collection Method</label>
+          <select class="finp" id="colMethod"><option value="cash">Cash</option><option value="transfer">Bank Transfer</option><option value="cheque">Cheque</option><option value="credit">Credit Note</option></select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Customer</label><input class="finp" id="colCustomer" placeholder="Customer name"></div>
+        <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="colDate" type="date"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Reference / Receipt No.</label><input class="finp" id="colRef" placeholder="TXN-12345"></div>
+      <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="colNotes" rows="2"></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mCollection')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCollection()">📤 Submit Collection</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delivery Confirm Modal (ERP) -->
+<div class="moverlay" id="mDelivery">
+  <div class="modal">
+    <div class="mhead"><div class="mhead-title">🚚 Confirm Delivery</div><button class="mclose" onclick="closeModal('mDelivery')">✕</button></div>
+    <div class="mbody" id="mDeliveryBody"></div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mDelivery')">Cancel</button>
+      <button class="btn btn-primary" id="confirmDeliveryBtn">✅ Confirm Delivered</button>
+    </div>
+  </div>
+</div>
+
+<!-- Inventory Modal (ERP) -->
+<div class="moverlay" id="mInventory">
+  <div class="modal">
+    <div class="mhead"><div class="mhead-title" id="invModalTitle">Add Stock Item</div><button class="mclose" onclick="closeModal('mInventory')">✕</button></div>
+    <div class="mbody">
+      <input type="hidden" id="invDocId">
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Product Name *</label><input class="finp" id="invName" placeholder="Product name"></div>
+        <div class="fgrp"><label class="flbl">SKU</label><input class="finp" id="invSku" placeholder="SKU-001"></div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Category</label>
+          <select class="finp" id="invCat"><option>General</option><option>Beverages</option><option>Food</option><option>Snacks</option><option>Dairy</option><option>Cleaning</option><option>Packaging</option></select>
+        </div>
+        <div class="fgrp"><label class="flbl">Unit</label>
+          <select class="finp" id="invUnit"><option>pcs</option><option>kg</option><option>litre</option><option>box</option><option>carton</option></select>
+        </div>
+      </div>
+      <div class="frow3">
+        <div class="fgrp"><label class="flbl">Current Qty</label><input class="finp" id="invQty" type="number" placeholder="0"></div>
+        <div class="fgrp"><label class="flbl">Min Stock</label><input class="finp" id="invMin" type="number" placeholder="0"></div>
+        <div class="fgrp"><label class="flbl">Max Stock</label><input class="finp" id="invMax" type="number" placeholder="0"></div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Cost Price (RM)</label><input class="finp" id="invCost" type="number" placeholder="0.00"></div>
+        <div class="fgrp"><label class="flbl">Selling Price (RM)</label><input class="finp" id="invPrice" type="number" placeholder="0.00"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Supplier</label><input class="finp" id="invSupplier" placeholder="Supplier name"></div>
+      <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="invNotes" rows="2"></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mInventory')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInventory()">💾 Save Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Modal (ERP) -->
+<div class="moverlay" id="mInvoice">
+  <div class="modal wide">
+    <div class="mhead"><div class="mhead-title">🧾 New Invoice</div><button class="mclose" onclick="closeModal('mInvoice')">✕</button></div>
+    <div class="mbody">
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Invoice No.</label><input class="finp" id="invNo" placeholder="INV-0001" readonly style="opacity:.7"></div>
+        <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="invDate" type="date"></div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Customer *</label><input class="finp" id="invCust" placeholder="Customer / outlet name"></div>
+        <div class="fgrp"><label class="flbl">Due Date</label><input class="finp" id="invDue" type="date"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Linked Sales Order</label>
+        <select class="finp" id="invLinkedOrder" onchange="autofillFromOrder(this)">
+          <option value="">— None / manual entry —</option>
+        </select>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Line Items</div>
+      <div id="invLineItems"></div>
+      <button class="btn btn-ghost" onclick="addInvLine()" style="width:100%;margin-bottom:14px;font-size:12px">+ Add Line</button>
+      <div style="background:var(--s2);border-radius:10px;padding:12px;font-size:13px">
+        <div style="display:flex;justify-content:space-between;padding-top:8px;font-weight:700"><span>Total</span><span id="invTotal" style="font-family:'DM Mono',monospace;color:var(--acc)">RM 0.00</span></div>
+      </div>
+      <div class="fgrp" style="margin-top:12px"><label class="flbl">Notes</label><textarea class="finp" id="invNotes" rows="2"></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mInvoice')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInvoice()">💾 Create Invoice</button>
+    </div>
+  </div>
+</div>
+
+<!-- Supplier Modal -->
+<div class="moverlay" id="mSupplier">
+  <div class="modal">
+    <div class="mhead"><div class="mhead-title" id="supModalTitle">Add Supplier</div><button class="mclose" onclick="closeModal('mSupplier')">✕</button></div>
+    <div class="mbody">
+      <input type="hidden" id="supDocId">
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Company Name *</label><input class="finp" id="supName" placeholder="Supplier Sdn Bhd"></div>
+        <div class="fgrp"><label class="flbl">Status</label>
+          <select class="finp" id="supStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Phone</label><input class="finp" id="supPhone" placeholder="+60 3-xxxx"></div>
+        <div class="fgrp"><label class="flbl">Email</label><input class="finp" id="supEmail" type="email" placeholder="supplier@email.com"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Address</label><input class="finp" id="supAddress" placeholder="Full address"></div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Bank Name</label><input class="finp" id="supBank" placeholder="Maybank / CIMB"></div>
+        <div class="fgrp"><label class="flbl">Account No.</label><input class="finp" id="supAccNo" placeholder="1234567890"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Payment Terms</label><input class="finp" id="supPayTerms" placeholder="Net 30 / COD"></div>
+      <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="supNotes" rows="2"></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost" onclick="closeModal('mSupplier')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSupplier()">💾 Save Supplier</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     FIREBASE + APP LOGIC
+══════════════════════════════════════ -->
+<script type="module">
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// ═══════════════════════════════════════════
+//  MULTI-TENANT CONFIGURATION
+//  Each tenant maps to its own Firebase project
+//  or uses tenant-prefixed collections in shared project
+// ═══════════════════════════════════════════
+const SHARED_CONFIG = {
+  apiKey: "AIzaSyC0cO3x4Oqi8GBUhzON-InN3YZTm-RfMyA",
+  authDomain: "stfm-sales.firebaseapp.com",
+  projectId: "stfm-sales",
+  storageBucket: "stfm-sales.firebasestorage.app",
+  messagingSenderId: "53800678989",
+  appId: "1:53800678989:web:bce1be11a8beb92c084e04"
+};
+
+// Tenants registry — persisted to Firestore's `saas_tenants` collection
+// Preloaded defaults for demo; real data comes from Firestore
+let TENANTS = [
+  { id:'tenant_stsb', name:'STSB Trading', color:'#00e5a0', plan:'pro', status:'active', prefix:'stsb' },
+  { id:'tenant_abctrade', name:'ABC Trading Sdn Bhd', color:'#4f8ef7', plan:'starter', status:'active', prefix:'abctrade' },
+];
+
+// Active session state
+let _tenant = { id:'tenant_stsb', name:'STSB Trading', color:'#00e5a0', plan:'pro', status:'active', prefix:'stsb' };
+let _auth = null;     // Firebase auth instance
+let _db = null;       // Firestore instance
+let _user = null;     // current user data
+let _appRole = 'erp'; // 'erp' or 'sales'
+const _selectedLoginRole = 'erp'; // STSB: always ERP
+
+// Helpers scoped to active tenant
+const DB = () => _db;
+const E = { collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit };
+const ts = () => serverTimestamp();
+const uid = () => _user?.uid || 'system';
+const tenantPrefix = () => 'stsb'; // STSB: hardcoded
+// Tenant-scoped collection names
+const C = (name) => `${tenantPrefix()}_${name}`;
+const fmt = (n) => 'RM ' + Number(n||0).toFixed(2);
+const fmtDate = (d) => {
+  if (!d) return '—';
+  const dt = d.toDate ? d.toDate() : new Date(d);
+  return dt.toLocaleDateString('en-MY',{day:'2-digit',month:'short',year:'numeric'});
+};
+
+function badgeStatus(s) {
+  const map = {
+    draft:'badge-gray', pending:'badge-yellow', pending_erp:'badge-yellow',
+    approved:'badge-green', rejected:'badge-red', processing:'badge-blue',
+    dispatched:'badge-blue', delivered:'badge-green', cancelled:'badge-gray',
+    paid:'badge-green', unpaid:'badge-yellow', overdue:'badge-red',
+    accepted:'badge-green', active:'badge-green', inactive:'badge-gray',
+    suspended:'badge-red', low:'badge-yellow', out:'badge-red',
+    discount_pending:'badge-orange', cod:'badge-blue', credit30:'badge-purple',
+    collection_pending:'badge-yellow', collection_accepted:'badge-green'
+  };
+  const label = {
+    pending_erp:'Pending ERP', discount_pending:'Discount Pending',
+    collection_pending:'Coll. Pending', collection_accepted:'Coll. Accepted'
+  };
+  return `<span class="badge ${map[s]||'badge-gray'}">${label[s]||s}</span>`;
+}
+
+window.showToast = (msg, type='success') => {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  setTimeout(() => t.className = '', 3200);
+};
+window.openModal = (id) => document.getElementById(id).classList.add('open');
+window.closeModal = (id) => document.getElementById(id).classList.remove('open');
+window.toggleTheme = () => {
+  const t = document.documentElement;
+  t.setAttribute('data-theme', t.getAttribute('data-theme')==='dark'?'light':'dark');
+};
+
+window.selectTenant = function(tenantId) {
+  const t = TENANTS.find(x => x.id === tenantId);
+  if (!t) return;
+  _tenant = t;
+  // Apply tenant color
+  document.documentElement.style.setProperty('--tenant-color', t.color || '#00e5a0');
+  document.documentElement.style.setProperty('--acc2', t.color || '#00e5a0');
+  // Show auth screen
+  document.getElementById('tenantScreen').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('authLogo').textContent = '⬡ ' + t.name;
+  document.getElementById('authCoName').textContent = t.name;
+  document.getElementById('authSub').textContent = 'Sign in to your workspace · ' + (t.prefix || t.id);
+  document.getElementById('authErr').textContent = '';
+  document.getElementById('authEmail').value = '';
+  document.getElementById('authPwd').value = '';
+  // Initialize Firebase for this tenant (shared project, tenant-scoped collections)
+  try {
+    const existing = getApps().find(a => a.name === tenantId);
+    const fbApp = existing || initializeApp(SHARED_CONFIG, tenantId);
+    _auth = getAuth(fbApp);
+    _db = getFirestore(fbApp);
+    // Listen to auth state
+    onAuthStateChanged(_auth, async (user) => {
+      if (user) {
+        try {
+          const uDoc = await getDoc(doc(_db, C('users'), user.uid));
+          let uData = {};
+          if (uDoc.exists()) {
+            uData = uDoc.data();
+          } else {
+            // Fallback: check shared users collection
+            const u2 = await getDoc(doc(_db, 'users', user.uid));
+            if (u2.exists()) uData = u2.data();
+          }
+          const role = uData.role || '';
+          const allowedERP = ['admin','sub_admin','erp_user','super_admin'];
+          const allowedSales = ['sales_rep','delivery_man','admin','sub_admin','super_admin'];
+          const allowed = _selectedLoginRole === 'erp' ? allowedERP : allowedSales;
+          if (!allowed.includes(role) && role !== '') {
+            document.getElementById('authErr').textContent = 'Access denied for this role.';
+            await signOut(_auth);
+            return;
+          }
+          _user = { uid: user.uid, ...uData };
+          _appRole = _selectedLoginRole;
+          showApp();
+        } catch(e) {
+          // If user doc doesn't exist, allow admin to proceed (first time setup)
+          _user = { uid: user.uid, email: user.email, role: 'admin', name: user.email };
+          _appRole = _selectedLoginRole;
+          showApp();
+        }
+      } else {
+        document.getElementById('authScreen').style.display = _tenant ? 'flex' : 'none';
+        document.getElementById('app').classList.remove('visible');
+      }
+    });
+  } catch(e) { console.error('Firebase init error:', e); }
+};
+
+window.backToTenants = function() {
+  if (_auth) { signOut(_auth).catch(()=>{}); }
+  _tenant = { id:'tenant_stsb', name:'STSB Trading', color:'#00e5a0', plan:'pro', status:'active', prefix:'stsb' }; _user = null; _db = null;
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('authScreen').style.display = 'flex'; // STSB
+};
+
+window.selectRole = (role, el) => {
+  _selectedLoginRole = role;
+  document.querySelectorAll('.auth-role-btn').forEach(b => b.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('authBtn').textContent = role === 'erp' ? 'Sign In to ERP' : 'Sign In to Sales App';
+};
+
+window.doLogin = async function() {
+  const email = document.getElementById('authEmail').value.trim();
+  const pwd = document.getElementById('authPwd').value;
+  const err = document.getElementById('authErr');
+  err.textContent = '';
+  if (!email || !pwd) { err.textContent = 'Enter email and password.'; return; }
+  // STSB: auto-initialize if _auth not yet set
+  if (!_auth) {
+    try {
+      const existing = getApps().find(a => a.name === 'tenant_stsb');
+      const fbApp = existing || initializeApp(SHARED_CONFIG, 'tenant_stsb');
+      _auth = getAuth(fbApp);
+      _db = getFirestore(fbApp);
+      onAuthStateChanged(_auth, async (user) => {
+        if (user) {
+          try {
+            const uDoc = await getDoc(doc(_db, C('users'), user.uid));
+            let uData = uDoc.exists() ? uDoc.data() : { uid: user.uid, email: user.email, role: 'admin', name: user.email };
+            _user = { uid: user.uid, ...uData };
+            _appRole = 'erp';
+            showApp();
+          } catch(e) {
+            _user = { uid: user.uid, email: user.email, role: 'admin', name: user.email };
+            _appRole = 'erp';
+            showApp();
+          }
+        } else {
+          document.getElementById('authScreen').style.display = 'flex';
+          document.getElementById('app').classList.remove('visible');
+        }
+      });
+    } catch(e) { err.textContent = 'Firebase init error: ' + e.message; return; }
+  }
+  try {
+    await signInWithEmailAndPassword(_auth, email, pwd);
+  } catch(ex) {
+    err.textContent = ex.message.replace('Firebase: ','');
+  }
+};
+
+window.doLogout = async () => {
+  if (_auth) await signOut(_auth);
+};
+
+function showApp() {
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('app').classList.add('visible');
+  const u = _user || {};
+  document.getElementById('sbName').textContent = u.name || u.email || 'User';
+  document.getElementById('sbRole').textContent = (u.role||'user').replace(/_/g,' ').toUpperCase();
+  document.getElementById('sbAvatar').textContent = (u.name||'U')[0].toUpperCase();
+  document.getElementById('sbLogoName').textContent = '⬡ STSB ERP';
+  document.getElementById('sbLogoTag').textContent = 'ERP Operations';
+  document.getElementById('sbTenantName').textContent = 'STSB Trading';
+  buildSidebar();
+  goPage(_appRole === 'erp' ? 'dashboard' : 'salesDashboard');
+  updateBadges();
+}
+
+// ═══════════════════════════════════════════
+//  SIDEBAR BUILDER (role-based)
+// ═══════════════════════════════════════════
+function buildSidebar() {
+  const nav = document.getElementById('sbNav');
+  if (_appRole === 'erp') {
+    nav.innerHTML = `
+      <div class="sb-section">Main</div>
+      <div class="sb-item" data-page="dashboard" onclick="goPage('dashboard')"><span class="ico">🏠</span> Dashboard</div>
+      <div class="sb-item" data-page="inventory" onclick="goPage('inventory')"><span class="ico">📦</span> Inventory</div>
+      <div class="sb-item" data-page="salesOrders" onclick="goPage('salesOrders')"><span class="ico">📋</span> Sales Orders <span class="sb-badge" id="badgeSO" style="display:none">0</span></div>
+      <div class="sb-section">Finance</div>
+      <div class="sb-item" data-page="discounts" onclick="goPage('discounts')"><span class="ico">🏷️</span> Discount Approvals <span class="sb-badge" id="badgeDiscount" style="display:none">0</span></div>
+      <div class="sb-item" data-page="invoices" onclick="goPage('invoices')"><span class="ico">🧾</span> Invoices</div>
+      <div class="sb-item" data-page="collections" onclick="goPage('collections')"><span class="ico">💰</span> Collections <span class="sb-badge sb-badge-ylw" id="badgeColl" style="display:none">0</span></div>
+      <div class="sb-section">Operations</div>
+      <div class="sb-item" data-page="dispatch" onclick="goPage('dispatch')"><span class="ico">🚚</span> Dispatch & Delivery</div>
+      <div class="sb-item" data-page="hqOrders" onclick="goPage('hqOrders')"><span class="ico">🛒</span> HQ Orders</div>
+      <div class="sb-item" data-page="transfers" onclick="goPage('transfers')"><span class="ico">↔️</span> Transfers</div>
+      <div class="sb-item" data-page="suppliers" onclick="goPage('suppliers')"><span class="ico">🏭</span> Suppliers</div>
+      <div class="sb-item" data-page="reports" onclick="goPage('reports')"><span class="ico">📈</span> Reports</div>
+      <div class="sb-section">Admin</div>
+      <div class="sb-item" data-page="settings" onclick="goPage('settings')"><span class="ico">⚙️</span> Settings</div>
+    `;
+  } else {
+    nav.innerHTML = `
+      <div class="sb-section">Sales</div>
+      <div class="sb-item" data-page="salesDashboard" onclick="goPage('salesDashboard')"><span class="ico">🏠</span> Dashboard</div>
+      <div class="sb-item" data-page="myOrders" onclick="goPage('myOrders')"><span class="ico">📋</span> My Orders</div>
+      <div class="sb-item" data-page="myCollections" onclick="goPage('myCollections')"><span class="ico">💰</span> My Collections</div>
+      <div class="sb-item" data-page="myDeliveries" onclick="goPage('myDeliveries')"><span class="ico">🚚</span> My Deliveries</div>
+      <div class="sb-section">Catalog</div>
+      <div class="sb-item" data-page="products" onclick="goPage('products')"><span class="ico">🛍️</span> Products</div>
+    `;
+  }
+}
+
+// ═══════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════
+const pageConfig = {
+  dashboard:      {title:'Dashboard',       icon:'🏠', action:null},
+  inventory:      {title:'Inventory',       icon:'📦', action:'+ Add Item',         modal:'mInventory', prep:'inventory'},
+  salesOrders:    {title:'Sales Orders',    icon:'📋', action:null},
+  discounts:      {title:'Discount Queue',  icon:'🏷️', action:null},
+  invoices:       {title:'Invoices',        icon:'🧾', action:'+ New Invoice',      modal:'mInvoice', prep:'invoice'},
+  collections:    {title:'Collections',     icon:'💰', action:null},
+  dispatch:       {title:'Dispatch & Delivery',icon:'🚚',action:null},
+  suppliers:      {title:'Suppliers',       icon:'🏭', action:'+ Add Supplier',     modal:'mSupplier', prep:'supplier'},
+  reports:        {title:'Reports',         icon:'📈', action:null},
+  settings:       {title:'Settings',        icon:'⚙️', action:null},
+  hqOrders:       {title:'HQ Orders',         icon:'🛒', action:null},
+  transfers:      {title:'HQ Transfers',       icon:'↔️', action:null},
+  salesDashboard: {title:'Sales Dashboard', icon:'🏠', action:null},
+  myOrders:       {title:'My Orders',       icon:'📋', action:'+ New Order',        modal:'mSalesOrder', prep:'salesOrder'},
+  myCollections:  {title:'My Collections',  icon:'💰', action:'+ Submit Collection',modal:'mCollection', prep:'collection'},
+  myDeliveries:   {title:'My Deliveries',   icon:'🚚', action:null},
+  products:       {title:'Product Catalogue',icon:'🛍️',action:null},
+};
+
+window.goPage = function(page) {
+  window.__curPage = page;
+  const cfg = pageConfig[page] || {};
+  document.getElementById('topbarTitle').textContent = cfg.icon + ' ' + cfg.title;
+  document.querySelectorAll('.sb-item').forEach(i => i.classList.toggle('active', i.dataset.page === page));
+  const ab = document.getElementById('topbarAction');
+  if (cfg.action) {
+    ab.style.display = '';
+    ab.textContent = cfg.action;
+    ab.onclick = () => { prepModal(cfg.prep); openModal(cfg.modal); };
+  } else { ab.style.display = 'none'; }
+  // Guard: Firebase must be ready before rendering any data page
+  if (!_db) {
+    document.getElementById('mainContent').innerHTML =
+      `<div style="color:var(--red);padding:32px;text-align:center">
+        <div style="font-size:28px;margin-bottom:12px">⚠️</div>
+        <div style="font-size:14px;font-weight:600">Firebase not initialised</div>
+        <div style="font-size:12px;color:var(--tx3);margin-top:6px">Please sign in first. If this persists, reload the page.</div>
+      </div>`;
+    return;
+  }
+  const renders = {
+    dashboard, inventory, salesOrders, discounts, invoices, collections,
+    dispatch, suppliers, reports, settings,
+    hqOrders, transfers,
+    salesDashboard, myOrders, myCollections, myDeliveries, products
+  };
+  if (renders[page]) renders[page]();
+};
+
+// ═══════════════════════════════════════════
+//  BADGE UPDATER
+// ═══════════════════════════════════════════
+async function updateBadges() {
+  if (!_db) return;
+  try {
+    const [discSnap, collSnap, soSnap] = await Promise.all([
+      getDocs(query(collection(_db, C('orders')), where('discountStatus','==','pending'))).catch(()=>({size:0})),
+      getDocs(query(collection(_db, C('collections')), where('status','==','pending_erp'))).catch(()=>({size:0})),
+      getDocs(query(collection(_db, C('orders')), where('status','==','pending'))).catch(()=>({size:0})),
+    ]);
+    setBadge('badgeDiscount', discSnap.size);
+    setBadge('badgeColl', collSnap.size);
+    setBadge('badgeSO', soSnap.size);
+  } catch(e) {}
+}
+function setBadge(id, n) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (n > 0) { el.textContent = n; el.style.display = ''; }
+  else el.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════
+//  MODAL PREP
+// ═══════════════════════════════════════════
+async function prepModal(type) {
+  const today = new Date().toISOString().split('T')[0];
+  if (type === 'salesOrder') {
+    document.getElementById('soCustomer').value = '';
+    document.getElementById('soDate').value = today;
+    document.getElementById('soNotes').value = '';
+    document.getElementById('soLineItems').innerHTML = '';
+    document.getElementById('soDiscountSection').style.display = 'none';
+    document.getElementById('soPayTerms').value = 'cod';
+    addSoLine();
+    calcSoTotals();
+  }
+  if (type === 'collection') {
+    document.getElementById('colOrderRef').value = '';
+    document.getElementById('colAmount').value = '';
+    document.getElementById('colCustomer').value = '';
+    document.getElementById('colDate').value = today;
+    document.getElementById('colRef').value = '';
+    document.getElementById('colNotes').value = '';
+  }
+  if (type === 'invoice') {
+    const count = (await getDocs(collection(_db, C('invoices'))).catch(()=>({size:0}))).size;
+    document.getElementById('invNo').value = 'INV-' + String(count+1).padStart(4,'0');
+    document.getElementById('invDate').value = today;
+    document.getElementById('invDue').value = today;
+    document.getElementById('invCust').value = '';
+    document.getElementById('invNotes').value = '';
+    document.getElementById('invLineItems').innerHTML = '';
+    // Load approved orders
+    const linSel = document.getElementById('invLinkedOrder');
+    linSel.innerHTML = '<option value="">— None / manual entry —</option>';
+    try {
+      const ordSnap = await getDocs(query(collection(_db, C('orders')), where('status','in',['approved','processing']), orderBy('createdAt','desc'), limit(30)));
+      ordSnap.forEach(d => {
+        const v = d.data();
+        const o = document.createElement('option');
+        o.value = d.id;
+        o.dataset.customer = v.customer||'';
+        o.dataset.items = JSON.stringify(v.items||[]);
+        o.dataset.total = v.total||0;
+        o.textContent = `${d.id.slice(-6)} — ${v.customer||'?'} — ${fmt(v.total||0)}`;
+        linSel.appendChild(o);
+      });
+    } catch(ex) {}
+    addInvLine();
+    calcInvTotal();
+  }
+  if (type === 'supplier') {
+    ['supDocId','supName','supPhone','supEmail','supAddress','supBank','supAccNo','supPayTerms','supNotes'].forEach(i => {
+      const el = document.getElementById(i); if(el) el.value='';
+    });
+    document.getElementById('supStatus').value = 'active';
+    document.getElementById('supModalTitle').textContent = 'Add Supplier';
+  }
+  if (type === 'inventory') {
+    ['invDocId','invName','invSku','invQty','invMin','invMax','invCost','invPrice','invSupplier','invNotes'].forEach(i => {
+      const el = document.getElementById(i); if(el) el.value='';
+    });
+    document.getElementById('invModalTitle').textContent = 'Add Stock Item';
+  }
+}
+
+// ═══════════════════════════════════════════
+//  SALES ORDER LINE ITEMS
+// ═══════════════════════════════════════════
+let _soLines = 0;
+window.addSoLine = async function() {
+  _soLines++;
+  // Load products for dropdown
+  let prodOptions = '<option value="">— Select product —</option>';
+  try {
+    const ps = await getDocs(query(collection(_db, C('products')), orderBy('name'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    ps.forEach(d => {
+      const v = d.data();
+      prodOptions += `<option value="${d.id}" data-price="${v.price||0}" data-maxdiscount="${v.maxDiscount||0}" data-name="${v.name}">${v.name} — ${fmt(v.price||0)}</option>`;
+    });
+  } catch(ex) {}
+  const div = document.createElement('div');
+  div.id = `soLine${_soLines}`;
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end;';
+  div.innerHTML = `
+    <div><label class="flbl">Product</label><select class="finp" onchange="soProductChange(this,${_soLines})">${prodOptions}</select></div>
+    <div><label class="flbl">Qty</label><input class="finp" type="number" id="soQty${_soLines}" value="1" min="1" oninput="calcSoTotals()"></div>
+    <div><label class="flbl">Unit Price</label><input class="finp" type="number" id="soPrice${_soLines}" placeholder="0.00" oninput="calcSoTotals()"></div>
+    <div><label class="flbl">Discount %</label><input class="finp" type="number" id="soDisc${_soLines}" value="0" min="0" max="100" oninput="calcSoTotals()" data-maxdiscount="0"></div>
+    <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="document.getElementById('soLine${_soLines}').remove();calcSoTotals()">✕</button>
+  `;
+  document.getElementById('soLineItems').appendChild(div);
+};
+
+window.soProductChange = function(sel, lineId) {
+  const opt = sel.selectedOptions[0];
+  if (!opt) return;
+  const price = parseFloat(opt.dataset.price)||0;
+  const maxDisc = parseFloat(opt.dataset.maxdiscount)||0;
+  const priceEl = document.getElementById(`soPrice${lineId}`);
+  const discEl = document.getElementById(`soDisc${lineId}`);
+  if (priceEl) priceEl.value = price;
+  if (discEl) { discEl.dataset.maxdiscount = maxDisc; discEl.max = 100; }
+  calcSoTotals();
+};
+
+window.calcSoTotals = function() {
+  let subtotal = 0, discountAmt = 0;
+  let hasExcessDiscount = false;
+  document.querySelectorAll('#soLineItems > div').forEach(row => {
+    const qtyEl = row.querySelector('input[id^="soQty"]');
+    const priceEl = row.querySelector('input[id^="soPrice"]');
+    const discEl = row.querySelector('input[id^="soDisc"]');
+    if (!qtyEl || !priceEl) return;
+    const qty = parseFloat(qtyEl.value)||0;
+    const price = parseFloat(priceEl.value)||0;
+    const disc = parseFloat(discEl?.value)||0;
+    const maxDisc = parseFloat(discEl?.dataset.maxdiscount)||0;
+    const lineTotal = qty * price;
+    const lineDisc = lineTotal * disc / 100;
+    subtotal += lineTotal;
+    discountAmt += lineDisc;
+    if (disc > maxDisc && disc > 0) hasExcessDiscount = true;
+  });
+  document.getElementById('soSubtotal').textContent = fmt(subtotal);
+  document.getElementById('soDiscount').textContent = '- ' + fmt(discountAmt);
+  document.getElementById('soTotal').textContent = fmt(subtotal - discountAmt);
+  const discSec = document.getElementById('soDiscountSection');
+  if (discountAmt > 0 || hasExcessDiscount) {
+    discSec.style.display = '';
+    document.getElementById('soDiscountMsg').textContent = hasExcessDiscount
+      ? '⚠️ Discount exceeds allowed limit — ERP approval required before order can be processed'
+      : '🔒 Order contains discount — pending ERP approval before processing';
+  } else { discSec.style.display = 'none'; }
+};
+
+window.saveSalesOrder = async function() {
+  const customer = document.getElementById('soCustomer').value.trim();
+  if (!customer) { showToast('Customer required','error'); return; }
+  const items = [];
+  let subtotal = 0, discountAmt = 0, hasDiscount = false, exceedsMax = false;
+  document.querySelectorAll('#soLineItems > div').forEach(row => {
+    const selEl = row.querySelector('select');
+    const qtyEl = row.querySelector('input[id^="soQty"]');
+    const priceEl = row.querySelector('input[id^="soPrice"]');
+    const discEl = row.querySelector('input[id^="soDisc"]');
+    const opt = selEl?.selectedOptions[0];
+    if (!opt || !opt.value) return;
+    const qty = parseFloat(qtyEl?.value)||0;
+    const price = parseFloat(priceEl?.value)||0;
+    const disc = parseFloat(discEl?.value)||0;
+    const maxDisc = parseFloat(discEl?.dataset.maxdiscount)||0;
+    const lineTotal = qty * price;
+    const lineDisc = lineTotal * disc / 100;
+    subtotal += lineTotal;
+    discountAmt += lineDisc;
+    if (disc > 0) hasDiscount = true;
+    if (disc > maxDisc) exceedsMax = true;
+    items.push({ productId: opt.value, name: opt.dataset.name, qty, price, discount: disc, total: lineTotal - lineDisc });
+  });
+  if (items.length === 0) { showToast('Add at least one item','error'); return; }
+  // Determine if order needs discount approval
+  const needsDiscountApproval = hasDiscount;
+  const status = needsDiscountApproval ? 'pending' : 'processing';
+  const discountStatus = needsDiscountApproval ? 'pending' : 'not_required';
+  const data = {
+    customer, items, subtotal, discount: discountAmt,
+    total: subtotal - discountAmt,
+    payTerms: document.getElementById('soPayTerms').value,
+    notes: document.getElementById('soNotes').value,
+    status,                           // LOCKED until discount approved if applicable
+    discountStatus,                   // 'pending' | 'approved' | 'rejected' | 'not_required'
+    deliveryStatus: 'pending',        // ERP controls this
+    collectionStatus: 'not_required', // changes after delivery confirmed
+    repId: uid(),
+    createdAt: ts(), updatedAt: ts()
+  };
+  try {
+    await addDoc(collection(_db, C('orders')), data);
+    if (needsDiscountApproval) {
+      showToast('Order submitted — awaiting ERP discount approval 🔒','warn');
+    } else {
+      showToast('Order submitted ✓','success');
+    }
+    closeModal('mSalesOrder');
+    if (window.__curPage === 'myOrders') myOrders();
+    updateBadges();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  COLLECTIONS (Sales App — submit only)
+// ═══════════════════════════════════════════
+window.saveCollection = async function() {
+  const orderRef = document.getElementById('colOrderRef').value.trim();
+  const amt = parseFloat(document.getElementById('colAmount').value);
+  if (!orderRef || !amt) { showToast('Order ref and amount required','error'); return; }
+  const data = {
+    orderRef, amount: amt,
+    method: document.getElementById('colMethod').value,
+    customer: document.getElementById('colCustomer').value.trim(),
+    date: document.getElementById('colDate').value,
+    ref: document.getElementById('colRef').value.trim(),
+    notes: document.getElementById('colNotes').value.trim(),
+    status: 'pending_erp',     // ← CRITICAL: stays pending until ERP accepts
+    submittedBy: uid(),
+    createdAt: ts()
+  };
+  try {
+    // If orderRef matches an actual order, link it
+    const colRef = await addDoc(collection(_db, C('collections')), data);
+    // Try to update linked order collectionStatus
+    try {
+      const ordSnap = await getDocs(query(collection(_db, C('orders')), where('__name__','==',orderRef))).catch(()=>null);
+      if (ordSnap && !ordSnap.empty) {
+        await updateDoc(doc(_db, C('orders'), orderRef), {
+          collectionStatus: 'collection_pending',
+          erpCollectionId: colRef.id,
+          updatedAt: ts()
+        });
+      }
+    } catch(ex) {}
+    showToast('Collection submitted — pending ERP confirmation ⏳','warn');
+    closeModal('mCollection');
+    if (window.__curPage==='myCollections') myCollections();
+    updateBadges();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  ERP: ACCEPT COLLECTION
+//  Only after ERP accepts can delivery be confirmed
+// ═══════════════════════════════════════════
+window.erpAcceptCollection = async function(collId, orderId) {
+  if (!confirm('Accept this collection? Delivery can then be confirmed.')) return;
+  try {
+    await updateDoc(doc(_db, C('collections'), collId), {
+      status: 'accepted', acceptedAt: ts(), acceptedBy: uid()
+    });
+    // Update order: collection accepted, now delivery can proceed
+    if (orderId) {
+      await updateDoc(doc(_db, C('orders'), orderId), {
+        collectionStatus: 'collection_accepted',
+        updatedAt: ts()
+      }).catch(()=>{});
+    }
+    showToast('Collection accepted ✓ — delivery can now be confirmed','success');
+    collections();
+    updateBadges();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.erpRejectCollection = async function(collId, orderId) {
+  if (!confirm('Reject this collection?')) return;
+  try {
+    await updateDoc(doc(_db, C('collections'), collId), { status:'rejected', rejectedAt:ts(), rejectedBy:uid() });
+    if (orderId) await updateDoc(doc(_db, C('orders'), orderId), { collectionStatus:'collection_rejected', updatedAt:ts() }).catch(()=>{});
+    showToast('Collection rejected','error');
+    collections();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  ERP: CONFIRM DELIVERY
+//  BLOCKED unless collection_accepted (for paid orders)
+//  or free for credit terms (ERP decides)
+// ═══════════════════════════════════════════
+window.openDeliveryConfirm = async function(orderId) {
+  const d = await getDoc(doc(_db, C('orders'), orderId));
+  if (!d.exists()) return;
+  const v = d.data();
+  const body = document.getElementById('mDeliveryBody');
+  const payTerms = v.payTerms || 'cod';
+  const collStatus = v.collectionStatus || 'not_required';
+  const isCOD = payTerms === 'cod';
+  // For COD: must have collection accepted. For credit: ERP can confirm delivery independently.
+  const canConfirm = !isCOD || collStatus === 'collection_accepted';
+  body.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-weight:700;margin-bottom:4px">${v.customer||'—'}</div>
+      <div style="font-size:12px;color:var(--tx3)">Order: ${orderId.slice(-8)} · ${fmt(v.total||0)}</div>
+    </div>
+    <div class="workflow-step">
+      <div class="wf-dot ${collStatus.includes('accepted')||!isCOD?'done':'active'}">💰</div>
+      <div><div class="wf-label">Collection</div><div class="wf-sub">${isCOD?'COD — must be confirmed before delivery':'Credit terms — delivery can proceed independently'}</div></div>
+    </div>
+    <div class="workflow-step">
+      <div class="wf-dot ${canConfirm?'active':'locked'}">🚚</div>
+      <div><div class="wf-label">Delivery Confirmation</div><div class="wf-sub">${canConfirm?'Ready to confirm delivery':'Waiting for collection to be accepted first'}</div></div>
+    </div>
+    ${!canConfirm?`<div class="alert alert-red">🔒 Cannot confirm delivery — collection for this COD order has not been accepted by ERP yet. Accept the collection first.</div>`:''}
+  `;
+  document.getElementById('confirmDeliveryBtn').disabled = !canConfirm;
+  document.getElementById('confirmDeliveryBtn').style.opacity = canConfirm ? '1' : '0.5';
+  document.getElementById('confirmDeliveryBtn').onclick = canConfirm ? () => erpConfirmDelivery(orderId, v) : null;
+  openModal('mDelivery');
+};
+
+async function erpConfirmDelivery(orderId, v) {
+  try {
+    await updateDoc(doc(_db, C('orders'), orderId), {
+      deliveryStatus: 'delivered',
+      status: 'delivered',
+      deliveredAt: ts(),
+      deliveredBy: uid(),
+      updatedAt: ts()
+    });
+    // Mark invoice as paid if COD and collection accepted
+    showToast('Delivery confirmed ✓','success');
+    closeModal('mDelivery');
+    if (window.__curPage==='dispatch') dispatch();
+    if (window.__curPage==='salesOrders') salesOrders();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+// ═══════════════════════════════════════════
+//  ERP: DISCOUNT APPROVALS
+// ═══════════════════════════════════════════
+window.openDiscountApproval = async function(orderId) {
+  const d = await getDoc(doc(_db, C('orders'), orderId));
+  if (!d.exists()) return;
+  const v = d.data();
+  const body = document.getElementById('mDiscountBody');
+  const itemRows = (v.items||[]).map(i => `
+    <tr><td>${i.name}</td><td>${i.qty} × ${fmt(i.price)}</td>
+    <td style="color:var(--red)">${i.discount||0}%</td>
+    <td style="font-family:'DM Mono',monospace">${fmt(i.total)}</td></tr>`).join('');
+  body.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-weight:700">${v.customer}</div>
+      <div style="font-size:12px;color:var(--tx3)">Submitted by rep · ${fmtDate(v.createdAt)}</div>
+    </div>
+    <table style="margin-bottom:14px"><thead><tr><th>Product</th><th>Qty × Price</th><th>Discount</th><th>Line Total</th></tr></thead>
+    <tbody>${itemRows}</tbody></table>
+    <div style="background:var(--s2);border-radius:10px;padding:12px;font-size:13px">
+      <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${fmt(v.subtotal)}</span></div>
+      <div style="display:flex;justify-content:space-between;color:var(--red)"><span>Discount</span><span>- ${fmt(v.discount)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:700;margin-top:8px;padding-top:8px;border-top:1px solid var(--bdr)"><span>Total</span><span style="color:var(--acc)">${fmt(v.total)}</span></div>
+    </div>
+    <div class="fgrp" style="margin-top:14px"><label class="flbl">ERP Comment (optional)</label><input class="finp" id="discComment" placeholder="Reason for approval/rejection..."></div>
+  `;
+  document.getElementById('discountApproveBtn').onclick = () => processDiscount(orderId, 'approved');
+  document.getElementById('discountRejectBtn').onclick = () => processDiscount(orderId, 'rejected');
+  openModal('mDiscount');
+};
+
+async function processDiscount(orderId, decision) {
+  const comment = document.getElementById('discComment')?.value || '';
+  try {
+    const updates = {
+      discountStatus: decision,
+      discountComment: comment,
+      discountReviewedBy: uid(),
+      discountReviewedAt: ts(),
+      updatedAt: ts()
+    };
+    // If approved → allow order to proceed to processing
+    // If rejected → order goes back, sales rep must revise
+    if (decision === 'approved') {
+      updates.status = 'processing';
+    } else {
+      updates.status = 'discount_rejected';
+    }
+    await updateDoc(doc(_db, C('orders'), orderId), updates);
+    showToast(decision === 'approved' ? 'Discount approved — order processing ✓' : 'Discount rejected ✕', decision==='approved'?'success':'error');
+    closeModal('mDiscount');
+    discounts();
+    updateBadges();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+}
+
+// ═══════════════════════════════════════════
+//  INVOICE LINE ITEMS (ERP)
+// ═══════════════════════════════════════════
+let _invLines = 0;
+window.addInvLine = function() {
+  _invLines++;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end;';
+  div.innerHTML = `
+    <div><label class="flbl">Description</label><input class="finp" placeholder="Product / service description"></div>
+    <div><label class="flbl">Qty</label><input class="finp" type="number" value="1" oninput="calcInvTotal()"></div>
+    <div><label class="flbl">Unit Price</label><input class="finp" type="number" placeholder="0.00" oninput="calcInvTotal()"></div>
+    <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove();calcInvTotal()">✕</button>
+  `;
+  document.getElementById('invLineItems').appendChild(div);
+};
+window.calcInvTotal = function() {
+  let total = 0;
+  document.querySelectorAll('#invLineItems > div').forEach(row => {
+    const inputs = row.querySelectorAll('input[type="number"]');
+    total += (parseFloat(inputs[0]?.value)||0) * (parseFloat(inputs[1]?.value)||0);
+  });
+  document.getElementById('invTotal').textContent = fmt(total);
+};
+window.autofillFromOrder = function(sel) {
+  const opt = sel.selectedOptions[0];
+  if (!opt || !opt.value) return;
+  document.getElementById('invCust').value = opt.dataset.customer || '';
+  const items = JSON.parse(opt.dataset.items || '[]');
+  document.getElementById('invLineItems').innerHTML = '';
+  items.forEach(item => {
+    _invLines++;
+    const div = document.createElement('div');
+    div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end;';
+    div.innerHTML = `
+      <div><label class="flbl">Description</label><input class="finp" value="${item.name||''}" placeholder="Product / service description"></div>
+      <div><label class="flbl">Qty</label><input class="finp" type="number" value="${item.qty||1}" oninput="calcInvTotal()"></div>
+      <div><label class="flbl">Unit Price</label><input class="finp" type="number" value="${item.price||0}" placeholder="0.00" oninput="calcInvTotal()"></div>
+      <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove();calcInvTotal()">✕</button>
+    `;
+    document.getElementById('invLineItems').appendChild(div);
+  });
+  calcInvTotal();
+};
+
+window.saveInvoice = async function() {
+  const cust = document.getElementById('invCust').value.trim();
+  if (!cust) { showToast('Customer required','error'); return; }
+  const items = [];
+  let total = 0;
+  document.querySelectorAll('#invLineItems > div').forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const desc = inputs[0]?.value?.trim();
+    const qty = parseFloat(inputs[1]?.value)||0;
+    const price = parseFloat(inputs[2]?.value)||0;
+    if (!desc) return;
+    const lineTotal = qty * price;
+    total += lineTotal;
+    items.push({ name: desc, qty, price, total: lineTotal });
+  });
+  const linkedOrder = document.getElementById('invLinkedOrder').value;
+  const data = {
+    invoiceNo: document.getElementById('invNo').value,
+    customer: cust, date: document.getElementById('invDate').value,
+    dueDate: document.getElementById('invDue').value,
+    items, total, linkedOrderId: linkedOrder,
+    notes: document.getElementById('invNotes').value,
+    status: 'issued', createdAt: ts(), createdBy: uid()
+  };
+  try {
+    await addDoc(collection(_db, C('invoices')), data);
+    showToast('Invoice created ✓','success');
+    closeModal('mInvoice');
+    if (window.__curPage==='invoices') invoices();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.markInvoicePaid = async function(id) {
+  if (!confirm('Mark invoice as paid?')) return;
+  try {
+    await updateDoc(doc(_db, C('invoices'), id), { status:'paid', paidAt:ts(), updatedAt:ts() });
+    showToast('Invoice marked paid ✓','success');
+    invoices();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  SAVE HELPERS
+// ═══════════════════════════════════════════
+window.saveInventory = async function() {
+  const name = document.getElementById('invName').value.trim();
+  if (!name) { showToast('Name required','error'); return; }
+  const data = {
+    name, sku: document.getElementById('invSku').value.trim(),
+    category: document.getElementById('invCat').value,
+    unit: document.getElementById('invUnit').value,
+    qty: parseFloat(document.getElementById('invQty').value)||0,
+    minStock: parseFloat(document.getElementById('invMin').value)||0,
+    maxStock: parseFloat(document.getElementById('invMax').value)||0,
+    costPrice: parseFloat(document.getElementById('invCost').value)||0,
+    sellingPrice: parseFloat(document.getElementById('invPrice').value)||0,
+    supplier: document.getElementById('invSupplier').value.trim(),
+    notes: document.getElementById('invNotes').value.trim(),
+    updatedAt: ts()
+  };
+  const id = document.getElementById('invDocId').value;
+  try {
+    if (id) { await updateDoc(doc(_db, C('inventory'), id), data); showToast('Item updated ✓','success'); }
+    else { data.createdAt=ts(); await addDoc(collection(_db, C('inventory')), data); showToast('Item added ✓','success'); }
+    closeModal('mInventory'); inventory();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.saveProduct = async function() {
+  const name = document.getElementById('productName').value.trim();
+  if (!name) { showToast('Product name required','error'); return; }
+  const data = {
+    name, sku: document.getElementById('productSku').value.trim(),
+    category: document.getElementById('productCat').value,
+    unit: document.getElementById('productUnit').value,
+    price: parseFloat(document.getElementById('productPrice').value)||0,
+    cost: parseFloat(document.getElementById('productCost').value)||0,
+    maxDiscount: parseFloat(document.getElementById('productMaxDiscount').value)||0,
+    notes: document.getElementById('productNotes').value.trim(),
+    updatedAt: ts()
+  };
+  const id = document.getElementById('productDocId').value;
+  try {
+    if (id) { await updateDoc(doc(_db, C('products'), id), data); showToast('Product updated ✓','success'); }
+    else { data.createdAt=ts(); await addDoc(collection(_db, C('products')), data); showToast('Product added ✓','success'); }
+    closeModal('mProduct');
+    if (window.__curPage==='settings') settings();
+    if (window.__curPage==='products') products();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.editProduct = async function(id) {
+  const d = await getDoc(doc(_db, C('products'), id));
+  if (!d.exists()) return;
+  const v = d.data();
+  document.getElementById('productDocId').value = id;
+  document.getElementById('productName').value = v.name||'';
+  document.getElementById('productSku').value = v.sku||'';
+  document.getElementById('productCat').value = v.category||'General';
+  document.getElementById('productUnit').value = v.unit||'pcs';
+  document.getElementById('productPrice').value = v.price||0;
+  document.getElementById('productCost').value = v.cost||0;
+  document.getElementById('productMaxDiscount').value = v.maxDiscount||0;
+  document.getElementById('productNotes').value = v.notes||'';
+  document.getElementById('productModalTitle').textContent = 'Edit Product';
+  openModal('mProduct');
+};
+
+window.deleteProduct = async function(id) {
+  if (!confirm('Delete this product?')) return;
+  try {
+    await deleteDoc(doc(_db, C('products'), id));
+    showToast('Product deleted','success');
+    if (window.__curPage==='settings') settings();
+    if (window.__curPage==='products') products();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.saveSupplier = async function() {
+  const name = document.getElementById('supName').value.trim();
+  if (!name) { showToast('Company name required','error'); return; }
+  const data = {
+    name, status: document.getElementById('supStatus').value,
+    phone: document.getElementById('supPhone').value.trim(),
+    email: document.getElementById('supEmail').value.trim(),
+    address: document.getElementById('supAddress').value.trim(),
+    bank: document.getElementById('supBank').value.trim(),
+    accNo: document.getElementById('supAccNo').value.trim(),
+    paymentTerms: document.getElementById('supPayTerms').value.trim(),
+    notes: document.getElementById('supNotes').value.trim(),
+    updatedAt: ts()
+  };
+  const id = document.getElementById('supDocId').value;
+  try {
+    if (id) { await updateDoc(doc(_db, C('suppliers'), id), data); showToast('Supplier updated ✓','success'); }
+    else { data.createdAt=ts(); await addDoc(collection(_db, C('suppliers')), data); showToast('Supplier added ✓','success'); }
+    closeModal('mSupplier'); suppliers();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+window.editSupplier = async function(id) {
+  const d = await getDoc(doc(_db, C('suppliers'), id));
+  if (!d.exists()) return;
+  const v = d.data();
+  document.getElementById('supDocId').value = id;
+  document.getElementById('supName').value = v.name||'';
+  document.getElementById('supPhone').value = v.phone||'';
+  document.getElementById('supEmail').value = v.email||'';
+  document.getElementById('supAddress').value = v.address||'';
+  document.getElementById('supBank').value = v.bank||'';
+  document.getElementById('supAccNo').value = v.accNo||'';
+  document.getElementById('supPayTerms').value = v.paymentTerms||'';
+  document.getElementById('supStatus').value = v.status||'active';
+  document.getElementById('supNotes').value = v.notes||'';
+  document.getElementById('supModalTitle').textContent = 'Edit Supplier';
+  openModal('mSupplier');
+};
+
+window.deleteRecord = async function(coll, id, refresh) {
+  if (!confirm('Delete this record?')) return;
+  try {
+    await deleteDoc(doc(_db, C(coll), id));
+    showToast('Deleted','success');
+    if (refresh) window[refresh]();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+window.setStatus = async function(coll, id, status, refresh) {
+  try {
+    await updateDoc(doc(_db, C(coll), id), { status, updatedAt:ts() });
+    showToast('Status updated ✓','success');
+    if (refresh) window[refresh]();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  PAGE RENDERERS — ERP
+// ═══════════════════════════════════════════
+async function dashboard() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const [invSnap, ordSnap, pendDiscSnap, pendCollSnap, invSnap2] = await Promise.all([
+      getDocs(collection(_db, C('inventory'))).catch(()=>({size:0,forEach:()=>{}})),
+      getDocs(query(collection(_db, C('orders')), orderBy('createdAt','desc'), limit(5))).catch(()=>null),
+      getDocs(query(collection(_db, C('orders')), where('discountStatus','==','pending'))).catch(()=>({size:0})),
+      getDocs(query(collection(_db, C('collections')), where('status','==','pending_erp'))).catch(()=>({size:0})),
+      getDocs(collection(_db, C('invoices'))).catch(()=>({size:0,forEach:()=>{}})),
+    ]);
+    let totalStock=0,lowStock=0;
+    invSnap.forEach(d=>{const v=d.data();totalStock+=v.qty||0;if((v.qty||0)<=(v.minStock||0))lowStock++;});
+    let totalInv=0,unpaid=0;
+    invSnap2.forEach(d=>{const v=d.data();totalInv+=v.total||0;if(v.status!=='paid')unpaid++;});
+    let recentRows='';
+    if (ordSnap && !ordSnap.empty) {
+      ordSnap.forEach(d=>{
+        const v=d.data();
+        recentRows+=`<tr><td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-6)}</td>
+          <td>${v.customer||'—'}</td><td style="font-family:'DM Mono',monospace">${fmt(v.total||0)}</td>
+          <td>${badgeStatus(v.status||'pending')}</td><td>${badgeStatus(v.discountStatus||'not_required')}</td>
+          <td>${badgeStatus(v.deliveryStatus||'pending')}</td>
+          <td style="font-size:11px;color:var(--tx3)">${fmtDate(v.createdAt)}</td></tr>`;
+      });
+    }
+    mc.innerHTML = `
+      <div class="page-title">Welcome back, ${_user?.name?.split(' ')[0]||'Admin'} 👋</div>
+      <div class="page-sub" style="margin-bottom:16px">${_tenant?.name||'ERP'} · ${new Date().toLocaleDateString('en-MY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+      ${pendDiscSnap.size>0?`<div class="alert alert-yellow" style="cursor:pointer" onclick="goPage('discounts')"><span>🏷️ <strong>${pendDiscSnap.size}</strong> discount approval${pendDiscSnap.size>1?'s':''} waiting</span><span class="alert-action">Review →</span></div>`:''}
+      ${pendCollSnap.size>0?`<div class="alert alert-orange" style="cursor:pointer;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.2);color:var(--ora)" onclick="goPage('collections')"><span>💰 <strong>${pendCollSnap.size}</strong> collection${pendCollSnap.size>1?'s':''} pending acceptance</span><span class="alert-action">Accept →</span></div>`:''}
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--acc)" onclick="goPage('inventory')"><div class="kpi-ico">📦</div><div class="kpi-val">${invSnap.size}</div><div class="kpi-lbl">Stock SKUs</div><div class="kpi-delta">${lowStock} low stock</div></div>
+        <div class="kpi" style="--kpi-color:var(--blu)" onclick="goPage('invoices')"><div class="kpi-ico">🧾</div><div class="kpi-val">${invSnap2.size}</div><div class="kpi-lbl">Invoices</div><div class="kpi-delta">${unpaid} unpaid</div></div>
+        <div class="kpi" style="--kpi-color:var(--ylw)" onclick="goPage('discounts')"><div class="kpi-ico">🏷️</div><div class="kpi-val">${pendDiscSnap.size}</div><div class="kpi-lbl">Pending Discounts</div><div class="kpi-delta">ERP review required</div></div>
+        <div class="kpi" style="--kpi-color:var(--ora)" onclick="goPage('collections')"><div class="kpi-ico">💰</div><div class="kpi-val">${pendCollSnap.size}</div><div class="kpi-lbl">Collections Pending</div><div class="kpi-delta">Accept to unlock delivery</div></div>
+      </div>
+      ${recentRows?`<div class="card" style="padding:18px">
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:14px">📋 Recent Orders</div>
+        <div class="twrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Discount</th><th>Delivery</th><th>Date</th></tr></thead>
+        <tbody>${recentRows}</tbody></table></div></div>`:''}
+    `;
+  } catch(e) { document.getElementById('mainContent').innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function inventory() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('inventory')), orderBy('name'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      const isLow=(v.qty||0)<=(v.minStock||0);
+      rows+=`<tr>
+        <td><strong>${v.name}</strong><div style="font-size:11px;color:var(--tx3)">${v.sku||'—'}</div></td>
+        <td><span class="badge badge-gray">${v.category||'—'}</span></td>
+        <td style="font-family:'DM Mono',monospace"><strong style="color:${isLow?'var(--red)':'var(--tx)'}">${v.qty||0}</strong> ${v.unit||''}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.minStock||0} / ${v.maxStock||0}</td>
+        <td style="font-family:'DM Mono',monospace">${fmt(v.costPrice||0)}</td>
+        <td>${isLow?'<span class="badge badge-red">Low Stock</span>':'<span class="badge badge-green">OK</span>'}</td>
+        <td><button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="editInventory('${d.id}')">✏️</button>
+            <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('inventory','${d.id}','inventory')">🗑</button></td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Inventory</div><div class="page-sub">${snap.size} items</div></div>
+      <div class="srch-bar"><input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'invTbl')"><button class="btn btn-primary" onclick="prepModal('inventory');openModal('mInventory')">+ Add Item</button></div></div>
+      <div class="card"><div class="twrap"><table id="invTbl"><thead><tr><th>Name</th><th>Category</th><th>Stock</th><th>Min/Max</th><th>Cost</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No inventory items yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+window.editInventory = async function(id) {
+  const d = await getDoc(doc(_db, C('inventory'), id));
+  if (!d.exists()) return;
+  const v = d.data();
+  document.getElementById('invDocId').value = id;
+  ['invName','invSku','invQty','invMin','invMax','invCost','invPrice','invSupplier','invNotes'].forEach(i => {
+    const key = {invName:'name',invSku:'sku',invQty:'qty',invMin:'minStock',invMax:'maxStock',invCost:'costPrice',invPrice:'sellingPrice',invSupplier:'supplier',invNotes:'notes'}[i];
+    const el = document.getElementById(i); if(el) el.value = v[key]||'';
+  });
+  document.getElementById('invCat').value = v.category||'General';
+  document.getElementById('invUnit').value = v.unit||'pcs';
+  document.getElementById('invModalTitle').textContent = 'Edit Stock Item';
+  openModal('mInventory');
+};
+
+async function salesOrders() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('orders')), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      const needsDisc = v.discountStatus==='pending';
+      rows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-8)}</td>
+        <td><strong>${v.customer||'—'}</strong></td>
+        <td style="font-family:'DM Mono',monospace">${fmt(v.total||0)}</td>
+        <td>${badgeStatus(v.status||'pending')}</td>
+        <td>${badgeStatus(v.discountStatus||'not_required')}</td>
+        <td>${badgeStatus(v.deliveryStatus||'pending')}</td>
+        <td>${badgeStatus(v.collectionStatus||'not_required')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${fmtDate(v.createdAt)}</td>
+        <td style="white-space:nowrap">
+          ${needsDisc?`<button class="btn btn-yellow" style="padding:4px 9px;font-size:11px" onclick="openDiscountApproval('${d.id}')">🏷️ Approve</button>`:''}
+          ${v.status==='processing'||v.status==='approved'?`<button class="btn btn-blue" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="openDeliveryConfirm('${d.id}')">🚚 Delivery</button>`:''}
+        </td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Sales Orders</div><div class="page-sub">${snap.size} orders from Sales App</div></div>
+      <div class="srch-bar"><input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'soTbl')"></div></div>
+      <div class="card"><div class="twrap"><table id="soTbl">
+        <thead><tr><th>ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Discount</th><th>Delivery</th><th>Collection</th><th>Date</th><th>Actions</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:30px">No orders yet</td></tr>'}</tbody>
+      </table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function discounts() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('orders')), where('discountStatus','==','pending'))).catch(()=>({forEach:()=>{},size:0}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      rows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-8)}</td>
+        <td><strong>${v.customer||'—'}</strong></td>
+        <td style="font-family:'DM Mono',monospace">${fmt(v.subtotal||0)}</td>
+        <td style="font-family:'DM Mono',monospace;color:var(--red)">- ${fmt(v.discount||0)}</td>
+        <td style="font-family:'DM Mono',monospace;color:var(--acc)">${fmt(v.total||0)}</td>
+        <td style="font-size:11px;color:var(--tx3)">${fmtDate(v.createdAt)}</td>
+        <td>
+          <button class="btn btn-primary" style="padding:5px 11px;font-size:11px" onclick="openDiscountApproval('${d.id}')">Review & Approve</button>
+        </td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Discount Approvals</div><div class="page-sub">${snap.size} orders awaiting discount review — <strong>orders cannot be processed until approved</strong></div></div></div>
+      ${snap.size>0?`<div class="alert alert-yellow">🔒 These orders are <strong>locked</strong> in the Sales App until you approve or reject the discount request.</div>`:''}
+      <div class="card"><div class="twrap"><table>
+        <thead><tr><th>Order ID</th><th>Customer</th><th>Subtotal</th><th>Discount</th><th>Net Total</th><th>Date</th><th>Action</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">✅ No pending discount approvals</td></tr>'}</tbody>
+      </table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function invoices() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('invoices')), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='',total=0,paid=0;
+    snap.forEach(d=>{
+      const v=d.data();
+      total+=v.total||0;
+      if(v.status==='paid')paid+=v.total||0;
+      rows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:12px"><strong>${v.invoiceNo||d.id.slice(-6)}</strong></td>
+        <td>${v.customer||'—'}</td>
+        <td style="font-family:'DM Mono',monospace;color:var(--acc)">${fmt(v.total||0)}</td>
+        <td>${badgeStatus(v.status||'issued')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.date||fmtDate(v.createdAt)}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.dueDate||'—'}</td>
+        <td>${v.status!=='paid'?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="markInvoicePaid('${d.id}')">✅ Mark Paid</button>`:''}
+            <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('invoices','${d.id}','invoices')">🗑</button></td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Invoices</div><div class="page-sub">Total: ${fmt(total)} · Paid: ${fmt(paid)} · Outstanding: ${fmt(total-paid)}</div></div>
+      <div class="srch-bar"><input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'invTbl2')"><button class="btn btn-primary" onclick="prepModal('invoice');openModal('mInvoice')">+ New Invoice</button></div></div>
+      <div class="card"><div class="twrap"><table id="invTbl2"><thead><tr><th>Invoice No.</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th><th>Due</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No invoices yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function collections() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('collections')), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='',pending=0,accepted=0;
+    snap.forEach(d=>{
+      const v=d.data();
+      if(v.status==='pending_erp')pending++;
+      if(v.status==='accepted')accepted+=v.amount||0;
+      rows+=`<tr>
+        <td>${v.customer||v.orderRef||'—'}</td>
+        <td style="font-family:'DM Mono',monospace;color:var(--acc)">${fmt(v.amount||0)}</td>
+        <td><span class="badge badge-gray">${v.method||'—'}</span></td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${v.orderRef||'—'}</td>
+        <td>${badgeStatus(v.status||'pending_erp')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.date||fmtDate(v.createdAt)}</td>
+        <td style="white-space:nowrap">
+          ${v.status==='pending_erp'?`
+            <button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="erpAcceptCollection('${d.id}','${v.orderRef||''}')">✅ Accept</button>
+            <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="erpRejectCollection('${d.id}','${v.orderRef||''}')">✕ Reject</button>
+          `:''}
+          ${v.status==='accepted'?'<span style="font-size:11px;color:var(--acc)">✓ Accepted</span>':''}
+        </td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Collections</div>
+      <div class="page-sub">Accepted: <strong style="color:var(--acc)">${fmt(accepted)}</strong>${pending>0?` · <strong style="color:var(--ylw)">${pending} pending ERP acceptance</strong>`:''}</div></div></div>
+      ${pending>0?`<div class="alert alert-yellow">⏳ <strong>${pending}</strong> collection(s) from Sales App are waiting acceptance. <strong>Delivery cannot be confirmed until collection is accepted for COD orders.</strong></div>`:''}
+      <div class="card"><div class="twrap"><table><thead><tr><th>Customer</th><th>Amount</th><th>Method</th><th>Order Ref</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No collections yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function dispatch() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('orders')), where('status','in',['processing','dispatched','delivered']))).catch(()=>({forEach:()=>{},size:0}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      const collStatus = v.collectionStatus||'not_required';
+      const payTerms = v.payTerms||'cod';
+      const canDeliver = payTerms !== 'cod' || collStatus === 'collection_accepted';
+      rows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-8)}</td>
+        <td><strong>${v.customer||'—'}</strong></td>
+        <td><span class="badge badge-gray">${v.payTerms||'cod'}</span></td>
+        <td>${badgeStatus(v.deliveryStatus||'pending')}</td>
+        <td>${badgeStatus(collStatus)}</td>
+        <td>${canDeliver
+          ? (v.deliveryStatus!=='delivered'?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="openDeliveryConfirm('${d.id}')">🚚 Confirm Delivered</button>`:'<span style="color:var(--acc);font-size:12px">✓ Done</span>')
+          : `<span class="badge badge-red" title="Accept COD collection first">🔒 Collection Required</span>`}
+        </td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="page-title">Dispatch & Delivery</div>
+      <div class="page-sub">ERP controls all delivery confirmations — COD orders require collection acceptance first</div>
+      <div class="rtabs" id="dispatchTabs">
+        <div class="rtab active" onclick="switchDispatchTab('dispActives','dispatchTabs',this)">🚚 Active Dispatches</div>
+        <div class="rtab" onclick="switchDispatchTab('dispTopSheet','dispatchTabs',this)">📋 Top Sheet</div>
+      </div>
+      <div id="dispActives">
+        <div class="alert alert-blue" style="margin-bottom:14px">🔒 <strong>Delivery Rule:</strong> COD orders cannot be confirmed until collection is accepted. Credit-term orders can be delivered independently.</div>
+        <div class="card"><div class="twrap"><table><thead><tr><th>Order ID</th><th>Customer</th><th>Payment Terms</th><th>Delivery Status</th><th>Collection</th><th>Action</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">No active dispatches</td></tr>'}</tbody></table></div></div>
+      </div>
+      <div id="dispTopSheet" style="display:none"></div>`;
+
+    window.switchDispatchTab = function(showId, tabsId, el) {
+      document.querySelectorAll(`#${tabsId} .rtab`).forEach(t=>t.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById('dispActives').style.display = showId==='dispActives' ? '' : 'none';
+      document.getElementById('dispTopSheet').style.display = showId==='dispTopSheet' ? '' : 'none';
+      if (showId==='dispTopSheet') renderTopSheet();
+    };
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+// ═══════════════════════════════════════════
+//  TOP SHEET — DELIVERY MAN WISE
+// ═══════════════════════════════════════════
+async function renderTopSheet() {
+  const container = document.getElementById('dispTopSheet');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading top sheet data…</div>';
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Date filter UI first (fast render)
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <div>
+          <label class="flbl" style="display:inline;margin-right:6px">Date</label>
+          <input class="finp" type="date" id="tsDate" value="${today}" style="width:160px;display:inline-block" onchange="reloadTopSheet()">
+        </div>
+        <div>
+          <label class="flbl" style="display:inline;margin-right:6px">Delivery Man</label>
+          <select class="finp" id="tsRepFilter" style="width:200px;display:inline-block" onchange="reloadTopSheet()">
+            <option value="">— All —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" style="margin-left:auto" onclick="printTopSheet()">🖨️ Print / PDF</button>
+      </div>
+      <div id="tsBody"><div style="text-align:center;padding:30px;color:var(--tx3)">Loading…</div></div>`;
+
+    // Load delivery men (role=delivery_man) from users collection
+    const usersSnap = await getDocs(query(collection(_db, C('users')), where('role','==','delivery_man'))).catch(()=>({forEach:()=>{},size:0}));
+    const dmMap = {};  // uid → name
+    const dmSel = document.getElementById('tsRepFilter');
+    usersSnap.forEach(d => {
+      const v = d.data();
+      dmMap[d.id] = v.name || v.email || d.id;
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = v.name || v.email || d.id;
+      dmSel?.appendChild(opt);
+    });
+
+    // Store dmMap globally for reload
+    window._tsDmMap = dmMap;
+    await _buildTopSheetBody(today, '', dmMap);
+
+    window.reloadTopSheet = async function() {
+      const date = document.getElementById('tsDate')?.value || today;
+      const rep  = document.getElementById('tsRepFilter')?.value || '';
+      await _buildTopSheetBody(date, rep, window._tsDmMap || {});
+    };
+
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`;
+  }
+}
+
+async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
+  const body = document.getElementById('tsBody');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--tx3)">Loading…</div>';
+
+  // Date range: start of day → end of day (Firestore Timestamp comparison)
+  const dayStart = new Date(dateStr + 'T00:00:00');
+  const dayEnd   = new Date(dateStr + 'T23:59:59');
+
+  // Fetch orders for the day that are in dispatch pipeline
+  const statusList = ['processing','dispatched','delivered'];
+  let ordersQ = query(
+    collection(_db, C('orders')),
+    where('status','in', statusList)
+  );
+  const ordSnap = await getDocs(ordersQ).catch(()=>({forEach:()=>{},size:0}));
+
+  // Also fetch all accepted/pending collections for these orders
+  const collSnap = await getDocs(collection(_db, C('collections'))).catch(()=>({forEach:()=>{},size:0}));
+  const collByOrderRef = {};
+  collSnap.forEach(d => {
+    const v = d.data();
+    const ref = v.orderRef || v.linkedOrderId || '';
+    if (ref) collByOrderRef[ref] = { id: d.id, ...v };
+  });
+
+  // Group orders by deliveryManId
+  const groups = {};  // deliveryManId → [orders]
+  ordSnap.forEach(d => {
+    const v = d.data();
+    const dmId = v.deliveryManId || v.repId || 'unassigned';
+    if (repFilterUid && dmId !== repFilterUid) return;
+    if (!groups[dmId]) groups[dmId] = [];
+    groups[dmId].push({ id: d.id, ...v });
+  });
+
+  if (Object.keys(groups).length === 0) {
+    body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--tx3)">
+      <div style="font-size:32px;margin-bottom:10px">📋</div>
+      <div>No dispatch orders found for this date / filter.</div>
+    </div>`;
+    return;
+  }
+
+  // Build printable top sheet HTML per delivery man
+  let html = `<div id="tsPrintArea">`;
+  const dmIds = Object.keys(groups).sort();
+
+  for (const dmId of dmIds) {
+    const orders = groups[dmId];
+    const dmName = dmMap[dmId] || (dmId === 'unassigned' ? '— Unassigned —' : dmId);
+
+    // Stats
+    let totalOrders = orders.length;
+    let totalCash = 0, totalCredit = 0, totalAmount = 0;
+    let deliveredCount = 0, pendingCount = 0;
+
+    let orderRows = '';
+    orders.forEach((v, idx) => {
+      const isCOD = (v.payTerms || 'cod') === 'cod';
+      const isDelivered = v.deliveryStatus === 'delivered';
+      const coll = collByOrderRef[v.id] || null;
+      const collAmt = coll?.amount || 0;
+      const collStatus = coll?.status || (v.collectionStatus || 'not_required');
+      const amt = v.total || 0;
+
+      totalAmount += amt;
+      if (isCOD) totalCash += amt; else totalCredit += amt;
+      if (isDelivered) deliveredCount++; else pendingCount++;
+
+      const collBadge = isCOD
+        ? (collStatus === 'accepted'
+            ? `<span class="badge badge-green">✓ Collected</span>`
+            : collStatus === 'pending_erp'
+            ? `<span class="badge badge-yellow">⏳ Pending</span>`
+            : `<span class="badge badge-red">Not Collected</span>`)
+        : `<span class="badge badge-gray">Credit</span>`;
+
+      const delivBadge = isDelivered
+        ? `<span class="badge badge-green">✓ Delivered</span>`
+        : v.status === 'dispatched'
+        ? `<span class="badge badge-blue">Dispatched</span>`
+        : `<span class="badge badge-yellow">Processing</span>`;
+
+      orderRows += `<tr>
+        <td style="font-weight:700;text-align:center">${idx+1}</td>
+        <td>
+          <div style="font-weight:600;font-size:13px">${v.customer||'—'}</div>
+          <div style="font-size:10px;color:var(--tx3);font-family:'DM Mono',monospace">#${v.id.slice(-8)}</div>
+        </td>
+        <td style="font-size:12px">${v.notes||'—'}</td>
+        <td><span class="badge ${isCOD?'badge-blue':'badge-purple'}">${v.payTerms||'COD'}</span></td>
+        <td style="font-family:'DM Mono',monospace;font-weight:700;text-align:right">${fmt(amt)}</td>
+        <td style="text-align:center">${collBadge}</td>
+        <td style="font-family:'DM Mono',monospace;text-align:right;color:var(--acc)">${isCOD && collAmt ? fmt(collAmt) : '—'}</td>
+        <td style="text-align:center">${delivBadge}</td>
+        <td style="min-width:90px">
+          <div class="ts-sig-box"></div>
+        </td>
+      </tr>`;
+    });
+
+    html += `
+      <div class="ts-block" style="margin-bottom:28px;break-inside:avoid">
+        <!-- DM Header -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding:14px 18px;background:var(--s2);border:1px solid var(--bdr);border-radius:12px;border-left:4px solid var(--acc)">
+          <div>
+            <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800">🚚 ${dmName}</div>
+            <div style="font-size:11px;color:var(--tx3);margin-top:2px">Top Sheet · ${new Date(dateStr).toLocaleDateString('en-MY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:9px;padding:8px 14px">
+              <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--acc)">${totalOrders}</div>
+              <div style="font-size:10px;color:var(--tx3)">Orders</div>
+            </div>
+            <div style="text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:9px;padding:8px 14px">
+              <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--blu)">${fmt(totalAmount)}</div>
+              <div style="font-size:10px;color:var(--tx3)">Total Value</div>
+            </div>
+            <div style="text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:9px;padding:8px 14px">
+              <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--ylw)">${fmt(totalCash)}</div>
+              <div style="font-size:10px;color:var(--tx3)">COD Cash</div>
+            </div>
+            <div style="text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:9px;padding:8px 14px">
+              <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--acc)">${deliveredCount}/${totalOrders}</div>
+              <div style="font-size:10px;color:var(--tx3)">Delivered</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Orders Table -->
+        <div class="card" style="margin-bottom:12px">
+          <div class="twrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:36px;text-align:center">#</th>
+                  <th>Customer / Order</th>
+                  <th>Notes</th>
+                  <th>Terms</th>
+                  <th style="text-align:right">Amount</th>
+                  <th style="text-align:center">Collection</th>
+                  <th style="text-align:right">Cash Rcvd</th>
+                  <th style="text-align:center">Status</th>
+                  <th style="text-align:center">Cust. Sign</th>
+                </tr>
+              </thead>
+              <tbody>${orderRows}</tbody>
+              <tfoot>
+                <tr style="background:var(--s2)">
+                  <td colspan="4" style="font-weight:700;font-size:12px;padding:10px 13px">TOTALS</td>
+                  <td style="font-family:'DM Mono',monospace;font-weight:800;text-align:right;color:var(--blu)">${fmt(totalAmount)}</td>
+                  <td></td>
+                  <td style="font-family:'DM Mono',monospace;font-weight:800;text-align:right;color:var(--acc)">${fmt(totalCash)}</td>
+                  <td colspan="2" style="font-size:11px;color:var(--tx3)">${deliveredCount} delivered · ${pendingCount} pending</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Reconciliation + Signature Footer -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <!-- Cash Reconciliation -->
+          <div style="border:1px solid var(--bdr);border-radius:10px;padding:14px;background:var(--s1)">
+            <div style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">💰 Cash Reconciliation</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+              <span>Expected Cash (COD)</span>
+              <span style="font-family:'DM Mono',monospace;font-weight:700">${fmt(totalCash)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+              <span>Credit Orders</span>
+              <span style="font-family:'DM Mono',monospace;color:var(--pur)">${fmt(totalCredit)}</span>
+            </div>
+            <div style="border-top:2px solid var(--bdr);margin:8px 0;padding-top:8px;display:flex;justify-content:space-between;font-weight:700">
+              <span>Cash Handed Over</span>
+              <span style="font-family:'DM Mono',monospace;color:var(--acc)">RM ___________</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--tx3);margin-top:4px">
+              <span>Variance</span>
+              <span style="font-family:'DM Mono',monospace">RM ___________</span>
+            </div>
+          </div>
+          <!-- Delivery Man Sign-off -->
+          <div style="border:1px solid var(--bdr);border-radius:10px;padding:14px;background:var(--s1)">
+            <div style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">✍️ Sign-off</div>
+            <div style="margin-bottom:14px">
+              <div style="font-size:11px;color:var(--tx3);margin-bottom:6px">Delivery Man Signature</div>
+              <div style="border-bottom:1.5px solid var(--tx3);height:36px;margin-bottom:4px"></div>
+              <div style="font-size:10px;color:var(--tx3)">Name: <strong>${dmName}</strong></div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--tx3);margin-bottom:6px">Verified By (ERP)</div>
+              <div style="border-bottom:1.5px solid var(--tx3);height:36px;margin-bottom:4px"></div>
+              <div style="font-size:10px;color:var(--tx3)">Date & Time: ___________________</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Delivery Proof Notes -->
+        <div style="border:1px solid var(--bdr);border-radius:10px;padding:14px;background:var(--s1);margin-top:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📷 Delivery Proof & Remarks</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+            ${orders.map((v,i)=>`
+            <div style="border:1px solid var(--bdr);border-radius:8px;padding:10px">
+              <div style="font-size:10px;font-weight:700;color:var(--tx3);margin-bottom:4px">#${i+1} ${(v.customer||'').slice(0,18)}</div>
+              <div style="font-size:10px;color:var(--tx3);margin-bottom:6px">Photo: ☐ Taken</div>
+              <div style="border-bottom:1px solid var(--bdr);height:22px;margin-bottom:4px"></div>
+              <div style="font-size:9px;color:var(--tx3)">Remarks / Issues</div>
+            </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <hr style="border:none;border-top:2px dashed var(--bdr);margin:24px 0">`;
+  }
+
+  html += `</div>`;
+
+  // Inject print styles once
+  if (!document.getElementById('tsPrintStyles')) {
+    const style = document.createElement('style');
+    style.id = 'tsPrintStyles';
+    style.textContent = `
+      .ts-sig-box { border:1px solid var(--bdr); border-radius:4px; height:32px; min-width:80px; }
+      @media print {
+        body > *:not(#app) { display:none!important; }
+        #app .sidebar, #app .topbar { display:none!important; }
+        #app { display:block!important; height:auto!important; overflow:visible!important; }
+        #app .main { overflow:visible!important; }
+        #app .content { padding:0!important; overflow:visible!important; }
+        .rtabs, #dispActives, .pbar, .page-sub, .alert { display:none!important; }
+        #dispTopSheet { display:block!important; }
+        #tsBody > div:first-child { display:none!important; }
+        #tsPrintArea { display:block!important; }
+        .ts-block { page-break-inside:avoid; margin-bottom:20px!important; }
+        hr { border-top:1px dashed #ccc!important; }
+        @page { margin:15mm; size:A4 landscape; }
+      }`;
+    document.head.appendChild(style);
+  }
+
+  body.innerHTML = html;
+}
+
+window.printTopSheet = function() {
+  window.print();
+};
+
+window.reloadTopSheet = async function() {
+  const date = document.getElementById('tsDate')?.value || new Date().toISOString().split('T')[0];
+  const rep  = document.getElementById('tsRepFilter')?.value || '';
+  await _buildTopSheetBody(date, rep, window._tsDmMap || {});
+};
+
+async function suppliers() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('suppliers')), orderBy('name'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      rows+=`<tr>
+        <td><strong>${v.name}</strong></td>
+        <td>${v.phone||'—'}</td><td>${v.email||'—'}</td>
+        <td>${v.paymentTerms||'—'}</td>
+        <td>${badgeStatus(v.status||'active')}</td>
+        <td><button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="editSupplier('${d.id}')">✏️</button>
+            <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('suppliers','${d.id}','suppliers')">🗑</button></td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Suppliers</div><div class="page-sub">${snap.size} suppliers</div></div>
+      <div class="srch-bar"><input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'supTbl')"><button class="btn btn-primary" onclick="prepModal('supplier');openModal('mSupplier')">+ Add Supplier</button></div></div>
+      <div class="card"><div class="twrap"><table id="supTbl"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Terms</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">No suppliers yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function reports() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const [ordSnap,invSnap,collSnap] = await Promise.all([
+      getDocs(collection(_db, C('orders'))).catch(()=>({size:0,forEach:()=>{}})),
+      getDocs(collection(_db, C('invoices'))).catch(()=>({size:0,forEach:()=>{}})),
+      getDocs(collection(_db, C('collections'))).catch(()=>({size:0,forEach:()=>{}})),
+    ]);
+    let ordTotal=0,invTotal=0,invPaid=0,collTotal=0;
+    ordSnap.forEach(d=>{ordTotal+=d.data().total||0;});
+    invSnap.forEach(d=>{invTotal+=d.data().total||0;if(d.data().status==='paid')invPaid+=d.data().total||0;});
+    collSnap.forEach(d=>{if(d.data().status==='accepted')collTotal+=d.data().amount||0;});
+    mc.innerHTML = `
+      <div class="page-title">Reports</div>
+      <div class="page-sub">Summary for ${_tenant?.name||'Company'}</div>
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">📋</div><div class="kpi-val">${ordSnap.size}</div><div class="kpi-lbl">Total Orders</div><div class="kpi-delta">${fmt(ordTotal)} GMV</div></div>
+        <div class="kpi" style="--kpi-color:var(--blu)"><div class="kpi-ico">🧾</div><div class="kpi-val">${invSnap.size}</div><div class="kpi-lbl">Invoices Issued</div><div class="kpi-delta">${fmt(invPaid)} paid</div></div>
+        <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⏳</div><div class="kpi-val">${fmt(invTotal-invPaid)}</div><div class="kpi-lbl">Outstanding AR</div></div>
+        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">💰</div><div class="kpi-val">${fmt(collTotal)}</div><div class="kpi-lbl">Collections Accepted</div></div>
+      </div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function settings() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  let coData={}, prods=[];
+  try {
+    const coDoc = await getDoc(doc(_db, C('config'), 'company'));
+    if (coDoc.exists()) coData = coDoc.data();
+    const ps = await getDocs(query(collection(_db, C('products')), orderBy('name'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    ps.forEach(d => prods.push({id:d.id,...d.data()}));
+  } catch(ex) {}
+  const prodRows = prods.map(p=>`<tr>
+    <td><strong>${p.name}</strong></td>
+    <td><span class="badge badge-gray">${p.category||'—'}</span></td>
+    <td style="font-family:'DM Mono',monospace;font-size:11px">${p.sku||'—'}</td>
+    <td style="font-family:'DM Mono',monospace">${fmt(p.price||0)}</td>
+    <td>${p.unit||'—'}</td>
+    <td style="color:var(--red);font-family:'DM Mono',monospace">${p.maxDiscount||0}%</td>
+    <td><button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" onclick="editProduct('${p.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:3px 8px;font-size:11px;margin-left:3px" onclick="deleteProduct('${p.id}')">🗑</button></td>
+  </tr>`).join('');
+  mc.innerHTML = `
+    <div class="page-title">Settings</div>
+    <div class="page-sub">Company profile, products, and system configuration for <strong>${_tenant?.name||'this workspace'}</strong></div>
+    <div class="rtabs" id="settTabs">
+      <div class="rtab active" onclick="switchTab('settCompany','settTabs',this)">🏢 Company Profile</div>
+      <div class="rtab" onclick="switchTab('settProducts','settTabs',this)">📦 Products</div>
+      <div class="rtab" onclick="switchTab('settSystem','settTabs',this)">⚙️ System</div>
+    </div>
+    <div id="settCompany" style="max-width:900px">
+      <div class="card" style="padding:22px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:16px">🏢 Company Details <span style="font-size:11px;font-weight:400;color:var(--tx3)">(shown on invoices and sales app)</span></div>
+        <div class="frow">
+          <div>
+            <div class="fgrp"><label class="flbl">Company Name *</label><input class="finp" id="setCo" value="${coData.name||''}" placeholder="Company Name Sdn Bhd"></div>
+            <div class="fgrp"><label class="flbl">Registration No.</label><input class="finp" id="setCoReg" value="${coData.regNo||''}" placeholder="123456-A"></div>
+            <div class="fgrp"><label class="flbl">Phone</label><input class="finp" id="setCoPhone" value="${coData.phone||''}" placeholder="+60 3-xxxx xxxx"></div>
+            <div class="fgrp"><label class="flbl">Email</label><input class="finp" id="setCoEmail" value="${coData.email||''}" placeholder="info@company.com"></div>
+            <div class="fgrp"><label class="flbl">Website</label><input class="finp" id="setCoWeb" value="${coData.website||''}" placeholder="https://"></div>
+            <div class="fgrp"><label class="flbl">Bank Name</label><input class="finp" id="setCoBankName" value="${coData.bankName||''}" placeholder="Maybank / CIMB"></div>
+            <div class="fgrp"><label class="flbl">Bank Account No.</label><input class="finp" id="setCoBankAcc" value="${coData.bankAcc||''}" placeholder="1234567890"></div>
+          </div>
+          <div>
+            <div class="fgrp"><label class="flbl">Address Line 1</label><input class="finp" id="setCoAddr1" value="${coData.addr1||''}" placeholder="No. 1, Jalan Example"></div>
+            <div class="fgrp"><label class="flbl">Address Line 2</label><input class="finp" id="setCoAddr2" value="${coData.addr2||''}" placeholder="Taman Example"></div>
+            <div class="frow">
+              <div class="fgrp"><label class="flbl">City</label><input class="finp" id="setCoCity" value="${coData.city||''}" placeholder="Kuala Lumpur"></div>
+              <div class="fgrp"><label class="flbl">Postcode</label><input class="finp" id="setCoPostcode" value="${coData.postcode||''}" placeholder="50000"></div>
+            </div>
+            <div class="fgrp"><label class="flbl">State</label>
+              <select class="finp" id="setCoState">${['Kuala Lumpur','Selangor','Johor','Penang','Perak','Kedah','Kelantan','Terengganu','Pahang','Negeri Sembilan','Melaka','Sabah','Sarawak','Perlis'].map(s=>`<option${coData.state===s?' selected':''}>${s}</option>`).join('')}</select>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveCompanyProfile()">💾 Save Company Profile</button>
+      </div>
+    </div>
+    <div id="settProducts" style="display:none;max-width:900px">
+      <div class="pbar">
+        <div><div style="font-size:14px;font-weight:700">Product Catalogue</div><div style="font-size:12px;color:var(--tx3)">${prods.length} products · visible in Sales App · discount limits enforced</div></div>
+        <button class="btn btn-primary" onclick="document.getElementById('productDocId').value='';document.getElementById('productModalTitle').textContent='Add Product';document.getElementById('productName').value='';document.getElementById('productMaxDiscount').value='0';openModal('mProduct')">+ Add Product</button>
+      </div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>Name</th><th>Category</th><th>SKU</th><th>Price</th><th>Unit</th><th>Max Discount</th><th></th></tr></thead>
+      <tbody>${prodRows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No products yet</td></tr>'}</tbody></table></div></div>
+    </div>
+    <div id="settSystem" style="display:none;max-width:560px">
+      <div class="card" style="padding:20px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px">🔗 Tenant Configuration</div>
+        <div class="fgrp"><label class="flbl">Tenant ID</label><input class="finp" value="${_tenant?.id||'—'}" readonly></div>
+        <div class="fgrp"><label class="flbl">Data Prefix</label><input class="finp" value="${tenantPrefix()}" readonly></div>
+        <div class="fgrp"><label class="flbl">Plan</label><input class="finp" value="${_tenant?.plan||'starter'}" readonly></div>
+        <div style="background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.18);border-radius:10px;padding:11px;font-size:12px;color:var(--acc)">
+          ✅ All data for this tenant is stored under <code>${tenantPrefix()}_*</code> prefix in Firebase. Completely isolated from other tenants.
+        </div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:12px">🌙 Appearance</div>
+        <button class="btn btn-ghost" onclick="toggleTheme()">Toggle Light / Dark Mode</button>
+      </div>
+    </div>`;
+  window.switchTab = function(showId, tabsId, el) {
+    document.querySelectorAll(`#${tabsId} .rtab`).forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    ['settCompany','settProducts','settSystem'].forEach(id=>{
+      const el2 = document.getElementById(id);
+      if(el2) el2.style.display = id===showId?'block':'none';
+    });
+    if (showId==='settCompany') document.getElementById('settCompany').style.display='';
+  };
+}
+
+window.saveCompanyProfile = async function() {
+  const name = document.getElementById('setCo')?.value?.trim();
+  if (!name) { showToast('Company name required','error'); return; }
+  const data = {
+    name, regNo: document.getElementById('setCoReg')?.value?.trim(),
+    phone: document.getElementById('setCoPhone')?.value?.trim(),
+    email: document.getElementById('setCoEmail')?.value?.trim(),
+    website: document.getElementById('setCoWeb')?.value?.trim(),
+    addr1: document.getElementById('setCoAddr1')?.value?.trim(),
+    addr2: document.getElementById('setCoAddr2')?.value?.trim(),
+    city: document.getElementById('setCoCity')?.value?.trim(),
+    postcode: document.getElementById('setCoPostcode')?.value?.trim(),
+    state: document.getElementById('setCoState')?.value,
+    bankName: document.getElementById('setCoBankName')?.value?.trim(),
+    bankAcc: document.getElementById('setCoBankAcc')?.value?.trim(),
+    updatedAt: ts(), updatedBy: uid()
+  };
+  try {
+    await setDoc(doc(_db, C('config'), 'company'), data, { merge:true });
+    // Update sidebar branding
+    document.getElementById('sbLogoName').textContent = '⬡ ' + name;
+    showToast('Company profile saved ✓','success');
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  PAGE RENDERERS — SALES APP
+// ═══════════════════════════════════════════
+async function salesDashboard() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const myOrd = await getDocs(query(collection(_db, C('orders')), where('repId','==',uid()), orderBy('createdAt','desc'), limit(5))).catch(()=>({size:0,forEach:()=>{}}));
+    let total=0,pending=0,discPending=0;
+    let ordRows='';
+    myOrd.forEach(d=>{
+      const v=d.data();
+      total+=v.total||0;
+      if(v.status==='pending'||v.discountStatus==='pending')pending++;
+      if(v.discountStatus==='pending')discPending++;
+      ordRows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-6)}</td>
+        <td>${v.customer||'—'}</td>
+        <td style="font-family:'DM Mono',monospace">${fmt(v.total||0)}</td>
+        <td>${badgeStatus(v.status||'pending')}</td>
+        <td>${v.discountStatus!=='not_required'?badgeStatus(v.discountStatus||'pending'):''}</td>
+        <td>${badgeStatus(v.deliveryStatus||'pending')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${fmtDate(v.createdAt)}</td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="page-title">Welcome, ${_user?.name?.split(' ')[0]||'Sales Rep'} 👋</div>
+      <div class="page-sub" style="margin-bottom:14px">${_tenant?.name||'Sales App'} · ${new Date().toLocaleDateString('en-MY',{weekday:'long',day:'numeric',month:'long'})}</div>
+      ${discPending>0?`<div class="alert alert-yellow">🔒 <strong>${discPending} order${discPending>1?'s':''}</strong> locked — awaiting ERP discount approval. Orders cannot be processed until approved.</div>`:''}
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">📋</div><div class="kpi-val">${myOrd.size}</div><div class="kpi-lbl">My Orders</div><div class="kpi-delta">${fmt(total)} total</div></div>
+        <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⏳</div><div class="kpi-val">${pending}</div><div class="kpi-lbl">Pending</div><div class="kpi-delta">action required</div></div>
+        <div class="kpi" style="--kpi-color:var(--ora)" onclick="myOrders()"><div class="kpi-ico">🏷️</div><div class="kpi-val">${discPending}</div><div class="kpi-lbl">Discount Pending</div><div class="kpi-delta">ERP reviewing</div></div>
+      </div>
+      ${ordRows?`<div class="card" style="padding:16px"><div style="font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:12px">Recent Orders</div>
+      <div class="twrap"><table><thead><tr><th>ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Discount</th><th>Delivery</th><th>Date</th></tr></thead>
+      <tbody>${ordRows}</tbody></table></div></div>`:''}
+    `;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function myOrders() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('orders')), where('repId','==',uid()), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      const locked = v.discountStatus==='pending';
+      const rejected = v.discountStatus==='rejected'||v.status==='discount_rejected';
+      rows+=`<tr style="${locked?'background:rgba(245,166,35,.04)':''}">
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-8)}</td>
+        <td><strong>${v.customer||'—'}</strong></td>
+        <td style="font-family:'DM Mono',monospace">${fmt(v.total||0)}</td>
+        <td>${badgeStatus(v.status||'pending')}</td>
+        <td>${v.discountStatus!=='not_required'?badgeStatus(v.discountStatus||'pending'):'—'}</td>
+        <td>${badgeStatus(v.deliveryStatus||'pending')}</td>
+        <td>${badgeStatus(v.collectionStatus||'not_required')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${fmtDate(v.createdAt)}</td>
+        <td>${locked?'<span class="badge badge-orange">🔒 ERP Reviewing</span>':''}${rejected?'<span class="badge badge-red">✕ Rejected — revise discount</span>':''}</td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">My Orders</div><div class="page-sub">${snap.size} orders · Orders with discounts are locked until ERP approval</div></div>
+      <div class="srch-bar"><input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'myOrdTbl')"><button class="btn btn-primary" onclick="prepModal('salesOrder');openModal('mSalesOrder')">+ New Order</button></div></div>
+      <div class="card"><div class="twrap"><table id="myOrdTbl">
+        <thead><tr><th>ID</th><th>Customer</th><th>Amount</th><th>Status</th><th>Discount</th><th>Delivery</th><th>Collection</th><th>Date</th><th>Note</th></tr></thead>
+        <tbody>${rows||'<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:30px">No orders yet — create your first order</td></tr>'}</tbody>
+      </table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function myCollections() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('collections')), where('submittedBy','==',uid()), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      rows+=`<tr>
+        <td>${v.customer||v.orderRef||'—'}</td>
+        <td style="font-family:'DM Mono',monospace;color:var(--acc)">${fmt(v.amount||0)}</td>
+        <td><span class="badge badge-gray">${v.method||'—'}</span></td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${v.orderRef||'—'}</td>
+        <td>${badgeStatus(v.status||'pending_erp')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.date||fmtDate(v.createdAt)}</td>
+        <td>${v.status==='pending_erp'?'<span class="badge badge-yellow">⏳ Awaiting ERP</span>':v.status==='accepted'?'<span class="badge badge-green">✓ Accepted — delivery can proceed</span>':'<span class="badge badge-red">✕ Rejected</span>'}</td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">My Collections</div><div class="page-sub">Collections stay <strong>pending</strong> until ERP confirms. Delivery unlocked only after acceptance.</div></div>
+      <button class="btn btn-primary" onclick="prepModal('collection');openModal('mCollection')">+ Submit Collection</button></div>
+      <div class="alert alert-blue">📌 <strong>Important:</strong> Your collection submissions remain pending until ERP accepts them. For COD orders, delivery cannot be confirmed by ERP until your collection is accepted.</div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>Customer</th><th>Amount</th><th>Method</th><th>Order Ref</th><th>Status</th><th>Date</th><th>Notes</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No collections submitted yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function myDeliveries() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('orders')), where('repId','==',uid()))).catch(()=>({forEach:()=>{},size:0}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      if(!['processing','dispatched','delivered','approved'].includes(v.status||'')) return;
+      const collStatus = v.collectionStatus||'not_required';
+      const payTerms = v.payTerms||'cod';
+      const isCOD = payTerms==='cod';
+      const canDeliver = !isCOD || collStatus==='collection_accepted';
+      rows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${d.id.slice(-8)}</td>
+        <td><strong>${v.customer||'—'}</strong></td>
+        <td><span class="badge badge-gray">${payTerms}</span></td>
+        <td>${badgeStatus(v.deliveryStatus||'pending')}</td>
+        <td>${badgeStatus(collStatus)}</td>
+        <td>${v.deliveryStatus==='delivered'
+          ?'<span class="badge badge-green">✓ Delivered</span>'
+          :canDeliver
+            ?'<span class="badge badge-blue">⏳ ERP will confirm</span>'
+            :'<span class="badge badge-red">🔒 Collection not accepted</span>'}</td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="page-title">My Deliveries</div>
+      <div class="page-sub">Delivery status is set by ERP only — you can track progress here</div>
+      <div class="alert alert-yellow">🚚 <strong>Note:</strong> Delivery confirmation is done by ERP, not the Sales App. For COD orders, ERP can only confirm delivery after accepting your collection.</div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>Order ID</th><th>Customer</th><th>Payment</th><th>Delivery Status</th><th>Collection</th><th>ERP Status</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">No deliveries yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+async function products() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('products')), orderBy('name'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let cards='';
+    snap.forEach(d=>{
+      const v=d.data();
+      cards+=`<div class="card" style="padding:16px">
+        <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:4px">${v.name}</div>
+        <div style="font-size:11px;color:var(--tx3);margin-bottom:8px"><span class="badge badge-gray">${v.category||'—'}</span> ${v.unit||''}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--tenant-color)">${fmt(v.price||0)}</div>
+        ${v.sku?`<div style="font-size:11px;color:var(--tx3);margin-top:4px">SKU: ${v.sku}</div>`:''}
+        ${v.notes?`<div style="font-size:12px;color:var(--tx2);margin-top:6px">${v.notes}</div>`:''}
+      </div>`;
+    });
+    mc.innerHTML = `
+      <div class="page-title">Product Catalogue</div>
+      <div class="page-sub">${snap.size} products available · managed by ERP</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">
+        ${cards||'<div style="color:var(--tx3);grid-column:1/-1;text-align:center;padding:30px">No products configured yet — ERP admin needs to add products in Settings</div>'}
+      </div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+// ═══════════════════════════════════════════
+//  HQ ORDERS (ERP — purchase orders to suppliers)
+// ═══════════════════════════════════════════
+async function hqOrders() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('hq_orders')), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    snap.forEach(d=>{
+      const v=d.data();
+      rows+=`<tr>
+        <td style="font-family:'DM Mono',monospace;font-size:12px"><strong>${v.ref||d.id.slice(-8)}</strong></td>
+        <td>${v.supplier||'—'}</td>
+        <td>${(v.items||[]).length} item(s)</td>
+        <td><span class="badge badge-gray">${v.priority||'normal'}</span></td>
+        <td>${badgeStatus(v.status||'ordered')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.expectedDelivery||fmtDate(v.createdAt)}</td>
+        <td style="white-space:nowrap">
+          ${v.status==='ordered'?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="setStatus('hq_orders','${d.id}','received','hqOrders')">✅ Mark Received</button>`:''}
+          ${v.status==='received'?`<button class="btn btn-blue" style="padding:4px 9px;font-size:11px" onclick="setStatus('hq_orders','${d.id}','paid','hqOrders')">💳 Mark Paid</button>`:''}
+          <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('hq_orders','${d.id}','hqOrders')">🗑</button>
+        </td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar">
+        <div><div class="page-title">HQ Orders</div><div class="page-sub">${snap.size} purchase orders to suppliers</div></div>
+        <button class="btn btn-primary" onclick="openHQOrderModal()">+ New HQ Order</button>
+      </div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>Ref</th><th>Supplier</th><th>Items</th><th>Priority</th><th>Status</th><th>Expected</th><th>Actions</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No HQ orders yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+window.openHQOrderModal = async function() {
+  const count = (await getDocs(collection(_db, C('hq_orders'))).catch(()=>({size:0}))).size;
+  // Build simple inline form
+  const mc = document.getElementById('mainContent');
+  const existing = mc.innerHTML;
+  // Create a quick overlay form
+  const div = document.createElement('div');
+  div.id = 'hqoForm';
+  div.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px';
+  div.innerHTML = `
+    <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:18px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">New HQ Purchase Order</div>
+        <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer" onclick="document.getElementById('hqoForm').remove()">✕</button>
+      </div>
+      <div class="fgrp"><label class="flbl">Order Ref</label><input class="finp" id="hqoRef" value="ORD-${String(count+1).padStart(4,'0')}" readonly style="opacity:.7"></div>
+      <div class="fgrp"><label class="flbl">Supplier *</label><input class="finp" id="hqoSupplier" placeholder="Supplier name"></div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Expected Delivery</label><input class="finp" id="hqoDelivery" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
+        <div class="fgrp"><label class="flbl">Priority</label>
+          <select class="finp" id="hqoPriority"><option value="normal">Normal</option><option value="urgent">Urgent</option><option value="low">Low</option></select>
+        </div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Items</div>
+      <div id="hqoLines"></div>
+      <button class="btn btn-ghost" style="width:100%;margin-bottom:12px;font-size:12px" onclick="addHQOLine()">+ Add Item</button>
+      <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="hqoNotes" rows="2" placeholder="Special instructions..."></textarea></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-ghost" onclick="document.getElementById('hqoForm').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveHQOrder()">💾 Place Order</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  addHQOLine();
+};
+
+window.addHQOLine = function() {
+  const container = document.getElementById('hqoLines');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end;';
+  div.innerHTML = `
+    <div><label class="flbl">Product</label><input class="finp" placeholder="Product name"></div>
+    <div><label class="flbl">Qty</label><input class="finp" type="number" value="1" min="1"></div>
+    <div><label class="flbl">Unit</label><select class="finp"><option>pcs</option><option>kg</option><option>box</option><option>carton</option></select></div>
+    <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove()">✕</button>`;
+  container.appendChild(div);
+};
+
+window.saveHQOrder = async function() {
+  const supplier = document.getElementById('hqoSupplier')?.value?.trim();
+  if (!supplier) { showToast('Supplier required','error'); return; }
+  const items = [];
+  document.querySelectorAll('#hqoLines > div').forEach(row => {
+    const inputs = row.querySelectorAll('input,select');
+    const prod = inputs[0]?.value?.trim();
+    if (prod) items.push({ product: prod, qty: parseFloat(inputs[1]?.value)||0, unit: inputs[2]?.value });
+  });
+  if (items.length === 0) { showToast('Add at least one item','error'); return; }
+  const data = {
+    ref: document.getElementById('hqoRef')?.value,
+    supplier, expectedDelivery: document.getElementById('hqoDelivery')?.value,
+    priority: document.getElementById('hqoPriority')?.value,
+    notes: document.getElementById('hqoNotes')?.value,
+    items, status: 'ordered', createdAt: ts(), createdBy: uid()
+  };
+  try {
+    await addDoc(collection(_db, C('hq_orders')), data);
+    showToast('HQ Order placed ✓','success');
+    document.getElementById('hqoForm')?.remove();
+    hqOrders();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  TRANSFERS (ERP)
+// ═══════════════════════════════════════════
+async function transfers() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('transfers')), orderBy('createdAt','desc'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
+    let rows='';
+    const typeLabel = { send_to_hq:'↑ To HQ', receive_from_hq:'↓ From HQ', zone_transfer:'↔ Zone', return:'🔄 Return' };
+    snap.forEach(d=>{
+      const v=d.data();
+      rows+=`<tr>
+        <td>${typeLabel[v.type]||v.type||'—'}</td>
+        <td><strong>${v.product||'—'}</strong></td>
+        <td style="font-family:'DM Mono',monospace"><strong>${v.qty||0}</strong> ${v.unit||''}</td>
+        <td style="font-size:12px;color:var(--tx2)">${v.from||'—'}</td>
+        <td style="font-size:12px;color:var(--tx2)">${v.to||'—'}</td>
+        <td>${badgeStatus(v.status||'completed')}</td>
+        <td style="font-size:11px;color:var(--tx3)">${v.date||fmtDate(v.createdAt)}</td>
+        <td><button class="btn btn-danger" style="padding:4px 9px;font-size:11px" onclick="deleteRecord('transfers','${d.id}','transfers')">🗑</button></td>
+      </tr>`;
+    });
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">HQ Transfers</div><div class="page-sub">${snap.size} transfer records</div></div>
+        <button class="btn btn-primary" onclick="openTransferModal()">+ Record Transfer</button>
+      </div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>Type</th><th>Product</th><th>Qty</th><th>From</th><th>To</th><th>Status</th><th>Date</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:var(--tx3);padding:30px">No transfers recorded</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+window.openTransferModal = function() {
+  const div = document.createElement('div');
+  div.id = 'transferForm';
+  div.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px';
+  div.innerHTML = `
+    <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:18px;width:100%;max-width:480px;padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">Record Transfer</div>
+        <button style="background:none;border:none;font-size:20px;color:var(--tx3);cursor:pointer" onclick="document.getElementById('transferForm').remove()">✕</button>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Type</label>
+          <select class="finp" id="transType"><option value="send_to_hq">Send to HQ</option><option value="receive_from_hq">Receive from HQ</option><option value="zone_transfer">Zone Transfer</option><option value="return">Return</option></select>
+        </div>
+        <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="transDate" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Product *</label><input class="finp" id="transProd" placeholder="Product name"></div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Qty</label><input class="finp" id="transQty" type="number" placeholder="0"></div>
+        <div class="fgrp"><label class="flbl">Unit</label><select class="finp" id="transUnit"><option>pcs</option><option>kg</option><option>box</option><option>carton</option></select></div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">From</label><input class="finp" id="transFrom" placeholder="Location / warehouse"></div>
+        <div class="fgrp"><label class="flbl">To</label><input class="finp" id="transTo" placeholder="Location / warehouse"></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="transNotes" rows="2"></textarea></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-ghost" onclick="document.getElementById('transferForm').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveTransfer()">💾 Record</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+};
+
+window.saveTransfer = async function() {
+  const prod = document.getElementById('transProd')?.value?.trim();
+  const qty = parseFloat(document.getElementById('transQty')?.value)||0;
+  if (!prod || !qty) { showToast('Product and qty required','error'); return; }
+  const data = {
+    type: document.getElementById('transType')?.value,
+    date: document.getElementById('transDate')?.value,
+    product: prod, qty, unit: document.getElementById('transUnit')?.value,
+    from: document.getElementById('transFrom')?.value?.trim(),
+    to: document.getElementById('transTo')?.value?.trim(),
+    notes: document.getElementById('transNotes')?.value?.trim(),
+    status: 'completed', createdAt: ts(), createdBy: uid()
+  };
+  try {
+    await addDoc(collection(_db, C('transfers')), data);
+    showToast('Transfer recorded ✓','success');
+    document.getElementById('transferForm')?.remove();
+    transfers();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// ═══════════════════════════════════════════
+//  GREETING HELPER
+// ═══════════════════════════════════════════
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+
+// ═══════════════════════════════════════════
+//  HQ ORDERS + TRANSFERS: extend sidebar + goPage
+// ═══════════════════════════════════════════
+// These pages are injected into the ERP sidebar inside buildSidebar()
+// goPage already handles them via the renders map below
+
+// Extend the renders map and sidebar dynamically
+const _erpExtraPages = { hqOrders, transfers };
+const _origGoPageFn = window.goPage;
+window.goPage = function(page) {
+  if (_erpExtraPages[page]) {
+    window.__curPage = page;
+    const titles = { hqOrders:'🛒 HQ Orders', transfers:'↔️ Transfers' };
+    document.getElementById('topbarTitle').textContent = titles[page] || page;
+    document.querySelectorAll('.sb-item').forEach(i => i.classList.toggle('active', i.dataset.page === page));
+    document.getElementById('topbarAction').style.display = 'none';
+    _erpExtraPages[page]();
+    return;
+  }
+  _origGoPageFn(page);
+};
+
+// ═══════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════
+window.filterTable = function(input, tableId) {
+  const q = input.value.toLowerCase();
+  document.querySelectorAll('#' + tableId + ' tbody tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+};
+
+document.getElementById('authPwd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') window.doLogin();
+});
+
+// ═══════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════
+// STSB: single company — auto-select STSB and show auth
+(function() {
+  document.getElementById('tenantScreen').style.display = 'none';
+  // Auto-select STSB tenant — this initializes Firebase + auth listener
+  selectTenant('tenant_stsb');
+})();
+
+</script>
+</body>
+</html>

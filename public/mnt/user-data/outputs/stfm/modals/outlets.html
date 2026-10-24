@@ -1,0 +1,94 @@
+<div class="moverlay" id="mOutlet">
+  <div class="modal">
+    <div class="mhdr"><div class="mttl" id="mOutletTitle">🏪 Add Outlet</div><button class="mcls" onclick="closeM('mOutlet')">✕</button></div>
+    <div class="mbody">
+      <div class="fgrp"><label class="flbl">Outlet Name *</label><input id="oName" class="finp" placeholder="e.g. Rahman General Store"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fgrp" style="margin:0"><label class="flbl">Type *</label>
+          <select id="oType" class="finp"><option value="">Select...</option><option>Retail</option><option>Wholesale</option><option>Distributor</option><option>Supermarket</option></select></div>
+        <div class="fgrp" style="margin:0"><label class="flbl">Route *</label>
+          <select id="oRoute" class="finp"><option value="">Select route...</option></select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div class="fgrp" style="margin:0"><label class="flbl">Area/Zone</label><input id="oArea" class="finp" placeholder="e.g. Mirpur-10"></div>
+        <div class="fgrp" style="margin:0"><label class="flbl">Phone</label><input id="oPhn" class="finp" placeholder="01XXXXXXXXX"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div class="fgrp" style="margin:0"><label class="flbl">Contact Person</label><input id="oCon" class="finp" placeholder="Owner name"></div>
+        <div class="fgrp" style="margin:0"><label class="flbl">Opening Balance (RM)</label>
+          <input type="number" id="oOB" class="finp" placeholder="0.00" value="0" min="0" step="0.01"></div>
+      </div>
+      <div style="font-size:11px;color:var(--ylw);margin-top:4px;margin-bottom:10px">⚠️ Opening balance requires admin approval before taking effect.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div class="fgrp" style="margin:0"><label class="flbl">Ethnicity</label>
+          <select id="oEthnicity" class="finp">
+            <option value="">Select ethnicity...</option>
+            <option>Malay</option>
+            <option>India</option>
+            <option>China</option>
+            <option>Bangladesh</option>
+            <option>Myanmar</option>
+            <option>Nepal</option>
+            <option>Indonesia</option>
+            <option>Others</option>
+          </select>
+        </div>
+        <div class="fgrp" style="margin:0" id="oRepRow"><label class="flbl">Assign Sales Rep</label>
+          <select id="oAssignedRep" class="finp"><option value="">Select rep...</option></select>
+        </div>
+      </div>
+      <div class="fgrp"><label class="flbl">Address</label>
+        <div style="display:flex;gap:7px;margin-bottom:6px">
+          <button type="button" class="btn btn-ghost btn-sm" style="flex:1;font-size:11px" onclick="autoFillAddress()">📍 Auto-fill from Current Location</button>
+        </div>
+        <textarea id="oAddr" class="finp" placeholder="Address will auto-fill or enter manually"></textarea>
+      </div>
+      <!-- GPS LOCATION PIN -->
+      <div class="fgrp" style="margin-bottom:4px">
+        <label class="flbl">📍 Location Pin</label>
+        <div id="outletLocDisplay" style="font-size:12px;color:var(--tx3);padding:9px 12px;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r2);margin-bottom:8px;min-height:36px;display:flex;align-items:center">Not pinned yet</div>
+        <div style="display:flex;gap:7px">
+          <button type="button" class="btn btn-ghost btn-sm" style="flex:1" onclick="pinOutletLocation()">📍 Pin Current Location</button>
+          <button type="button" class="btn btn-red btn-sm" id="clearLocBtn" style="display:none;padding:7px 12px" onclick="clearOutletLocation()">🗑</button>
+        </div>
+        <div style="font-size:10px;color:var(--tx3);margin-top:5px">Used for directions & map. Rep should pin while at the outlet.</div>
+      </div>
+      <input type="hidden" id="oLat">
+      <input type="hidden" id="oLng">
+      <input type="hidden" id="oEditId">
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mOutlet')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveOutlet()">Save Outlet</button>
+    </div>
+  </div>
+</div>
+
+<div class="moverlay" id="mOutletDetail">
+  <div class="modal modal-lg">
+    <div class="mhdr"><div class="mttl" id="mODTitle">Outlet</div><button class="mcls" onclick="closeM('mOutletDetail')">✕</button></div>
+    <div class="mbody" id="mODBody"></div>
+    <div class="mfoot"><button class="btn btn-ghost btn-sm" onclick="closeM('mOutletDetail')">Close</button></div>
+  </div>
+</div>
+
+<div class="moverlay" id="mOutletQR">
+  <div class="modal" style="max-width:360px">
+    <div class="mhdr">
+      <div class="mttl" id="mQRTitle">📷 Outlet QR Code</div>
+      <button class="mcls" onclick="closeM('mOutletQR')">✕</button>
+    </div>
+    <div class="mbody" style="text-align:center;padding:20px">
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:16px" id="mQRSubtitle">Scan to open the order page for this outlet</div>
+      <div id="mQRCode" style="background:#fff;border-radius:14px;padding:14px;display:inline-block;margin-bottom:12px;box-shadow:0 2px 16px rgba(0,0,0,.25)"></div>
+      <div style="font-size:10px;color:var(--tx3);margin-bottom:6px;word-break:break-all;padding:0 8px" id="mQRUrl"></div>
+      <div style="font-size:11px;color:var(--tx2);background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.2);border-radius:var(--r2);padding:9px 12px;margin-top:10px;text-align:left">
+        📋 Print or display this QR at the outlet. When scanned, it opens the app and auto-selects this outlet in the order form.
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mOutletQR')">Close</button>
+      <button class="btn btn-primary btn-sm" onclick="downloadOutletQR()">⬇️ Download QR</button>
+    </div>
+  </div>
+</div>

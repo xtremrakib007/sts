@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.web.stfm_sales.twa",
+        "sha256_cert_fingerprints": ["44:B8:75:D4:86:88:61:63:78:20:B6:39:D2:78:15:65:D1:9C:09:96:60:BA:C6:4A:48:5E:58:EA:38:EB:C8:AB"]
+      }
+    }]

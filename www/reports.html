@@ -1,0 +1,22 @@
+<!-- ══ REPORTS ══ -->
+      <div id="pageReports" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">📈 Reports</div>
+            <div style="font-size:11px;color:var(--tx3)">Analytics & insights</div></div>
+          <div style="display:flex;gap:7px;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="exportReport()" id="exportReportBtn" style="display:none">&#128229; Export CSV</button>
+          <select class="finp btn-ghost" id="rptPeriod" style="width:140px;padding:8px 12px;font-size:12px" onchange="renderReports()">
+            <option value="7">Last 7 Days</option>
+            <option value="30" selected>Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+          </select></div>
+        </div>
+        <div class="rtabs">
+          <div class="rtab active" onclick="switchRpt('sales',this)">Sales</div>
+          <div class="rtab" onclick="switchRpt('collection',this)">Collection</div>
+          <div class="rtab" onclick="switchRpt('attendance',this)">Attendance</div>
+          <div class="rtab" onclick="switchRpt('outlets',this)">Outlets</div>
+          <div class="rtab" onclick="switchRpt('npvisits',this)">NP Visits</div>
+        </div>
+        <div id="rptContent"></div>
+      </div>

@@ -1,0 +1,28 @@
+<div class="moverlay" id="mCol">
+  <div class="modal">
+    <div class="mhdr"><div class="mttl">💰 Record Collection</div><button class="mcls" onclick="closeM('mCol')">✕</button></div>
+    <div class="mbody">
+      <div class="fgrp"><label class="flbl">Outlet *</label>
+        <select id="cOutlet" class="finp" onchange="loadOutletPendingBalance(this.value)"><option value="">Select...</option></select></div>
+      <!-- Pending balance auto-fill notice -->
+      <div id="pendingBalanceInfo" style="display:none;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:var(--r2);padding:10px 13px;margin-bottom:12px;font-size:12px">
+        <div style="font-weight:700;color:var(--ylw);margin-bottom:2px">⚠️ Outstanding Balance Detected</div>
+        <div style="color:var(--tx2)" id="pendingBalanceText">This outlet has an outstanding balance.</div>
+        <button class="btn btn-ylw btn-xs" style="margin-top:6px" onclick="fillPendingAmount()">Use Full Amount</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fgrp" style="margin:0"><label class="flbl">Amount (RM) *</label>
+          <input type="number" id="cAmt" class="finp" placeholder="0.00" min="0" step="0.01"></div>
+        <div class="fgrp" style="margin:0"><label class="flbl">Mode *</label>
+          <select id="cMode" class="finp"><option>Cash</option><option>Bank Transfer</option><option>TNG</option><option>DuitNow</option><option>Cheque</option></select></div>
+      </div>
+      <div class="fgrp" style="margin-top:12px"><label class="flbl">Date</label><input type="date" id="cDate" class="finp"></div>
+      <div class="fgrp"><label class="flbl">Reference / Notes</label>
+        <textarea id="cNotes" class="finp" placeholder="Invoice #, transaction ref..."></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-ghost btn-sm" onclick="closeM('mCol')">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveCollection()">Record</button>
+    </div>
+  </div>
+</div>

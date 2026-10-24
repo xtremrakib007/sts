@@ -1,0 +1,25 @@
+<!-- ══ REP MONITORING (admin only) ══ -->
+      <div id="pageMonitoring" class="page">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div><div style="font-family:'Syne',sans-serif;font-size:19px;font-weight:700">👁️ Rep Monitoring</div>
+            <div style="font-size:11px;color:var(--tx3)">Track sales rep activity — visits, orders, attendance</div></div>
+          <div style="display:flex;gap:7px">
+            <button class="btn btn-ghost btn-sm" onclick="exportMonitoring()" id="exportMonBtn" style="display:none">&#128229; Export CSV</button>
+            <select class="finp btn-ghost" id="monRepFilter" style="width:170px;padding:8px 12px;font-size:12px" onchange="loadMonitoring()">
+              <option value="">All Reps</option>
+            </select>
+            <select class="finp btn-ghost" id="monPeriod" style="width:130px;padding:8px 12px;font-size:12px" onchange="loadMonitoring()">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+          </div>
+        </div>
+        <div class="rtabs">
+          <div class="rtab active" onclick="switchMonTab('overview',this)">Overview</div>
+          <div class="rtab" onclick="switchMonTab('npvisits',this)">NP Visits</div>
+          <div class="rtab" onclick="switchMonTab('orders',this)">Orders</div>
+          <div class="rtab" onclick="switchMonTab('attendance',this)">Attendance</div>
+        </div>
+        <div id="monContent" style="margin-top:14px"></div>
+      </div>
