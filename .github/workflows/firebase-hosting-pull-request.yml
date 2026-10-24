@@ -1,4 +1,5 @@
 name: STFM Pull Request Validation
+# Re-run validation after credential cleanup
 
 on:
   pull_request:
