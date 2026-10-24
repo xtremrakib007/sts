@@ -70,8 +70,11 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuth() && (request.auth.uid == userId || isERPUser());
       // Provisioning roles is server/admin-only; self-service is restricted to safe profile fields.
-      allow create: if isERPUser();
-      allow update: if isERPUser()
+      allow create: if isSuperAdmin() || isAdmin();
+      allow update: if isSuperAdmin()
+          || (isAdmin()
+              && request.auth.uid != userId
+              && request.resource.data.get('role','') != 'super_admin')
           || (isAuth()
               && request.auth.uid == userId
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
