@@ -128,3 +128,4 @@ Your app uses FCM. For push notifications in the APK:
 **Camera not working on device** → Make sure you granted camera permission when prompted
 
 **Firebase connection fails** → Check internet permission is in manifest (already done)
+
