@@ -14,21 +14,7 @@ const {getFirestore} = require("firebase-admin/firestore");
 admin.initializeApp();
 
 // ─────────────────────────────────────────────────────────────
-// ERP App secondary — credential loaded from Firebase config
-// Set it once with:
-//   firebase use stfm-sales
-//   firebase functions:config:set \
-//     erp.private_key_id="..." \
-//     erp.private_key="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n" \
-//     erp.client_email="firebase-adminsdk-xxxx@stsb-erp.iam.gserviceaccount.com" \
-//     erp.client_id="..."
-// Then deploy.
-// ─────────────────────────────────────────────────────────────
-
-// Use the Cloud Functions runtime identity via Application Default Credentials.
-// Grant that identity only the required Firestore permissions in project stsb-erp.
-// Never store service-account private keys in source control.
-
+// ERP App secondary — uses runtime Application Default Credentials.
 let _erpApp;
 
 /**
