@@ -55,8 +55,8 @@ service cloud.firestore {
     function _isFieldUser(u)   { return u.get('role','') == 'sales_rep' || u.get('role','') == 'delivery_man'; }
 
     // Zone helpers
-    function _inZone(u, zoneId)      { return _isOwner(u) || u.get('zoneId','') == zoneId; }
-    function _isZoneAdmin(u, zoneId) { return _isOwner(u) || (_isAdminOrSub(u) && u.get('zoneId','') == zoneId); }
+    function _inZone(u, zoneId)      { return _isOwner(u) || (u.get('zoneId','') != '' && zoneId != '' && u.get('zoneId','') == zoneId); }
+    function _isZoneAdmin(u, zoneId) { return _isOwner(u) || (_isAdminOrSub(u) && u.get('zoneId','') != '' && zoneId != '' && u.get('zoneId','') == zoneId); }
 
     // Portal user check — is this auth uid a registered portal user?
     function isPortalUser() {
@@ -98,21 +98,38 @@ service cloud.firestore {
     // ─────────────────────────────────────────────────────────────────────────
 
     match /users/{uid} {
-      allow read: if isSignedIn();
+      // User profiles are private by default; allow owner, self, or same-zone staff.
+      allow read: if isSignedIn() && (
+          _isOwner(ud())
+          || request.auth.uid == uid
+          || (ud().get('zoneId','') != ''
+              && resource.data.get('zoneId','') == ud().get('zoneId',''))
+        );
 
+      // Only trusted staff can provision staff accounts. No self-registration here.
       allow create: if isSignedIn() && (
           _isOwner(ud())
           || (
             _isAdminOrSub(ud())
+            && ud().get('zoneId','') != ''
             && request.resource.data.get('zoneId','') == ud().get('zoneId','')
-            && request.resource.data.role in ['sub_admin','sales_rep','delivery_man']
+            && request.resource.data.get('isOwner', false) == false
+            && request.resource.data.get('role','') in ['sub_admin','sales_rep','delivery_man']
+            && (_isAdmin(ud()) || request.resource.data.get('role','') in ['sales_rep','delivery_man'])
           )
-          || request.auth.uid == uid
         );
 
       allow update: if isSignedIn() && (
           _isOwner(ud())
-          || (_isAdminOrSub(ud()) && resource.data.get('zoneId','') == ud().get('zoneId',''))
+          || (
+            request.auth.uid != uid
+            && _isAdminOrSub(ud())
+            && ud().get('zoneId','') != ''
+            && resource.data.get('zoneId','') == ud().get('zoneId','')
+            && request.resource.data.get('zoneId','') == resource.data.get('zoneId','')
+            && request.resource.data.get('isOwner', false) == resource.data.get('isOwner', false)
+            && (_isAdmin(ud()) || request.resource.data.get('role','') == resource.data.get('role',''))
+          )
           || (
             request.auth.uid == uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
