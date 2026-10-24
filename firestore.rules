@@ -505,7 +505,8 @@ service cloud.firestore {
     // ─────────────────────────────────────────────────────────────────────────
 
     match /pushQueue/{docId} {
-      allow create: if isSignedIn();
+      // Queue writes must originate from trusted server code (Admin SDK bypasses rules).
+      allow create: if false;
       allow read, update: if isSignedIn() && _isAdminOrSub(ud());
       allow delete: if isSignedIn() && _isOwner(ud());
     }
