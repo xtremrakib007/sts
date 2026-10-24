@@ -33,6 +33,8 @@ test('ERP user self-updates are allowlisted and zone checks fail closed', () => 
   const rules = read('STSB-ERP/firestore.rules');
   assert.match(rules, /request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(\[/);
   assert.match(rules, /docZone != null[\s\S]*docZone != ''[\s\S]*userDoc\(\)\.zone == docZone/);
+  assert.match(rules, /allow create: if isSuperAdmin\(\) \|\| isAdmin\(\)/);
+  assert.match(rules, /request\.auth\.uid != userId[\s\S]*request\.resource\.data\.get\('role',''\) != 'super_admin'/);
   assert.doesNotMatch(rules, /allow create, update: if isERPUser\(\)\s*\|\|\s*\(isAuth\(\) && request\.auth\.uid == userId\)/);
 });
 
