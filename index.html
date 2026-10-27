@@ -3306,99 +3306,52 @@
     /* Load audit log entries for the Audit Log page */
     let _auditLastDoc = null, _auditDocs = [];
     window.stsbLoadAuditLog = async function(reset = true) {
-        if (!window.__SF) return;
-        if (reset) { _auditLastDoc = null; _auditDocs = []; }
+        if (!window.__SF || !window.__SF.db) {
+            const list = document.getElementById('auditLogList');
+            if (list) list.textContent = 'Database is not ready. Please retry after signing in.';
+            return;
+        }
+        if (reset) { _auditLastDoc = null; _auditDocs = []; _auditVisibleCount = 50; }
         const list = document.getElementById('auditLogList');
         const empty = document.getElementById('auditLogEmpty');
         const moreBtn = document.getElementById('auditLoadMoreBtn');
         if (!list) return;
-
         const actionFilter = document.getElementById('auditActionFilter')?.value || '';
-        const userFilter   = document.getElementById('auditUserFilter')?.value || '';
-
-        list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--tx3);font-size:13px">⏳ Loading…</div>';
-
+        const userFilter = document.getElementById('auditUserFilter')?.value || '';
+        list.textContent = 'Loading audit entries…';
         try {
-            let constraints = [
-                window.__SF.orderBy('timestamp','desc'),
-            ];
-            if (actionFilter) constraints.push(window.__SF.where('action','==',actionFilter));
-            if (userFilter)   constraints.push(window.__SF.where('userId','==',userFilter));
-
-            const q = window.__SF.query(
-                window.__SF.collection(window.__SF.db, 'audit_log'),
-                ...constraints
-            );
+            // Keep optional filters client-side to avoid requiring composite Firestore indexes.
+            const q = window.__SF.query(window.__SF.collection(window.__SF.db, 'audit_log'),
+                window.__SF.orderBy('timestamp', 'desc'), window.__SF.limit(500));
             const snap = await window.__SF.getDocs(q);
-            _auditDocs = snap.docs;
-            _renderAuditPage();
-        } catch(e) {
-            list.innerHTML = `<div style="padding:20px;text-align:center;color:#f87171;font-size:13px">⚠️ ${e.message}</div>`;
-        }
-    };
-
-    function _renderAuditPage() {
-        const list   = document.getElementById('auditLogList');
-        const empty  = document.getElementById('auditLogEmpty');
-        const moreBtn = document.getElementById('auditLoadMoreBtn');
-        if (!list) return;
-
-        if (!_auditDocs.length) {
-            list.innerHTML = '';
-            if (empty) empty.style.display = '';
-            if (moreBtn) moreBtn.style.display = 'none';
-            return;
-        }
-        if (empty) empty.style.display = 'none';
-
-        const ICONS = {
-            login:'🔑', logout:'🚪', order_created:'📦', order_updated:'✏️',
-            product_added:'🛒', product_updated:'🔄', user_created:'👤',
-            collection_recorded:'💰', outlet_added:'🏪', delivery_assigned:'🚚',
-            stock_adjusted:'📊', broadcast_sent:'📢', session_timeout:'⏱️'
-        };
-
-        list.innerHTML = _auditDocs.slice(0, 50).map(d => {
-            const data = d.data();
-            const ts   = data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.ts_client || 0);
-            const icon = ICONS[data.action] || '📋';
-            const timeStr = ts.toLocaleString('en-MY', {
-                day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'
+            const allDocs = snap.docs;
+            const userSelect = document.getElementById('auditUserFilter');
+            if (userSelect) {
+                const selected = userSelect.value;
+                const users = new Map();
+                allDocs.forEach(doc => { const v=doc.data(); if(v.userId) users.set(v.userId,v.userName||v.userId); });
+                const esc = value => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+                userSelect.innerHTML = '<option value="">All Users</option>' +
+                    Array.from(users.entries()).sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name]) =>
+                        '<option value="' + esc(id) + '">' + esc(name) + '</option>').join('');
+                userSelect.value = selected;
+            }
+            _auditDocs = allDocs.filter(doc => {
+                const v=doc.data();
+                return (!actionFilter || v.action===actionFilter) && (!userFilter || v.userId===userFilter);
             });
-            return `<div class="audit-entry">
-                <div class="audit-icon">${icon}</div>
-                <div class="audit-meta">
-                    <div class="audit-action">${(data.action||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</div>
-                    <div class="audit-detail">
-                        <strong>${data.userName || 'Unknown'}</strong>
-                        <span style="color:var(--acc)"> · ${data.userRole || ''}</span>
-                    </div>
-                </div>
-                <div class="audit-time">${timeStr}</div>
-            </div>`;
-        }).join('');
-
-        if (moreBtn) moreBtn.style.display = _auditDocs.length > 50 ? '' : 'none';
-    }
-
-    window.stsbLoadMoreAudit = function() {
-        // Already have all docs, just render more
-        _auditDocs = _auditDocs; // page logic can be extended
+            _renderAuditPage();
+            if (empty) empty.style.display = _auditDocs.length ? 'none' : '';
+        } catch(e) {
+            console.error('[STSB Audit] Load failed:', e);
+            list.textContent = 'Could not load audit logs. Check Firestore permissions and retry.';
+            if (empty) empty.style.display = 'none';
+            if (moreBtn) moreBtn.style.display = 'none';
+            if (typeof showToast === 'function') showToast('Audit log failed: ' + (e.message || 'unknown error'), 'error');
+        }
     };
 
-    window.stsbExportAuditCSV = function() {
-        const rows = [['Time','User','Role','Action','Details']];
-        _auditDocs.forEach(d => {
-            const data = d.data();
-            const ts = data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.ts_client || 0);
-            rows.push([
-                ts.toISOString(), data.userName||'', data.userRole||'',
-                data.action||'', JSON.stringify(data.details||{})
-            ]);
-        });
-        _stsbDownloadCSV(rows, 'stsb_audit_log_' + _stsbDateTag() + '.csv');
-    };
-
+    let _auditVisibleCount = 50;
     /* Populate audit user filter dropdown when page opens */
     window.addEventListener('appReady', () => {
         const origGoPage = window.goPage;
@@ -3442,95 +3395,78 @@
     };
 
     window.stsbExportData = async function(collection, format) {
-        if (!window.__SF) return;
+        const allowedCollections = new Set(['orders','outlets','collections','products','attendance']);
+        if (!allowedCollections.has(collection)) { if (typeof showToast==='function') showToast('Unsupported export type','error'); return; }
+        if (!window.__SF || !window.__SF.db) { if (typeof showToast==='function') showToast('Database is not ready. Please try again.','error'); return; }
         const prog = document.getElementById('exportProgress');
-        if (prog) prog.style.display = '';
-
-        const fromVal = document.getElementById('exportDateFrom')?.value;
-        const toVal   = document.getElementById('exportDateTo')?.value;
-
-        const fromTs = fromVal ? new Date(fromVal) : null;
-        const toTs   = toVal   ? new Date(toVal + 'T23:59:59') : null;
-
-        try {
-            const snap = await window.__SF.getDocs(
-                window.__SF.collection(window.__SF.db, collection)
-            );
-            let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-            // Filter by date if timestamps exist
-            if (fromTs || toTs) {
-                docs = docs.filter(d => {
-                    const ts = d.createdAt?.toDate ? d.createdAt.toDate() :
-                               d.timestamp?.toDate ? d.timestamp.toDate() : null;
-                    if (!ts) return true;
-                    if (fromTs && ts < fromTs) return false;
-                    if (toTs   && ts > toTs)   return false;
-                    return true;
-                });
-            }
-
-            if (!docs.length) {
-                if (prog) prog.style.display = 'none';
-                if (typeof showToast === 'function') showToast('No records found for the selected range', 'info');
-                return;
-            }
-
-            // Build rows
-            const headers = Array.from(
-                new Set(docs.flatMap(d => Object.keys(d)))
-            ).filter(k => typeof docs[0][k] !== 'object');
-
-            const rows = [
-                headers,
-                ...docs.map(d => headers.map(h => {
-                    const v = d[h];
-                    if (v === null || v === undefined) return '';
-                    if (v?.toDate) return v.toDate().toISOString();
-                    return String(v);
-                }))
-            ];
-
-            const filename = `stsb_${collection}_${_stsbDateTag()}`;
-            if (format === 'csv') {
-                _stsbDownloadCSV(rows, filename + '.csv');
-            } else {
-                _stsbDownloadExcel(rows, filename + '.xlsx', collection);
-            }
-        } catch(e) {
-            if (typeof showToast === 'function') showToast('Export failed: ' + e.message, 'error');
-        } finally {
-            if (prog) prog.style.display = 'none';
+        if (prog) { prog.style.display=''; prog.textContent='Preparing export…'; }
+        const fromVal = document.getElementById('exportDateFrom')?.value || '';
+        const toVal = document.getElementById('exportDateTo')?.value || '';
+        if (fromVal && toVal && fromVal > toVal) {
+            if (prog) prog.style.display='none';
+            if (typeof showToast==='function') showToast('The start date must be on or before the end date.','error');
+            return;
         }
+        const fromTs = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+        const toTs = toVal ? new Date(toVal + 'T23:59:59.999') : null;
+        const asDate = value => {
+            if (!value) return null;
+            if (typeof value.toDate==='function') return value.toDate();
+            const date = value instanceof Date ? value : ((typeof value==='string'||typeof value==='number') ? new Date(value) : null);
+            return date && !Number.isNaN(date.getTime()) ? date : null;
+        };
+        const scalar = value => {
+            if (value===null||value===undefined) return '';
+            if (typeof value.toDate==='function') return value.toDate().toISOString();
+            if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+            if (typeof value==='object') return JSON.stringify(value);
+            return String(value);
+        };
+        try {
+            const snap = await window.__SF.getDocs(window.__SF.collection(window.__SF.db, collection));
+            let docs = snap.docs.map(doc => ({id:doc.id,...doc.data()}));
+            if (fromTs || toTs) docs = docs.filter(doc => {
+                const date = asDate(doc.createdAt)||asDate(doc.timestamp)||asDate(doc.updatedAt)||asDate(doc.date);
+                return !date || ((!fromTs||date>=fromTs)&&(!toTs||date<=toTs));
+            });
+            if (!docs.length) { if (typeof showToast==='function') showToast('No records found for the selected range.','info'); return; }
+            const headers = Array.from(new Set(docs.flatMap(doc=>Object.keys(doc))));
+            const rows = [headers,...docs.map(doc=>headers.map(key=>scalar(doc[key])))];
+            const filename = 'stsb_'+collection+'_'+_stsbDateTag();
+            if (format==='excel') _stsbDownloadExcel(rows,filename+'.xls',collection);
+            else _stsbDownloadCSV(rows,filename+'.csv');
+        } catch(e) {
+            console.error('[STSB Export] Failed:',e);
+            if (typeof showToast==='function') showToast('Export failed: '+(e.message||'unknown error')+'. Check access permissions and retry.','error');
+        } finally { if (prog) prog.style.display='none'; }
     };
 
+    function _stsbSafeCsvCell(value) {
+        let text = value===null||value===undefined ? '' : String(value);
+        if (/^\\s*[=+@]/.test(text) || /^\\s*-\\d/.test(text)) text = "'" + text;
+        return '"' + text.replace(/"/g,'""') + '"';
+    }
+
     function _stsbDownloadCSV(rows, filename) {
-        const csv = rows.map(r =>
-            r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')
-        ).join('\n');
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        _stsbTriggerDownload(blob, filename);
+        const csv = rows.map(row=>row.map(_stsbSafeCsvCell).join(',')).join('\\r\\n');
+        _stsbTriggerDownload(new Blob(['\\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),filename);
     }
 
     function _stsbDownloadExcel(rows, filename, sheetName) {
-        // Simple XLSX-compatible CSV with BOM — works in Excel
-        // For full xlsx, a library would be needed; this covers 95% of use cases
-        _stsbDownloadCSV(rows, filename.replace('.xlsx', '.csv'));
-        if (typeof showToast === 'function')
-            showToast('Downloaded as CSV (Excel-compatible)', 'info');
+        const esc = value => String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+        const safeName = String(sheetName||'Export').replace(/[\\[\\]\\:*?\\/\\\\]/g,' ').slice(0,31)||'Export';
+        const xmlRows = rows.map(row=>'<Row>'+row.map(value=>'<Cell><Data ss:Type="String">'+esc(value)+'</Data></Cell>').join('')+'</Row>').join('');
+        const xml = '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>' +
+            '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
+            '<Worksheet ss:Name="'+esc(safeName)+'"><Table>'+xmlRows+'</Table></Worksheet></Workbook>';
+        _stsbTriggerDownload(new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8;'}),filename);
     }
 
     function _stsbTriggerDownload(blob, filename) {
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href     = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        if (typeof showToast === 'function')
-            showToast('✅ ' + filename + ' downloaded', 'success');
+        const url=URL.createObjectURL(blob), a=document.createElement('a');
+        a.href=url; a.download=filename; a.style.display='none'; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+        if (typeof showToast==='function') showToast('Downloaded '+filename,'success');
     }
 
     function _stsbDateTag() {
@@ -3659,10 +3595,12 @@
        8. FEATURE — Customer Portal
     ────────────────────────────────────────────────────────────── */
     window.openCustomerPortal = function() {
-        const el = document.getElementById('mCustomerPortal');
-        if (el) el.style.display = 'flex';
-        document.getElementById('portalResults').innerHTML = '';
-        document.getElementById('portalOrderSearch').value = '';
+        const results = document.getElementById('portalResults');
+        const search = document.getElementById('portalOrderSearch');
+        if (results) results.innerHTML = '';
+        if (search) search.value = '';
+        if (typeof window.openM === 'function') window.openM('mCustomerPortal');
+        else { const el = document.getElementById('mCustomerPortal'); if (el) { el.style.removeProperty('display'); el.classList.add('show'); } }
     };
 
     window.stsbPortalSearch = async function() {
