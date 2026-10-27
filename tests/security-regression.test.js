@@ -113,6 +113,23 @@ test('root delete requests require an internal requester and valid pending reque
 });
 
 
+test('delivery staff updates are limited to valid status transitions and actual app fields', () => {
+  const rules = read('firestore.rules');
+  const mirrorStart = rules.indexOf('// ROOT MIRROR COLLECTIONS');
+  const start = rules.indexOf('match /orders/{orderId} {', mirrorStart);
+  const end = rules.indexOf('match /outlets/{outletId} {', start);
+  assert.ok(start >= 0 && end > start, 'root orders rule block exists');
+  const block = rules.slice(start, end);
+  assert.match(block, /resource\.data\.deliveryManId == request\.auth\.uid/);
+  assert.match(block, /resource\.data\.get\('status', ''\) == 'Assigned'[\s\S]*request\.resource\.data\.get\('status', ''\) == 'In Transit'/);
+  assert.match(block, /resource\.data\.get\('status', ''\) == 'In Transit'[\s\S]*request\.resource\.data\.get\('status', ''\) in \['Delivered', 'Failed'\]/);
+  assert.match(block, /'inTransitAt','inTransitBy'[\s\S]*'deliveredAt','deliveredBy'[\s\S]*'failureReason','failedAt','failedBy'/);
+  assert.match(block, /request\.resource\.data\.inTransitBy == request\.auth\.uid/);
+  assert.match(block, /request\.resource\.data\.deliveredBy == request\.auth\.uid/);
+  assert.match(block, /request\.resource\.data\.failedBy == request\.auth\.uid/);
+});
+
+
 test('sales reps can only edit route descriptions, not assignments or ownership', () => {
   const rules = read('firestore.rules');
   const routeBlocks = [];
@@ -124,8 +141,8 @@ test('sales reps can only edit route descriptions, not assignments or ownership'
   }
   assert.equal(routeBlocks.length, 2, 'zone and root route rules both exist');
   for (const block of routeBlocks) {
-    assert.match(block, /resource\.data\.repId == request\.auth\.uid[\s\S]*affectedKeys\(\)\.hasOnly\(\['name','description','updatedAt'\]\)/);
+    assert.match(block, /resource\\.data\\.repId == request\\.auth\\.uid[\\s\\S]*affectedKeys\\(\\)\\.hasOnly\\(\\['name','description','updatedAt'\\]\\)/);
   }
   const app = read('js/routes.js');
-  assert.match(app, /if\(isAdmin\(\)\)\{\s*data\.repId=repIdVal;\s*data\.delivManId=delivManIdVal;\s*\}/);
+  assert.match(app, /if\\(isAdmin\\(\\)\\)\\{\\s*data\\.repId=repIdVal;\\s*data\\.delivManId=delivManIdVal;\\s*\\}/);
 });
