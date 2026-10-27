@@ -121,8 +121,8 @@ function goPage(pg) {
   closeSidebar();
 }
 
-function openM(id){document.getElementById(id).classList.add('show');}
-function closeM(id){document.getElementById(id).classList.remove('show');}
+function openM(id){const el=document.getElementById(id);if(!el)return;el.style.removeProperty('display');el.classList.add('show');}
+function closeM(id){const el=document.getElementById(id);if(!el)return;el.classList.remove('show');el.style.setProperty('display','none');}
 
 function openSidebar(){
   document.getElementById('sidebar').classList.add('open');
