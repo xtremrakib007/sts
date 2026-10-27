@@ -3351,6 +3351,44 @@
         }
     };
 
+    function _renderAuditPage() {
+        const list = document.getElementById('auditLogList');
+        const empty = document.getElementById('auditLogEmpty');
+        const moreBtn = document.getElementById('auditLoadMoreBtn');
+        if (!list) return;
+        if (!_auditDocs.length) {
+            list.innerHTML = '';
+            if (empty) empty.style.display = '';
+            if (moreBtn) moreBtn.style.display = 'none';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+        const icons = {
+            login:'🔑', logout:'🚪', order_created:'📦', order_updated:'✏️',
+            product_added:'🛒', product_updated:'🔄', user_created:'👤',
+            collection_recorded:'💰', outlet_added:'🏪', delivery_assigned:'🚚',
+            stock_adjusted:'📊', broadcast_sent:'📢', session_timeout:'⏱️'
+        };
+        const esc = value => String(value ?? '').replace(/[&<>"']/g, ch =>
+            ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        list.innerHTML = _auditDocs.slice(0, _auditVisibleCount).map(doc => {
+            const data = doc.data();
+            const ts = data.timestamp && typeof data.timestamp.toDate === 'function'
+                ? data.timestamp.toDate() : new Date(data.ts_client || 0);
+            const timeStr = Number.isNaN(ts.getTime()) ? 'Unknown time' : ts.toLocaleString('en-MY', {
+                day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'
+            });
+            const action = String(data.action || 'unknown').replace(/_/g,' ').replace(/\b\w/g, ch => ch.toUpperCase());
+            return '<div class="audit-entry">' +
+                '<div class="audit-icon">' + (icons[data.action] || '📋') + '</div>' +
+                '<div class="audit-meta"><div class="audit-action">' + esc(action) + '</div>' +
+                '<div class="audit-detail"><strong>' + esc(data.userName || 'Unknown') + '</strong>' +
+                '<span style="color:var(--acc)"> · ' + esc(data.userRole || '') + '</span></div></div>' +
+                '<div class="audit-time">' + esc(timeStr) + '</div></div>';
+        }).join('');
+        if (moreBtn) moreBtn.style.display = _auditDocs.length > _auditVisibleCount ? '' : 'none';
+    }
+
     let _auditVisibleCount = 50;
     /* Populate audit user filter dropdown when page opens */
     window.addEventListener('appReady', () => {
