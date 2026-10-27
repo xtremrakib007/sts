@@ -3481,7 +3481,7 @@
 
     function _stsbSafeCsvCell(value) {
         let text = value===null||value===undefined ? '' : String(value);
-        if (/^\s*[=+@]/.test(text) || /^\s*-\\d/.test(text)) text = "'" + text;
+        if (/^\s*[=+@]/.test(text) || /^\s*-\d/.test(text)) text = "'" + text;
         return '"' + text.replace(/"/g,'""') + '"';
     }
 
