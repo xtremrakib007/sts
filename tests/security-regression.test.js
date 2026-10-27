@@ -191,8 +191,8 @@ test('data export validates date range, allowlists collections, and creates CSV 
   assert.match(app,/application\/vnd\.ms-excel/);
   assert.match(app,/_stsbSafeCsvCell/);
   assert.ok(app.includes(String.raw`if (/^\s*[=+@]/.test(text)`));
-  assert.ok(app.includes(String.raw`join('\\r\\n')`));
-  assert.ok(app.includes(String.raw`new Blob(['\\uFEFF'+csv]`));
+  assert.ok(app.includes(String.raw`join('\r\n')`));
+  assert.ok(app.includes(String.raw`new Blob(['\uFEFF'+csv]`));
   assert.match(app,/URL\.revokeObjectURL\(url\)/);
   assert.match(app,/_auditVisibleCount/);
   assert.match(app,/function _renderAuditPage\(\)/);
