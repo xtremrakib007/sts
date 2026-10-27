@@ -3481,18 +3481,18 @@
 
     function _stsbSafeCsvCell(value) {
         let text = value===null||value===undefined ? '' : String(value);
-        if (/^\\s*[=+@]/.test(text) || /^\\s*-\\d/.test(text)) text = "'" + text;
+        if (/^\s*[=+@]/.test(text) || /^\s*-\\d/.test(text)) text = "'" + text;
         return '"' + text.replace(/"/g,'""') + '"';
     }
 
     function _stsbDownloadCSV(rows, filename) {
-        const csv = rows.map(row=>row.map(_stsbSafeCsvCell).join(',')).join('\\r\\n');
-        _stsbTriggerDownload(new Blob(['\\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),filename);
+        const csv = rows.map(row=>row.map(_stsbSafeCsvCell).join(',')).join('\r\n');
+        _stsbTriggerDownload(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),filename);
     }
 
     function _stsbDownloadExcel(rows, filename, sheetName) {
         const esc = value => String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
-        const safeName = String(sheetName||'Export').replace(/[\\[\\]\\:*?\\/\\\\]/g,' ').slice(0,31)||'Export';
+        const safeName = String(sheetName||'Export').replace(/[\[\]:*?\/\\]/g,' ').slice(0,31)||'Export';
         const xmlRows = rows.map(row=>'<Row>'+row.map(value=>'<Cell><Data ss:Type="String">'+esc(value)+'</Data></Cell>').join('')+'</Row>').join('');
         const xml = '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>' +
             '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
