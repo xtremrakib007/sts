@@ -190,6 +190,9 @@ test('data export validates date range, allowlists collections, and creates CSV 
   assert.match(app,/fromVal > toVal/);
   assert.match(app,/application\/vnd\.ms-excel/);
   assert.match(app,/_stsbSafeCsvCell/);
+  assert.match(app,/\^\\\\s\*\[=\+@\]/);
+  assert.match(app,/join\('\\\\r\\\\n'\)/);
+  assert.match(app,/new Blob\(\['\\\\uFEFF'\+csv\]/);
   assert.match(app,/URL\.revokeObjectURL\(url\)/);
   assert.match(app,/_auditVisibleCount/);
   assert.match(app,/function _renderAuditPage\(\)/);
