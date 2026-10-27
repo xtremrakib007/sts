@@ -147,3 +147,12 @@ test('sales reps can only edit route descriptions, not assignments or ownership'
   const app = read('js/routes.js');
   assert.ok(app.includes('if(isAdmin()){\n        data.repId=repIdVal;\n        data.delivManId=delivManIdVal;\n      }'), 'assignment fields are admin-only on edit');
 });
+
+
+test('ERP bulk sync does not embed service-account private keys or load credential JSON', () => {
+  const source = read('STSB-ERP/bulk_sync.js');
+  assert.match(source, /applicationDefault\(\)/);
+  assert.doesNotMatch(source, /BEGIN PRIVATE KEY|private_key_id\s*:|credential\.cert\(/);
+  assert.doesNotMatch(source, /require\(['"]\.\/stfm-sales-sa\.json['"]\)/);
+  assert.match(source, /offset \+= 450/);
+});
