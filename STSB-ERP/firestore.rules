@@ -69,12 +69,27 @@ service cloud.firestore {
     // ──────────────────────────────────────────────────────────
     match /users/{userId} {
       allow read: if isAuth() && (request.auth.uid == userId || isERPUser());
-      // Provisioning roles is server/admin-only; self-service is restricted to safe profile fields.
-      allow create: if isSuperAdmin() || isAdmin();
+      // Only super admins can create/promote super admins. Zone admins can provision
+      // non-privileged staff only inside their own assigned zone.
+      allow create: if isSuperAdmin()
+          || (isAdmin()
+              && userDoc().zone != null
+              && userDoc().zone != ''
+              && userDoc().zone != 'all'
+              && request.resource.data.get('zone','') == userDoc().zone
+              && request.resource.data.get('role','') in ['sub_admin','sales_rep','delivery_man']
+              && request.resource.data.get('isOwner', false) == false);
       allow update: if isSuperAdmin()
           || (isAdmin()
               && request.auth.uid != userId
-              && request.resource.data.get('role','') != 'super_admin')
+              && userDoc().zone != null
+              && userDoc().zone != ''
+              && userDoc().zone != 'all'
+              && resource.data.get('zone','') == userDoc().zone
+              && request.resource.data.get('zone','') == resource.data.get('zone','')
+              && request.resource.data.get('isOwner', false) == resource.data.get('isOwner', false)
+              && request.resource.data.get('role','') in ['sub_admin','sales_rep','delivery_man']
+              && resource.data.get('role','') != 'super_admin')
           || (isAuth()
               && request.auth.uid == userId
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
