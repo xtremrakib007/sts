@@ -53,14 +53,14 @@ service cloud.firestore {
     }
 
     function zoneAllowed(docZone) {
-      // super_admin always sees all zones regardless of their zone field
+      // Fail closed for ordinary users. Only super admins can access global/unzoned records.
       return isSuperAdmin()
-          || userDoc().zone == null
-          || userDoc().zone == ''
-          || userDoc().zone == 'all'
-          || docZone == null
-          || docZone == ''
-          || userDoc().zone == docZone;
+          || (userDoc().zone != null
+              && userDoc().zone != ''
+              && userDoc().zone != 'all'
+              && docZone != null
+              && docZone != ''
+              && userDoc().zone == docZone);
     }
 
 
@@ -68,9 +68,34 @@ service cloud.firestore {
     //  users — primary user profiles
     // ──────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read:   if isAuth() && (request.auth.uid == userId || isERPUser());
-      allow create, update: if isERPUser()
-                         || (isAuth() && request.auth.uid == userId);
+      allow read: if isAuth() && (request.auth.uid == userId || isERPUser());
+      // Only super admins can create/promote super admins. Zone admins can provision
+      // non-privileged staff only inside their own assigned zone.
+      allow create: if isSuperAdmin()
+          || (isAdmin()
+              && userDoc().zone != null
+              && userDoc().zone != ''
+              && userDoc().zone != 'all'
+              && request.resource.data.get('zone','') == userDoc().zone
+              && request.resource.data.get('role','') in ['sub_admin','sales_rep','delivery_man']
+              && request.resource.data.get('isOwner', false) == false);
+      allow update: if isSuperAdmin()
+          || (isAdmin()
+              && request.auth.uid != userId
+              && userDoc().zone != null
+              && userDoc().zone != ''
+              && userDoc().zone != 'all'
+              && resource.data.get('zone','') == userDoc().zone
+              && request.resource.data.get('zone','') == resource.data.get('zone','')
+              && request.resource.data.get('isOwner', false) == resource.data.get('isOwner', false)
+              && request.resource.data.get('role','') in ['sub_admin','sales_rep','delivery_man']
+              && resource.data.get('role','') != 'super_admin')
+          || (isAuth()
+              && request.auth.uid == userId
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'name','email','phone','displayName','photoURL','fcmToken',
+                'lastSeen','updatedAt','lastLocationAt'
+              ]));
       allow delete: if isSuperAdmin() || isAdmin();
     }
 
@@ -233,7 +258,8 @@ service cloud.firestore {
       allow create: if isAuth() && isKnownUser()
         && request.resource.data.uid == request.auth.uid;
       allow update: if isAuth() && isKnownUser()
-        && resource.data.uid == request.auth.uid;
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid;
       allow delete: if isSuperAdmin();
     }
 
@@ -242,8 +268,10 @@ service cloud.firestore {
     //  fcmTokens — any authenticated user writes own token
     // ──────────────────────────────────────────────────────────
     match /fcmTokens/{tokenId} {
-      allow read:  if isERPUser();
-      allow write: if isKnownUser();
+      allow read: if isERPUser();
+      // Token documents are keyed by UID; users may manage only their own token.
+      allow create, update: if isKnownUser() && request.auth.uid == tokenId;
+      allow delete: if isSuperAdmin() || (isKnownUser() && request.auth.uid == tokenId);
     }
 
 

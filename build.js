@@ -129,6 +129,19 @@ async function build() {
     }
   }
 
+  // Remove stale source maps so previous builds cannot leak original source code.
+  for (const dir of TARGET_DIRS) {
+    const jsDir = path.join(dir, 'js');
+    if (fs.existsSync(jsDir)) {
+      for (const file of fs.readdirSync(jsDir)) {
+        if (file.endsWith('.map')) {
+          fs.unlinkSync(path.join(jsDir, file));
+          console.log(`   🛡️ Removed source map: ${dir}/js/${file}`);
+        }
+      }
+    }
+  }
+
   // 5. Clean up any sensitive files from output folders
   console.log('\n🔒 Verifying security of distribution directories...');
   for (const dir of TARGET_DIRS) {
