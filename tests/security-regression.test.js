@@ -89,3 +89,10 @@ test('ERP FCM tokens can only be written by their owning user', () => {
   assert.match(block, /allow delete: if isSuperAdmin\(\) \|\| \(isKnownUser\(\) && request\.auth\.uid == tokenId\)/);
   assert.doesNotMatch(block, /allow write: if isKnownUser\(\)/);
 });
+
+test('service worker precaches the actual hosted bundle and refreshes its cache version', () => {
+  const sw = read('sw.js');
+  assert.match(sw, /const CACHE_VERSION = 'stfm-v11'/);
+  assert.match(sw, /'\/js\/app\.min\.js'/);
+  assert.doesNotMatch(sw, /'\/app\.js'/);
+});
