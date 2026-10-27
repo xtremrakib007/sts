@@ -165,3 +165,31 @@ test('ERP Functions bulk sync uses ADC and bounded batches without credential JS
   assert.doesNotMatch(source, /BEGIN PRIVATE KEY|private_key_id\s*:|credential\.cert\(/);
   assert.doesNotMatch(source, /require\(['"]\.\/stfm-sales-sa\.json['"]\)|require\(['"]\.\/stsb-erp-sa\.json['"]\)/);
 });
+
+
+test('customer portal modal can be closed even if a prior opener set inline display', () => {
+  const ui=read('js/ui.js');
+  assert.match(ui,/function closeM\(id\)[\s\S]*classList\.remove\('show'\)[\s\S]*style\.setProperty\('display','none'\)/);
+  assert.match(ui,/function openM\(id\)[\s\S]*style\.removeProperty\('display'\)[\s\S]*classList\.add\('show'\)/);
+  assert.match(read('index.html'),/window\.openCustomerPortal = function\(\)[\s\S]*window\.openM\('mCustomerPortal'\)/);
+});
+
+test('audit log rules restrict reading, validate authorship, and make entries append-only', () => {
+  const rules=read('firestore.rules'), start=rules.indexOf('match /audit_log/{entryId} {'), end=rules.indexOf('// CATCH-ALL',start);
+  assert.ok(start>=0&&end>start);
+  const block=rules.slice(start,end);
+  assert.match(block,/allow read: if isSignedIn\(\) && _isAdminOrSub\(ud\(\)\)/);
+  assert.match(block,/get\('userId', ''\) == request\.auth\.uid/);
+  assert.match(block,/get\('timestamp', null\) is timestamp/);
+  assert.match(block,/allow update, delete: if false/);
+});
+
+test('data export validates date range, allowlists collections, and creates CSV and Excel-compatible files safely', () => {
+  const app=read('index.html');
+  assert.match(app,/allowedCollections = new Set\(\['orders','outlets','collections','products','attendance'\]\)/);
+  assert.match(app,/fromVal > toVal/);
+  assert.match(app,/application\/vnd\.ms-excel/);
+  assert.match(app,/_stsbSafeCsvCell/);
+  assert.match(app,/URL\.revokeObjectURL\(url\)/);
+  assert.match(app,/_auditVisibleCount/);
+});
