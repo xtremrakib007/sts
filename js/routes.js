@@ -247,15 +247,20 @@ async function saveRoute() {
   const data={
     name,
     description:document.getElementById('rDesc').value.trim(),
-    repId:repIdVal,
-    delivManId:delivManIdVal,
     updatedAt:new Date().toISOString(),
   };
   try{
     if(editId){
+      // Sales reps can edit descriptive fields only; assignment remains admin-managed.
+      if(isAdmin()){
+        data.repId=repIdVal;
+        data.delivManId=delivManIdVal;
+      }
       await sfUpdate('routes',editId,data);
       showToast('Route updated','success');
     } else {
+      data.repId=repIdVal;
+      data.delivManId=delivManIdVal;
       data.createdBy=CU.uid;data.createdAt=new Date().toISOString();
       await sfAdd('routes',data);
       showToast(`Route "${name}" created 🗺️`,'success');
