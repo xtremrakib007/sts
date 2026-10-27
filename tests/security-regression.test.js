@@ -111,3 +111,21 @@ test('root delete requests require an internal requester and valid pending reque
   assert.match(block, /get\('reason', ''\) is string[\s\S]*get\('reason', ''\)\.size\(\) > 0/);
   assert.match(block, /get\('_zoneId', ud\(\)\.get\('zoneId', ''\)\) == ud\(\)\.get\('zoneId', ''\)/);
 });
+
+
+test('sales reps can only edit route descriptions, not assignments or ownership', () => {
+  const rules = read('firestore.rules');
+  const routeBlocks = [];
+  let pos = -1;
+  while ((pos = rules.indexOf('match /routes/{routeId} {', pos + 1)) >= 0) {
+    const end = rules.indexOf('match /broadcasts/{broadcastId} {', pos);
+    assert.ok(end > pos, 'route rule block has a closing section');
+    routeBlocks.push(rules.slice(pos, end));
+  }
+  assert.equal(routeBlocks.length, 2, 'zone and root route rules both exist');
+  for (const block of routeBlocks) {
+    assert.match(block, /resource\.data\.repId == request\.auth\.uid[\s\S]*affectedKeys\(\)\.hasOnly\(\['name','description','updatedAt'\]\)/);
+  }
+  const app = read('js/routes.js');
+  assert.match(app, /if\(isAdmin\(\)\)\{\s*data\.repId=repIdVal;\s*data\.delivManId=delivManIdVal;\s*\}/);
+});
