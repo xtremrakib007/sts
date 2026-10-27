@@ -65,3 +65,15 @@ test('ERP zone admins cannot create or promote super admins or change users acro
   assert.match(block, /request\.resource\.data\.get\('zone',''\) == resource\.data\.get\('zone',''\)/);
   assert.match(block, /resource\.data\.get\('role',''\) != 'super_admin'/);
 });
+
+
+test('ERP FCM tokens can only be written by their owning user', () => {
+  const rules = read('STSB-ERP/firestore.rules');
+  const start = rules.indexOf('match /fcmTokens/{tokenId} {');
+  const end = rules.indexOf('// stsb_* prefixed collections', start);
+  assert.ok(start >= 0 && end > start, 'ERP FCM token rule block exists');
+  const block = rules.slice(start, end);
+  assert.match(block, /allow create, update: if isKnownUser\(\) && request\.auth\.uid == tokenId/);
+  assert.match(block, /allow delete: if isSuperAdmin\(\) \|\| \(isKnownUser\(\) && request\.auth\.uid == tokenId\)/);
+  assert.doesNotMatch(block, /allow write: if isKnownUser\(\)/);
+});
