@@ -203,5 +203,5 @@ test('ERP portal resolves at both /portal and nested portal URLs', () => {
   const rewrites = config.hosting.rewrites;
   assert.ok(rewrites.some((r) => r.source === '/portal' && r.destination === '/portal/index.html'));
   assert.ok(rewrites.some((r) => r.source === '/portal/**' && r.destination === '/portal/index.html'));
-  assert.match(read('public/portal/index.html'), /<title>STSB ERP<\\/title>/);
+  assert.ok(read('public/portal/index.html').includes('<title>STSB ERP</title>'));
 });
