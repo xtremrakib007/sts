@@ -576,6 +576,66 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // STSB ERP tenant collections
+    //
+    // The ERP portal uses the shared stfm-sales project and the stsb_* namespace.
+    // Keep tenant data closed to ordinary users: only the verified owner account
+    // (or an explicitly provisioned super_admin profile) can browse/manage the
+    // full ERP dataset. Sales reps may submit only their own ERP order records.
+    // ─────────────────────────────────────────────────────────────────────────
+    function isStsbERPAdmin() {
+      return isSignedIn() && (
+        _isOwner(ud()) || ud().get('role', '') == 'super_admin'
+      );
+    }
+
+    match /stsb_users/{uid} {
+      allow read: if isStsbERPAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_products/{productId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_orders/{orderId} {
+      allow read: if isStsbERPAdmin()
+        || (isSignedIn() && _isSalesRep(ud()) && resource.data.repId == request.auth.uid);
+      allow create: if isSignedIn()
+        && _isSalesRep(ud())
+        && request.resource.data.repId == request.auth.uid;
+      allow update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_inventory/{itemId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_invoices/{invoiceId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_suppliers/{supplierId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_transfers/{transferId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_hq_orders/{orderId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_collections/{collectionId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    match /stsb_config/{configId} {
+      allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // CATCH-ALL — deny everything not matched above
     // ─────────────────────────────────────────────────────────────────────────
 
