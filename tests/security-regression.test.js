@@ -96,3 +96,18 @@ test('service worker precaches the actual hosted bundle and refreshes its cache 
   assert.match(sw, /'\/js\/app\.min\.js'/);
   assert.doesNotMatch(sw, /'\/app\.js'/);
 });
+
+
+test('root delete requests require an internal requester and valid pending request data', () => {
+  const rules = read('firestore.rules');
+  const start = rules.indexOf('match /deleteRequests/{reqId} {');
+  const end = rules.indexOf('// DEVICE APPROVAL', start);
+  assert.ok(start >= 0 && end > start, 'root deleteRequests rule block exists');
+  const block = rules.slice(start, end);
+  assert.match(block, /allow create: if isSignedIn\(\)[\s\S]*isStfmUser\(\)/);
+  assert.match(block, /get\('requestedBy', ''\) == request\.auth\.uid/);
+  assert.match(block, /get\('status', ''\) == 'pending'/);
+  assert.match(block, /'outlet', 'order', 'collection', 'product', 'route', 'broadcast'/);
+  assert.match(block, /get\('reason', ''\) is string[\s\S]*get\('reason', ''\)\.size\(\) > 0/);
+  assert.match(block, /get\('_zoneId', ud\(\)\.get\('zoneId', ''\)\) == ud\(\)\.get\('zoneId', ''\)/);
+});
