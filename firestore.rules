@@ -250,7 +250,9 @@ service cloud.firestore {
         allow update: if isSignedIn() && (
             _isZoneAdmin(ud(), zoneId)
             || (_isSalesRep(ud()) && _inZone(ud(), zoneId)
-                && resource.data.repId == request.auth.uid)
+                && resource.data.repId == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['name','description','updatedAt']))
           );
         allow delete: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
       }
@@ -410,7 +412,10 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if isSignedIn() && (
           _isAdminOrSub(ud())
-          || (_isSalesRep(ud()) && resource.data.repId == request.auth.uid)
+          || (_isSalesRep(ud())
+              && resource.data.repId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['name','description','updatedAt']))
         );
       allow delete: if isSignedIn() && _isAdminOrSub(ud());
     }
