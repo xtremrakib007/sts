@@ -259,8 +259,6 @@ async function saveRoute() {
       await sfUpdate('routes',editId,data);
       showToast('Route updated','success');
     } else {
-      data.repId=repIdVal;
-      data.delivManId=delivManIdVal;
       data.createdBy=CU.uid;data.createdAt=new Date().toISOString();
       await sfAdd('routes',data);
       showToast(`Route "${name}" created 🗺️`,'success');
