@@ -426,8 +426,24 @@ service cloud.firestore {
     }
 
     match /deleteRequests/{reqId} {
-      allow read:   if isSignedIn() && _isAdminOrSub(ud());
-      allow create: if isSignedIn();
+      allow read: if isSignedIn() && _isAdminOrSub(ud());
+      // Only an authenticated STFM staff account may submit a well-formed
+      // request for itself. Portal-only accounts cannot inject staff requests.
+      allow create: if isSignedIn()
+        && isStfmUser()
+        && request.resource.data.get('requestedBy', '') == request.auth.uid
+        && request.resource.data.get('status', '') == 'pending'
+        && request.resource.data.get('itemType', '') in [
+          'outlet', 'order', 'collection', 'product', 'route', 'broadcast'
+        ]
+        && request.resource.data.get('reason', '') is string
+        && request.resource.data.get('reason', '').size() > 0
+        && (
+          _isOwner(ud())
+          || !('zoneId' in ud())
+          || ud().get('zoneId', '') == ''
+          || request.resource.data.get('_zoneId', ud().get('zoneId', '')) == ud().get('zoneId', '')
+        );
       allow update: if isSignedIn() && _isAdminOrSub(ud());
       allow delete: if isSignedIn() && _isAdmin(ud());
     }
