@@ -213,3 +213,18 @@ test('ERP module boot calls the tenant initializer through window', () => {
   assert.match(portal, /window\.selectTenant\('tenant_stsb'\);/);
   assert.doesNotMatch(portal, /\n\s*selectTenant\('tenant_stsb'\);/);
 });
+
+
+test('STSB ERP tenant collections have explicit role-gated rules before deny-all catch-all', () => {
+  const rules = read('firestore.rules');
+  const start = rules.indexOf('// STSB ERP tenant collections');
+  const end = rules.indexOf('// CATCH-ALL — deny everything not matched above', start);
+  assert.ok(start >= 0 && end > start, 'STSB ERP rules exist before catch-all');
+  const block = rules.slice(start, end);
+  assert.match(block, /function isStsbERPAdmin\(\)[\s\S]*_isOwner\(ud\(\)\)[\s\S]*role', ''\) == 'super_admin'/);
+  for (const collection of ['users','products','orders','inventory','invoices','suppliers','transfers','hq_orders','collections','config']) {
+    assert.match(block, new RegExp('match \\/stsb_' + collection + '\\/{'));
+  }
+  assert.match(block, /match \/stsb_orders\/{orderId} \{[\s\S]*_isSalesRep\(ud\(\)\)[\s\S]*resource\.data\.repId == request\.auth\.uid[\s\S]*request\.resource\.data\.repId == request\.auth\.uid/);
+  assert.doesNotMatch(block, /allow read, write: if isSignedIn\(\);/);
+});
