@@ -197,3 +197,11 @@ test('data export validates date range, allowlists collections, and creates CSV 
   assert.match(app,/_auditVisibleCount/);
   assert.match(app,/function _renderAuditPage\(\)/);
 });
+
+test('ERP portal resolves at both /portal and nested portal URLs', () => {
+  const config = JSON.parse(read('firebase.json'));
+  const rewrites = config.hosting.rewrites;
+  assert.ok(rewrites.some((r) => r.source === '/portal' && r.destination === '/portal/index.html'));
+  assert.ok(rewrites.some((r) => r.source === '/portal/**' && r.destination === '/portal/index.html'));
+  assert.match(read('public/portal/index.html'), /<title>STSB ERP<\\/title>/);
+});
