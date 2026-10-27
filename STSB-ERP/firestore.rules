@@ -258,7 +258,8 @@ service cloud.firestore {
       allow create: if isAuth() && isKnownUser()
         && request.resource.data.uid == request.auth.uid;
       allow update: if isAuth() && isKnownUser()
-        && resource.data.uid == request.auth.uid;
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid;
       allow delete: if isSuperAdmin();
     }
 
