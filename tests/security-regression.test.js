@@ -115,7 +115,8 @@ test('root delete requests require an internal requester and valid pending reque
 
 test('delivery staff updates are limited to valid status transitions and actual app fields', () => {
   const rules = read('firestore.rules');
-  const start = rules.indexOf('match /orders/{orderId} {');
+  const mirrorStart = rules.indexOf('// ROOT MIRROR COLLECTIONS');
+  const start = rules.indexOf('match /orders/{orderId} {', mirrorStart);
   const end = rules.indexOf('match /outlets/{outletId} {', start);
   assert.ok(start >= 0 && end > start, 'root orders rule block exists');
   const block = rules.slice(start, end);
