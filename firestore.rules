@@ -323,8 +323,34 @@ service cloud.firestore {
           || (
             _isDeliveryMan(ud())
             && resource.data.deliveryManId == request.auth.uid
+            // Delivery staff may only move an assigned order into transit,
+            // then mark an in-transit order delivered or failed.
+            && (
+              (resource.data.get('status', '') == 'Assigned'
+                && request.resource.data.get('status', '') == 'In Transit')
+              || (resource.data.get('status', '') == 'In Transit'
+                && request.resource.data.get('status', '') in ['Delivered', 'Failed'])
+            )
+            // Match the actual fields written by js/deliveries.js.
             && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['status','deliveryNote','deliveredAt','failReason','updatedAt'])
+                 .hasOnly([
+                   'status','deliveryNote','updatedAt',
+                   'inTransitAt','inTransitBy',
+                   'deliveredAt','deliveredBy',
+                   'failureReason','failedAt','failedBy'
+                 ])
+            && (
+              !('inTransitBy' in request.resource.data)
+              || request.resource.data.inTransitBy == request.auth.uid
+            )
+            && (
+              !('deliveredBy' in request.resource.data)
+              || request.resource.data.deliveredBy == request.auth.uid
+            )
+            && (
+              !('failedBy' in request.resource.data)
+              || request.resource.data.failedBy == request.auth.uid
+            )
           )
           // Portal: can update limited fields on their own orders
           || (
