@@ -192,4 +192,5 @@ test('data export validates date range, allowlists collections, and creates CSV 
   assert.match(app,/_stsbSafeCsvCell/);
   assert.match(app,/URL\.revokeObjectURL\(url\)/);
   assert.match(app,/_auditVisibleCount/);
+  assert.match(app,/function _renderAuditPage\(\)/);
 });
