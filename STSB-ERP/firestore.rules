@@ -267,8 +267,10 @@ service cloud.firestore {
     //  fcmTokens — any authenticated user writes own token
     // ──────────────────────────────────────────────────────────
     match /fcmTokens/{tokenId} {
-      allow read:  if isERPUser();
-      allow write: if isKnownUser();
+      allow read: if isERPUser();
+      // Token documents are keyed by UID; users may manage only their own token.
+      allow create, update: if isKnownUser() && request.auth.uid == tokenId;
+      allow delete: if isSuperAdmin() || (isKnownUser() && request.auth.uid == tokenId);
     }
 
 
