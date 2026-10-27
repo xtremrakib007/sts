@@ -69,6 +69,16 @@ test('ERP zone admins cannot create or promote super admins or change users acro
 });
 
 
+
+test('ERP attendance records cannot change their owner during update', () => {
+  const rules = read('STSB-ERP/firestore.rules');
+  const start = rules.indexOf('match /attendance/{recordId} {');
+  const end = rules.indexOf('// fcmTokens', start);
+  assert.ok(start >= 0 && end > start, 'attendance rule block exists');
+  const block = rules.slice(start, end);
+  assert.match(block, /resource\.data\.uid == request\.auth\.uid[\s\S]*request\.resource\.data\.uid == resource\.data\.uid/);
+});
+
 test('ERP FCM tokens can only be written by their owning user', () => {
   const rules = read('STSB-ERP/firestore.rules');
   const start = rules.indexOf('match /fcmTokens/{tokenId} {');
