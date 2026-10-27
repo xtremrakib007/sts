@@ -559,6 +559,22 @@ service cloud.firestore {
       allow delete: if isSignedIn() && _isOwner(ud());
     }
 
+    // AUDIT LOG — append-only events from authenticated internal users.
+    match /audit_log/{entryId} {
+      allow read: if isSignedIn() && _isAdminOrSub(ud());
+      allow create: if isSignedIn() && isStfmUser()
+        && request.resource.data.keys().hasOnly(['action','userId','userName','userRole','details','timestamp','ts_client'])
+        && request.resource.data.get('action', '') is string
+        && request.resource.data.get('action', '').size() > 0
+        && request.resource.data.get('userId', '') == request.auth.uid
+        && request.resource.data.get('userName', '') is string
+        && request.resource.data.get('userRole', '') is string
+        && request.resource.data.get('details', {}) is map
+        && request.resource.data.get('timestamp', null) is timestamp
+        && request.resource.data.get('ts_client', 0) is number;
+      allow update, delete: if false;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // CATCH-ALL — deny everything not matched above
     // ─────────────────────────────────────────────────────────────────────────
