@@ -156,3 +156,12 @@ test('ERP bulk sync does not embed service-account private keys or load credenti
   assert.doesNotMatch(source, /require\(['"]\.\/stfm-sales-sa\.json['"]\)/);
   assert.match(source, /offset \+= 450/);
 });
+
+
+test('ERP Functions bulk sync uses ADC and bounded batches without credential JSON', () => {
+  const source = read('STSB-ERP/functions/bulk_sync.js');
+  assert.match(source, /applicationDefault\(\)/);
+  assert.match(source, /offset \+= 450/);
+  assert.doesNotMatch(source, /BEGIN PRIVATE KEY|private_key_id\s*:|credential\.cert\(/);
+  assert.doesNotMatch(source, /require\(['"]\.\/stfm-sales-sa\.json['"]\)|require\(['"]\.\/stsb-erp-sa\.json['"]\)/);
+});
