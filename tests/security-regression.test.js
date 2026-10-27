@@ -111,3 +111,19 @@ test('root delete requests require an internal requester and valid pending reque
   assert.match(block, /get\('reason', ''\) is string[\s\S]*get\('reason', ''\)\.size\(\) > 0/);
   assert.match(block, /get\('_zoneId', ud\(\)\.get\('zoneId', ''\)\) == ud\(\)\.get\('zoneId', ''\)/);
 });
+
+
+test('delivery staff updates are limited to valid status transitions and actual app fields', () => {
+  const rules = read('firestore.rules');
+  const start = rules.indexOf('match /orders/{orderId} {');
+  const end = rules.indexOf('match /outlets/{outletId} {', start);
+  assert.ok(start >= 0 && end > start, 'root orders rule block exists');
+  const block = rules.slice(start, end);
+  assert.match(block, /resource\.data\.deliveryManId == request\.auth\.uid/);
+  assert.match(block, /resource\.data\.get\('status', ''\) == 'Assigned'[\s\S]*request\.resource\.data\.get\('status', ''\) == 'In Transit'/);
+  assert.match(block, /resource\.data\.get\('status', ''\) == 'In Transit'[\s\S]*request\.resource\.data\.get\('status', ''\) in \['Delivered', 'Failed'\]/);
+  assert.match(block, /'inTransitAt','inTransitBy'[\s\S]*'deliveredAt','deliveredBy'[\s\S]*'failureReason','failedAt','failedBy'/);
+  assert.match(block, /request\.resource\.data\.inTransitBy == request\.auth\.uid/);
+  assert.match(block, /request\.resource\.data\.deliveredBy == request\.auth\.uid/);
+  assert.match(block, /request\.resource\.data\.failedBy == request\.auth\.uid/);
+});
