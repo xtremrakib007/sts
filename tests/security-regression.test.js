@@ -205,3 +205,11 @@ test('ERP portal resolves at both /portal and nested portal URLs', () => {
   assert.ok(rewrites.some((r) => r.source === '/portal/**' && r.destination === '/portal/index.html'));
   assert.ok(read('public/portal/index.html').includes('<title>STSB ERP</title>'));
 });
+
+
+test('ERP module boot calls the tenant initializer through window', () => {
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /<script type="module">[\s\S]*?window\.selectTenant = function\(tenantId\)/);
+  assert.match(portal, /window\.selectTenant\('tenant_stsb'\);/);
+  assert.doesNotMatch(portal, /\n\s*selectTenant\('tenant_stsb'\);/);
+});

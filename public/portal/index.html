@@ -2600,7 +2600,7 @@ document.getElementById('authPwd').addEventListener('keydown', e => {
 (function() {
   document.getElementById('tenantScreen').style.display = 'none';
   // Auto-select STSB tenant — this initializes Firebase + auth listener
-  selectTenant('tenant_stsb');
+  window.selectTenant('tenant_stsb');
 })();
 
 </script>
