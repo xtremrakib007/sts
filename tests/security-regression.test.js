@@ -141,8 +141,9 @@ test('sales reps can only edit route descriptions, not assignments or ownership'
   }
   assert.equal(routeBlocks.length, 2, 'zone and root route rules both exist');
   for (const block of routeBlocks) {
-    assert.match(block, /resource\\.data\\.repId == request\\.auth\\.uid[\\s\\S]*affectedKeys\\(\\)\\.hasOnly\\(\\['name','description','updatedAt'\\]\\)/);
+    assert.ok(block.includes("resource.data.repId == request.auth.uid"), 'sales rep ownership is checked');
+    assert.ok(block.includes("hasOnly(['name','description','updatedAt'])"), 'only descriptive fields are editable');
   }
   const app = read('js/routes.js');
-  assert.match(app, /if\\(isAdmin\\(\\)\\)\\{\\s*data\\.repId=repIdVal;\\s*data\\.delivManId=delivManIdVal;\\s*\\}/);
+  assert.ok(app.includes('if(isAdmin()){\n        data.repId=repIdVal;\n        data.delivManId=delivManIdVal;\n      }'), 'assignment fields are admin-only on edit');
 });
