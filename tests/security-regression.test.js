@@ -33,7 +33,7 @@ test('ERP user self-updates are allowlisted and zone checks fail closed', () => 
   const rules = read('STSB-ERP/firestore.rules');
   assert.match(rules, /request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(\[/);
   assert.match(rules, /docZone != null[\s\S]*docZone != ''[\s\S]*userDoc\(\)\.zone == docZone/);
-  assert.match(rules, /allow create: if isSuperAdmin\(\) \|\| isAdmin\(\)/);
+  assert.match(rules, /allow create: if isSuperAdmin\(\)[\s\S]*request\.resource\.data\.get\('role',''\) in \['sub_admin','sales_rep','delivery_man'\]/);\n  assert.match(rules, /request\.resource\.data\.get\('zone',''\) == userDoc\(\)\.zone/);\n  assert.match(rules, /request\.resource\.data\.get\('role',''\) != 'super_admin'/);
   assert.match(rules, /request\.auth\.uid != userId[\s\S]*request\.resource\.data\.get\('role',''\) != 'super_admin'/);
   assert.doesNotMatch(rules, /allow create, update: if isERPUser\(\)\s*\|\|\s*\(isAuth\(\) && request\.auth\.uid == userId\)/);
 });
@@ -51,4 +51,17 @@ test('manual deployment fallback cannot run on every push', () => {
 test('Functions package engine matches configured Node 22 runtime', () => {
   const pkg = JSON.parse(read('functions/package.json'));
   assert.equal(pkg.engines.node, '22');
+});
+
+
+test('ERP zone admins cannot create or promote super admins or change users across zones', () => {
+  const rules = read('STSB-ERP/firestore.rules');
+  const start = rules.indexOf('match /users/{userId} {');
+  const end = rules.indexOf('// config — company profile', start);
+  assert.ok(start >= 0 && end > start, 'ERP users rule block exists');
+  const block = rules.slice(start, end);
+  assert.match(block, /request\.resource\.data\.get\('role',''\) in \['sub_admin','sales_rep','delivery_man'\]/);
+  assert.match(block, /request\.resource\.data\.get\('zone',''\) == userDoc\(\)\.zone/);
+  assert.match(block, /request\.resource\.data\.get\('zone',''\) == resource\.data\.get\('zone',''\)/);
+  assert.match(block, /resource\.data\.get\('role',''\) != 'super_admin'/);
 });
