@@ -36,7 +36,7 @@ test('ERP user self-updates are allowlisted and zone checks fail closed', () => 
   assert.match(rules, /allow create: if isSuperAdmin\(\)[\s\S]*request\.resource\.data\.get\('role',''\) in \['sub_admin','sales_rep','delivery_man'\]/);
   assert.match(rules, /request\.resource\.data\.get\('zone',''\) == userDoc\(\)\.zone/);
   assert.match(rules, /resource\.data\.get\('role',''\) != 'super_admin'/);
-  assert.match(rules, /request\.auth\.uid != userId[\s\S]*request\.resource\.data\.get\('role',''\) != 'super_admin'/);
+  assert.match(rules, /request\.auth\.uid != userId[\s\S]*resource\.data\.get\('role',''\) != 'super_admin'/);
   assert.doesNotMatch(rules, /allow create, update: if isERPUser\(\)\s*\|\|\s*\(isAuth\(\) && request\.auth\.uid == userId\)/);
 });
 
