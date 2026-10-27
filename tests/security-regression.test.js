@@ -128,3 +128,22 @@ test('delivery staff updates are limited to valid status transitions and actual 
   assert.match(block, /request\.resource\.data\.deliveredBy == request\.auth\.uid/);
   assert.match(block, /request\.resource\.data\.failedBy == request\.auth\.uid/);
 });
+
+
+test('sales reps can only edit route descriptions, not assignments or ownership', () => {
+  const rules = read('firestore.rules');
+  const routeBlocks = [];
+  let pos = -1;
+  while ((pos = rules.indexOf('match /routes/{routeId} {', pos + 1)) >= 0) {
+    const end = rules.indexOf('match /broadcasts/{broadcastId} {', pos);
+    assert.ok(end > pos, 'route rule block has a closing section');
+    routeBlocks.push(rules.slice(pos, end));
+  }
+  assert.equal(routeBlocks.length, 2, 'zone and root route rules both exist');
+  for (const block of routeBlocks) {
+    assert.ok(block.includes("resource.data.repId == request.auth.uid"), 'sales rep ownership is checked');
+    assert.ok(block.includes("hasOnly(['name','description','updatedAt'])"), 'only descriptive fields are editable');
+  }
+  const app = read('js/routes.js');
+  assert.ok(app.includes('if(isAdmin()){\n        data.repId=repIdVal;\n        data.delivManId=delivManIdVal;\n      }'), 'assignment fields are admin-only on edit');
+});
