@@ -59,7 +59,7 @@ test('Functions package engine matches configured Node 22 runtime', () => {
 test('ERP zone admins cannot create or promote super admins or change users across zones', () => {
   const rules = read('STSB-ERP/firestore.rules');
   const start = rules.indexOf('match /users/{userId} {');
-  const end = rules.indexOf('// config — company profile', start);
+  const end = rules.indexOf('//  config — company profile', start);
   assert.ok(start >= 0 && end > start, 'ERP users rule block exists');
   const block = rules.slice(start, end);
   assert.match(block, /request\.resource\.data\.get\('role',''\) in \['sub_admin','sales_rep','delivery_man'\]/);
@@ -73,7 +73,7 @@ test('ERP zone admins cannot create or promote super admins or change users acro
 test('ERP attendance records cannot change their owner during update', () => {
   const rules = read('STSB-ERP/firestore.rules');
   const start = rules.indexOf('match /attendance/{recordId} {');
-  const end = rules.indexOf('// fcmTokens', start);
+  const end = rules.indexOf('//  fcmTokens', start);
   assert.ok(start >= 0 && end > start, 'attendance rule block exists');
   const block = rules.slice(start, end);
   assert.match(block, /resource\.data\.uid == request\.auth\.uid[\s\S]*request\.resource\.data\.uid == resource\.data\.uid/);
@@ -82,7 +82,7 @@ test('ERP attendance records cannot change their owner during update', () => {
 test('ERP FCM tokens can only be written by their owning user', () => {
   const rules = read('STSB-ERP/firestore.rules');
   const start = rules.indexOf('match /fcmTokens/{tokenId} {');
-  const end = rules.indexOf('// stsb_* prefixed collections', start);
+  const end = rules.indexOf('//  stsb_* prefixed collections', start);
   assert.ok(start >= 0 && end > start, 'ERP FCM token rule block exists');
   const block = rules.slice(start, end);
   assert.match(block, /allow create, update: if isKnownUser\(\) && request\.auth\.uid == tokenId/);
