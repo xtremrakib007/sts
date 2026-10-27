@@ -14,12 +14,12 @@
  * Users NEVER need to manually clear their browser cache.
  */
 
-const CACHE_VERSION = 'stfm-v10';           // ← BUMP THIS ON EVERY DEPLOY
+const CACHE_VERSION = 'stfm-v11';           // Bump when the hosted app shell changes
 
 const APP_SHELL = [
   '/',
   '/index.html',
-  '/app.js',
+  '/js/app.min.js',
   '/app.css',
   '/manifest.json',
   '/icon-192.png',
