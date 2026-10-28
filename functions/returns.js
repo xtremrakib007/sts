@@ -111,8 +111,8 @@ function deliveredTotal(items, deliveredItems, orderTotal) {
   (items || []).forEach((it, i) => {
     const qty = num(it.qty);
     if (qty <= 0) return;
-    const lineTotal = it._lineTotal != null ? num(it._lineTotal) :
-      num(it.price) * qty - num(it.discount && it.discount.amount);
+    const lineTotal = (it._lineTotal != null ? num(it._lineTotal) : num(it.price) * qty) -
+      num(it.discount && it.discount.amount);
     const q = deliveredItems && deliveredItems[i] ? num(deliveredItems[i].qty) : qty;
     full += lineTotal;
     got += (lineTotal / qty) * Math.min(q, qty);

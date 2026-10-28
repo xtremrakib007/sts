@@ -234,3 +234,53 @@ Use your STFM green logo on dark background (#0f172a).
 ---
 
 *Generated for STFM — Sairah Trading Sdn Bhd*
+
+---
+
+## Building the APK on GitHub (no Android Studio needed)
+
+`.github/workflows/android-apk.yml` builds the APK on GitHub:
+
+- **Every merge to `main`** (and every PR that touches the app) builds an APK.
+  Download it from **GitHub → Actions → Android APK → the run → Artifacts →
+  `stfm-sales-apk`**. You can also start a build by hand: **Actions → Android
+  APK → Run workflow**.
+- **Without signing secrets** it builds `stfm-sales-debug.apk` — fine for
+  testing, but a debug APK cannot replace a release-signed app already on a
+  phone (Android asks to uninstall first).
+- **With signing secrets** it builds a signed `stfm-sales.apk`, and merges to
+  `main` also publish it as a **GitHub Release**. Staff can then always get
+  the latest app from
+  `https://github.com/xtremrakib007/sts/releases/latest/download/stfm-sales.apk`
+  (put this link in `package.json` → `stfm.apkUrl` so the in-app "install
+  the new app" banner shows a Download button). The repository is public,
+  so anyone with the link can download the APK.
+
+### One-time signing setup
+
+Use the **same keystore** that signed the APK your staff already have, or
+Android will refuse to update the app. If you have never signed a release,
+create one (keep the file and passwords safe — losing them means staff must
+reinstall the app):
+
+```bash
+keytool -genkeypair -v -keystore stfm-release.keystore -alias stfm -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Convert the keystore to text (Windows Command Prompt):
+
+```bash
+certutil -encodehex -f stfm-release.keystore stfm-release.b64 0x40000001
+```
+
+Then in **GitHub → the repository → Settings → Secrets and variables →
+Actions → New repository secret**, add:
+
+| Secret | Value |
+|---|---|
+| `STFM_KEYSTORE_BASE64` | the whole contents of `stfm-release.b64` |
+| `STFM_KEYSTORE_PASSWORD` | keystore password |
+| `STFM_KEY_ALIAS` | key alias (e.g. `stfm`) |
+| `STFM_KEY_PASSWORD` | key password |
+
+Never commit the keystore or the `.b64` file to the repository.

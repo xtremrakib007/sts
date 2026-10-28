@@ -16,8 +16,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing for CI (.github/workflows/android-apk.yml): used only
+    // when the keystore secrets are provided, so local builds are unchanged.
+    signingConfigs {
+        release {
+            if (System.getenv('STFM_KEYSTORE_FILE')) {
+                storeFile file(System.getenv('STFM_KEYSTORE_FILE'))
+                storePassword System.getenv('STFM_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('STFM_KEY_ALIAS')
+                keyPassword System.getenv('STFM_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (System.getenv('STFM_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -46,8 +61,16 @@ apply from: 'capacitor.build.gradle'
 
 try {
     def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
+    // The plugin fails the build when the file has no client for this app's
+    // package name. Build anyway (push notifications disabled) and say so
+    // loudly, until the Firebase Android app is registered for this ID.
+    def appId = android.defaultConfig.applicationId
+    if (servicesJSON.text && servicesJSON.text.contains("\"package_name\": \"${appId}\"")) {
         apply plugin: 'com.google.gms.google-services'
+    } else if (servicesJSON.text) {
+        logger.warn("WARNING: google-services.json has no Firebase Android app for '${appId}'. " +
+            "Push notifications are DISABLED in this build. Register '${appId}' in the Firebase console " +
+            "(project stfm-sales) and replace android/app/google-services.json.")
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")

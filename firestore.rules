@@ -167,8 +167,22 @@ service cloud.firestore {
             || (
               _isSalesRep(ud()) && _inZone(ud(), zoneId)
               && resource.data.createdBy == request.auth.uid
-              && request.resource.data.diff(resource.data).affectedKeys()
-                   .hasOnly(['items','total','notes','updatedAt','discount'])
+              // Own order, only until the ERP accepts or invoices it.
+              && resource.data.get('status', '') in ['Pending', 'Confirmed']
+              && resource.data.get('invoiceNo', '') == ''
+              && resource.data.get('erpStatus', '') in ['', 'pending']
+              && (
+                // Edit lines / notes (status unchanged; discount untouched)
+                request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['items','subtotal','total','notes','updatedAt','editedAt','editedBy','editedByName'])
+                // or cancel it, as themselves
+                || (
+                  request.resource.data.get('status', '') == 'Cancelled'
+                  && request.resource.data.get('cancelledBy', '') == request.auth.uid
+                  && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['status','cancelledAt','cancelledBy','cancelReason','updatedAt'])
+                )
+              )
             )
             || (
               _isDeliveryMan(ud()) && _inZone(ud(), zoneId)
@@ -346,8 +360,22 @@ service cloud.firestore {
           || (
             _isSalesRep(ud())
             && resource.data.createdBy == request.auth.uid
-            && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['items','total','notes','updatedAt','discount'])
+            // Own order, only until the ERP accepts or invoices it.
+            && resource.data.get('status', '') in ['Pending', 'Confirmed']
+            && resource.data.get('invoiceNo', '') == ''
+            && resource.data.get('erpStatus', '') in ['', 'pending']
+            && (
+              // Edit lines / notes (status unchanged; discount untouched)
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['items','subtotal','total','notes','updatedAt','editedAt','editedBy','editedByName'])
+              // or cancel it, as themselves
+              || (
+                request.resource.data.get('status', '') == 'Cancelled'
+                && request.resource.data.get('cancelledBy', '') == request.auth.uid
+                && request.resource.data.diff(resource.data).affectedKeys()
+                     .hasOnly(['status','cancelledAt','cancelledBy','cancelReason','updatedAt'])
+              )
+            )
           )
           || (
             _isDeliveryMan(ud())

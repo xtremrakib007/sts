@@ -249,6 +249,6 @@ test('ERP includes salesman-wise/day-wise order reporting and printable delivery
   assert.match(portal, /window\.applySalesmanOrdersReport = function\(\)/);
   assert.match(portal, /repId \|\| o\.salesmanId \|\| o\.salesRepId/);
   assert.match(portal, /window\.printSalesmanOrdersReport = function\(\)/);
-  assert.match(portal, /const rawDate = v\.deliveryDate \|\| v\.scheduledDeliveryDate \|\| v\.createdAt/);
+  assert.match(portal, /const orderDay = v\.deliveryDate \|\| v\.scheduledDeliveryDate \|\| v\.date \|\| _localDate\(v\.createdAt\)/);
   assert.match(portal, /if \(orderDay !== dateStr\) return;/);
 });

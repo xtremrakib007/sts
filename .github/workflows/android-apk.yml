@@ -1,0 +1,108 @@
+# Builds the STFM Sales Android APK on GitHub — no Android Studio needed.
+#
+# - Every PR that touches the app, and every merge to main, builds an APK
+#   and attaches it to the run (Actions → this run → Artifacts).
+# - With the signing secrets set (see BUILD-GUIDE.md), builds are signed
+#   release APKs, and merges to main also publish a GitHub Release with
+#   stfm-sales.apk. Without them, a debug APK is built for testing.
+# - Day-to-day code changes reach phones over the air; a new APK is only
+#   needed for native changes (new plugin, permission or Android code).
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'index.html'
+      - 'js/**'
+      - 'build.js'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      STFM_KEYSTORE_BASE64: ${{ secrets.STFM_KEYSTORE_BASE64 }}
+      STFM_KEYSTORE_PASSWORD: ${{ secrets.STFM_KEYSTORE_PASSWORD }}
+      STFM_KEY_ALIAS: ${{ secrets.STFM_KEY_ALIAS }}
+      STFM_KEY_PASSWORD: ${{ secrets.STFM_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Copy web assets and plugins into the Android project
+        run: npx cap sync android
+
+      - name: Check Firebase config matches the app id
+        run: |
+          app_id=$(sed -n 's/.*applicationId "\(.*\)".*/\1/p' android/app/build.gradle)
+          if ! grep -q "\"package_name\": \"$app_id\"" android/app/google-services.json; then
+            echo "::warning title=Push notifications disabled::android/app/google-services.json has no Firebase Android app for $app_id. Register $app_id in the Firebase console (project stfm-sales), download google-services.json and replace android/app/google-services.json."
+          fi
+
+      - name: Prepare signing key
+        if: env.STFM_KEYSTORE_BASE64 != ''
+        run: |
+          echo "$STFM_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/stfm.keystore"
+          echo "STFM_KEYSTORE_FILE=$RUNNER_TEMP/stfm.keystore" >> "$GITHUB_ENV"
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          if [ -n "${STFM_KEYSTORE_FILE:-}" ]; then
+            ./gradlew --no-daemon assembleRelease
+            cp app/build/outputs/apk/release/app-release.apk ../stfm-sales.apk
+          else
+            ./gradlew --no-daemon assembleDebug
+            cp app/build/outputs/apk/debug/app-debug.apk ../stfm-sales-debug.apk
+          fi
+
+      - name: Attach APK to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: stfm-sales-apk
+          path: stfm-sales*.apk
+          retention-days: 30
+
+      - name: Publish release (signed builds of main only)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && env.STFM_KEYSTORE_FILE != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
+          code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
+          gh release create "apk-v${version}-${{ github.run_number }}" stfm-sales.apk \
+            --title "STFM Sales ${version} (build ${code}, run ${{ github.run_number }})" \
+            --notes "Android app built from ${GITHUB_SHA::7}. Install over the existing app; later code updates arrive over the air." \
+            --latest

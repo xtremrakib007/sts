@@ -30,7 +30,7 @@ test('new confirmed order maps to a pending ERP order with lines and outlet', ()
   assert.equal(p.collectionStatus, 'not_required');
   assert.equal(p.createdAt, NOW);
   assert.deepEqual(p.items[0], {
-    productId: 'p1', name: 'Tea', sku: 'T1', qty: 10, ctnQty: 0, pcsQty: 0, ctnSize: 0,
+    productId: 'p1', name: 'Tea', sku: 'T1', qty: 10, ctnQty: 0, pcsQty: 0, ctnSize: 0, ctnPrice: 0,
     unit: 'pcs', price: 2, discount: 3, total: 17,
   });
   assert.ok(!Object.values(p).includes(undefined));

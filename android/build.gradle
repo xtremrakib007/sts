@@ -22,6 +22,13 @@ allprojects {
         google()
         mavenCentral()
     }
+    // @capgo/capacitor-updater asks for WorkManager 2.10.x, which requires
+    // compileSdk 35 (AGP 8.2.1 / Capacitor 6 builds against 34). The
+    // plugin only uses long-standing WorkManager APIs, so pin 2.9.1, the
+    // last release that builds against API 34.
+    configurations.all {
+        resolutionStrategy.force 'androidx.work:work-runtime:2.9.1'
+    }
 }
 
 task clean(type: Delete) {

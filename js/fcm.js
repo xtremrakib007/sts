@@ -180,6 +180,21 @@ async function _initCapacitorPush() {
   const isReady = await _capacitorReady();
   if (!isReady) return false;
 
+  // Native push needs Firebase configured for this APK's app id. Without it
+  // PushNotifications.register() crashes the whole app (FirebaseApp not
+  // initialised), so skip native push and stay quiet instead.
+  try {
+    const info = await window.Capacitor.Plugins.App?.getInfo?.();
+    const ids = window.__PUSH_APP_IDS || [];
+    if (!info?.id || !ids.includes(info.id)) {
+      console.warn('[FCM] Push disabled: no Firebase config for app id', info?.id);
+      return true; // native app — don't fall through to web push
+    }
+  } catch (e) {
+    console.warn('[FCM] Push disabled: app id check failed:', e.message);
+    return true;
+  }
+
   try {
     const { PushNotifications } = window.Capacitor.Plugins;
     if (!PushNotifications) {

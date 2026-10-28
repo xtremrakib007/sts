@@ -75,3 +75,26 @@ test('ERP has a delivery planner, returns page and proof viewer; app completes d
   assert.match(deliv, /'deliveryProofs'/);
   assert.match(read('functions/index.js'), /after\.status === 'Delivered' && Array\.isArray\(after\.deliveredItems\) \? after\.deliveredItems/);
 });
+
+test('past-data import picks one source per order, preferring the zone copy', () => {
+  const erp = require('../functions/erp-sync');
+  const docs = [
+    {path: 'orders/a', id: 'a', data: {id: 'ORD-A', _zoneId: 'z1', v: 'root'}, updateTime: 't2'},
+    {path: 'zones/z1/orders/a', id: 'a', data: {id: 'ORD-A', v: 'zone'}, updateTime: 't1'},
+    {path: 'orders/b', id: 'b', data: {id: 'ORD-B', v: 'owner'}, updateTime: 't1'},
+    {path: 'portalUsers/u/orders/x', id: 'x', data: {id: 'ORD-X'}, updateTime: 't1'},
+  ];
+  const picked = erp.pickBackfillSources(docs, (d, id) => erp.erpOrderId(d, id));
+  assert.deepEqual(picked.map((p) => [p.key, p.data.v, p.zoneId]).sort(), [['ORD-A', 'zone', 'z1'], ['ORD-B', 'owner', null]]);
+});
+
+test('ERP: full order view, invoicing, printable invoice, products page and past-data import', () => {
+  const portal = read('public/portal/index.html');
+  for (const fn of ['window.viewErpOrder', 'window.createInvoiceFromOrder', 'window.printInvoice', 'async function erpProducts(', 'window.startBackfill']) {
+    assert.ok(portal.includes(fn), fn);
+  }
+  assert.match(portal, /runTransaction\(_db/, 'invoice numbers come from a transaction');
+  assert.doesNotMatch(portal, /'INV-' \+ String\(count\+1\)/, 'no count-based invoice numbers');
+  assert.match(portal, /data-page="products" onclick="goPage\('products'\)"><span class="ico">🛍️<\/span> Products<\/div>\s*<div class="sb-item" data-page="inventory"/);
+  assert.match(read('functions/index.js'), /exports\.erpBackfill = /);
+});

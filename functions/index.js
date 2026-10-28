@@ -625,10 +625,15 @@ exports.erpOrderToApp = functions.firestore
     if (!snaps.length) return;
 
     const appStatus = snaps[0].data().status || '';
-    const patch = erp.appPatchFromErp(before, after, appStatus);
+    const patch = erp.appPatchFromErp(before, after, appStatus, snaps[0].data());
     if (!patch) return;
     const stamped = { ...patch, _syncedFromERP: true, _syncedAt: FieldValue.serverTimestamp() };
     await Promise.all(snaps.map(s => s.ref.update(stamped)));
+    if (patch.editedAt) {
+      // Mark the edit as applied, at its server time, so older app events
+      // can no longer overwrite it (see erp.isStaleEvent).
+      await change.after.ref.update({ _erpEditFor: after.editedAt, _erpEditTime: change.after.updateTime.toDate().toISOString() });
+    }
     if (patch.status) await change.after.ref.update({ appStatus: patch.status });
     console.log(`[ERP→App] ${ctx.params.orderId} ${appStatus} → ${patch.status || '(fields)'}`);
   });
@@ -813,4 +818,79 @@ exports.erpReturn = functions.firestore
       }
     }
     console.log(`[return] ${ret.orderId} → ${result.cnNo} RM ${result.amount}`);
+  });
+
+// ─────────────────────────────────────────────────────────────
+// 14. ONE-TIME IMPORT OF PAST SALES APP DATA INTO THE ERP
+//
+// The bridge only fires on writes, so orders and collections that existed
+// before it was deployed never reached stsb_orders / stsb_collections.
+// An ERP admin starts this by setting stsb_config/backfill.status to
+// "requested". It copies every Sales App order (root + zones) and
+// collection, keeps their original dates, skips held orders and records
+// already up to date, and never touches stock or credit holds. Safe to
+// run again.
+// ─────────────────────────────────────────────────────────────
+exports.erpBackfill = functions.runWith({ timeoutSeconds: 540, memory: '1GB' }).firestore
+  .document(`${erp.erpCol('config')}/backfill`)
+  .onWrite(async (change) => {
+    if (!change.after.exists || change.after.data().status !== 'requested') return;
+    const ref = change.after.ref;
+    const opts = change.after.data();
+    const nowIso = new Date().toISOString();
+    const counts = { orders: 0, ordersSkipped: 0, held: 0, collections: 0, collectionsSkipped: 0 };
+    await ref.update({ status: 'running', startedAt: nowIso, error: FieldValue.delete() });
+    try {
+      const asSrc = s => ({ path: s.ref.path, id: s.id, data: s.data(), updateTime: s.updateTime.toDate().toISOString() });
+      const [ordSnap, colSnap, outSnap, erpOrd, erpCol] = await Promise.all([
+        db().collectionGroup('orders').get(), db().collectionGroup('collections').get(), db().collectionGroup('outlets').get(),
+        db().collection(erp.erpCol('orders')).get(), db().collection(erp.erpCol('collections')).get(),
+      ]);
+      const outlets = Object.fromEntries(outSnap.docs.map(d => [d.id, d.data()]));
+      const erpOrders = Object.fromEntries(erpOrd.docs.map(d => [d.id, d.data()]));
+      const erpCols = Object.fromEntries(erpCol.docs.map(d => [d.id, d.data()]));
+      const writes = [];
+
+      erp.pickBackfillSources(ordSnap.docs.map(asSrc), (d, id) => erp.erpOrderId(d, id)).forEach((src) => {
+        if (erp.isHeldFromErp(src.data)) { counts.held++; return; }
+        const cur = erpOrders[src.key] || null;
+        if (cur && cur._srcEventTime && cur._srcEventTime >= src.updateTime) { counts.ordersSkipped++; return; }
+        const payload = erp.buildErpOrder({ order: src.data, erpCurrent: cur, docId: src.docId, zoneId: src.zoneId,
+          outlet: outlets[src.data.outletId] || {}, nowIso });
+        if (!cur) payload.createdAt = src.data.createdAt || FieldValue.serverTimestamp();
+        writes.push([db().doc(`${erp.erpCol('orders')}/${src.key}`), { ...payload, _srcEventTime: src.updateTime, imported: !cur }]);
+        counts.orders++;
+      });
+
+      const acceptBefore = opts.acceptCollectionsOlderThanDays > 0
+        ? new Date(Date.now() - opts.acceptCollectionsOlderThanDays * 86400000).toISOString().slice(0, 10) : null;
+      erp.pickBackfillSources(colSnap.docs.map(asSrc), (d, id) => id).forEach((src) => {
+        const cur = erpCols[src.key] || null;
+        if (cur && cur._srcEventTime && cur._srcEventTime >= src.updateTime) { counts.collectionsSkipped++; return; }
+        const payload = erp.buildErpCollection({ collection: src.data, erpCurrent: cur, docId: src.docId, zoneId: src.zoneId,
+          outlet: outlets[src.data.outletId] || {}, nowIso });
+        if (!cur) {
+          payload.createdAt = src.data.createdAt || FieldValue.serverTimestamp();
+          // Old cash already banked can be marked accepted instead of
+          // flooding the ERP acceptance queue (admin's choice).
+          if (acceptBefore && (src.data.date || '') && src.data.date < acceptBefore) {
+            Object.assign(payload, { status: 'accepted', acceptedBy: 'import', acceptedAt: nowIso });
+          }
+        }
+        writes.push([db().doc(`${erp.erpCol('collections')}/${src.key}`), { ...payload, _srcEventTime: src.updateTime, imported: !cur }]);
+        counts.collections++;
+      });
+
+      for (let i = 0; i < writes.length; i += 400) {
+        const batch = db().batch();
+        writes.slice(i, i + 400).forEach(([r, d]) => batch.set(r, d, { merge: true }));
+        await batch.commit();
+        await ref.update({ progress: Math.min(i + 400, writes.length), total: writes.length });
+      }
+      await ref.update({ status: 'done', finishedAt: new Date().toISOString(), ...counts });
+      console.log('[backfill] done', JSON.stringify(counts));
+    } catch (e) {
+      console.error('[backfill] failed:', e.message);
+      await ref.update({ status: 'failed', error: e.message, finishedAt: new Date().toISOString(), ...counts });
+    }
   });
