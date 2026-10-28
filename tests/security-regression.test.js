@@ -92,7 +92,7 @@ test('ERP FCM tokens can only be written by their owning user', () => {
 
 test('service worker precaches the actual hosted bundle and refreshes its cache version', () => {
   const sw = read('sw.js');
-  assert.match(sw, /const CACHE_VERSION = 'stfm-v12'/);
+  assert.match(sw, /const CACHE_VERSION = 'stfm-v13'/);
   assert.match(sw, /'\/js\/app\.min\.js'/);
   assert.doesNotMatch(sw, /'\/app\.js'/);
 });
@@ -233,7 +233,7 @@ test('STSB ERP tenant collections have explicit role-gated rules before deny-all
 test('STSB ERP portal subscribes to Firestore changes and cleans up listeners', () => {
   const portal = read('public/portal/index.html');
   assert.match(portal, /const REALTIME_COLLECTIONS = \[[\s\S]*'users',[\s\S]*'products',[\s\S]*'orders',[\s\S]*'inventory',[\s\S]*'invoices'/);
-  assert.match(portal, /onSnapshot\(\s*collection\(_db, C\(name\)\)/);
+  assert.match(portal, /onSnapshot\(\s*collection\(_db, livePath\)/);
   assert.match(portal, /function queueRealtimeRefresh\(\)[\s\S]*window\.goPage\(page\)[\s\S]*updateBadges\(\)/);
   assert.match(portal, /function stopRealtimeSync\(\)[\s\S]*_realtimeUnsubs\.forEach/);
   assert.match(portal, /startRealtimeSync\(\);/);

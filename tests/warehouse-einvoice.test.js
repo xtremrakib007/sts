@@ -71,7 +71,7 @@ test('invoices carry a random token and print an e-Invoice QR code', () => {
   assert.match(p, /crypto\.getRandomValues\(new Uint8Array\(16\)\)/);
   assert.match(p, /tx\.set\(invRef, \{ \.\.\._invoiceFromOrder\(orderId, o, no\), einvoiceToken \}\)/);
   assert.match(read('js/invoice-template.js'), /Scan for E-Invoice/);
-  assert.match(p, /<script src="\/vendor\/qrcode\.js"><\/script>/);
+  assert.match(p, /<script defer src="\/vendor\/qrcode\.js"><\/script>/);
   const page = read('public/einvoice.html');
   assert.match(page, /setDoc\(doc\(db, 'stsb_einvoice_requests', invoiceNo\), data\)/);
   assert.match(page, /\/\^\[a-f0-9\]\{32\}\$\/\.test\(token\)/);
@@ -134,7 +134,7 @@ test('ERP products page reads the Sales App catalogue and offers Excel/CSV impor
   assert.match(p, /const \[prods, inv\] = await Promise\.all\(\[_allProducts\(\)/);
   assert.match(p, /onclick="exportProducts\('xlsx'\)"/);
   assert.match(p, /accept="\.xlsx,\.csv/);
-  assert.match(p, /<script src="\/vendor\/read-excel-file\.js"><\/script>/);
+  assert.match(p, /<script defer src="\/vendor\/read-excel-file\.js"><\/script>/);
   assert.match(p, /const _xlSafe = v => \(typeof v === 'string' && \/\^\[=\+@\\t\\r\]\/\.test\(v\)\)/, 'no spreadsheet formula injection');
   assert.match(p, /<html lang="en" data-theme="light">/, 'light by default');
   assert.match(p, /localStorage\.setItem\('erp-theme', next\)/);
@@ -167,4 +167,37 @@ test('sales invoice: company header, customer block, rows, totals and amount in 
   assert.match(html, />Due<\/td><td[^>]*>35\.00</);
   assert.match(html, /Forty Five only/);
   assert.match(html, /Received by/);
+});
+
+test('app invoice Print / PDF / Share work inside the Android app', () => {
+  const o = read('js/orders.js');
+  assert.match(o, /_invPlugin\('StfmPrint'\)/, 'native print');
+  assert.match(o, /_invWriteFile\('DOCUMENTS', 'STFM\/' \+ name, pdf\)/, 'PDF saved on the phone');
+  assert.match(o, /sh\.share\(\{ title: name, text, files: \[uri\]/, 'PDF file to the share sheet');
+  assert.doesNotMatch(o.slice(o.indexOf('async function printInvoice'), o.indexOf('// ═══════════════ MANUAL INVOICE BUILDER')), /window\.open|a\.target='_blank'/, 'no browser tabs');
+  const plugin = read('android/app/src/main/java/com/sairah/stfm/PrintPlugin.java');
+  assert.match(plugin, /@CapacitorPlugin\(name = "StfmPrint"\)/);
+  assert.match(plugin, /createPrintDocumentAdapter/);
+  assert.match(read('android/app/src/main/java/com/sairah/stfm/MainActivity.java'), /registerPlugin\(PrintPlugin\.class\);\s*super\.onCreate/);
+  const pkg = JSON.parse(read('package.json'));
+  assert.ok(pkg.dependencies['@capacitor/share'] && pkg.dependencies['@capacitor/filesystem']);
+  assert.match(read('android/capacitor.settings.gradle'), /capacitor-share/);
+  assert.match(read('build.js'), /'node_modules\/jspdf\/dist\/jspdf\.umd\.min\.js': 'vendor\/jspdf\.js'/);
+});
+
+test('logo, animated splash and faster loading', () => {
+  const html = read('index.html');
+  assert.doesNotMatch(html, /data:image\/[a-z]+;base64/, 'no embedded images in the app page');
+  assert.match(html, /<div id="appSplash"/);
+  assert.match(html, /window\._hideSplash=function/);
+  assert.match(html, /getDocsFromCache: getDocsFromCache/);
+  const boot = read('js/boot.js');
+  assert.match(boot, /const gpsPromise = requestGPSPermission\(\);/, 'GPS check runs alongside loading');
+  assert.match(boot, /const shownFromCache = await _bootLoad\('cache'\)/, 'first screen from the device cache');
+  assert.match(read('js/core.js'), /const _SF_MEMO_MS = 30000;/);
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /function getDocs\(ref\) \{\s*if \(ref && ref\.type === 'collection' && _liveSnaps\.has\(ref\.path\)\)/, 'ERP reads use live data');
+  assert.match(portal, /_liveSnaps\.set\(livePath, snap\);/);
+  for (const f of ['logo.png', 'favicon.png', 'icon-192.png', 'android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png']) assert.ok(read(f).length > 500, f);
+  assert.equal(JSON.parse(read('capacitor.config.json')).plugins.SplashScreen.backgroundColor, '#ffffff');
 });

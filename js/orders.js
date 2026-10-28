@@ -75,6 +75,7 @@ function stopOrdersLiveListener() {
 
 function _refreshActiveOrderViews() {
   const pg = document.querySelector('.page.active')?.id || '';
+  if (typeof invalidateCache === 'function') invalidateCache();
   if (typeof invalidateDashCache === 'function') invalidateDashCache();
   if (pg === 'pageOrders') loadOrders();
   else if (pg === 'pageDeliveries') loadDeliveries();
@@ -1298,51 +1299,141 @@ async function viewOrder(docId) {
     ${discountInfo&&discountInfo.status!=='approved'?`<span class="bdg ${discountInfo.status==='rejected'?'bdg-red':'bdg-ylw'}">🏷️ Discount ${fmt(discountInfo.amount)} ${escH(discountInfo.status)}</span>`:''}
   </div>`;
   const invoiceHtml=`${statusBar}<div id="invoiceContent" style="background:#fff">${sheet}</div>`;
+  window.__currentInvoiceSheet=sheet;
   document.getElementById('mOrdDetTitle').textContent='Invoice — '+(o.invoiceNo||o.id||o._docId);
   document.getElementById('mOrdDetBody').innerHTML=invoiceHtml;
   window.__currentInvoiceOrder = o;
   openM('mOrderDetail');
 }
 
-function printInvoice() {
-  const content=document.getElementById('invoiceContent');
-  if(!content)return;
-  const print=document.getElementById('invoicePrintArea');
-  print.innerHTML=content.outerHTML;
-  print.style.display='block';
+// ── Invoice print / PDF / share ─────────────────────────────────────────
+// Android app: Print opens Android's print screen (also "Save as PDF") via
+// the StfmPrint plugin in MainActivity; PDF and Share build the PDF on the
+// phone (html2canvas + jsPDF) and save it or hand it to the share sheet
+// (Filesystem + Share plugins). Nothing opens a browser. In a web browser
+// the same buttons use the browser's print, download and share.
+function _invNative() { return !!window.Capacitor?.isNativePlatform?.(); }
+function _invPlugin(name) {
+  const C = window.Capacitor;
+  if (!C?.isPluginAvailable?.(name)) return null;
+  return C.Plugins?.[name] || (C.registerPlugin ? C.registerPlugin(name) : null);
+}
+function _invFileName() {
+  const o = window.__currentInvoiceOrder || {};
+  return String(o.invoiceNo || o.id || o._docId || 'invoice').replace(/[^A-Za-z0-9_-]+/g, '-') + '.pdf';
+}
+function _invDocHtml() {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${escH(_invFileName().replace(/\.pdf$/, ''))}</title><style>@page{size:A4;margin:10mm}body{margin:0;background:#fff}</style></head>
+    <body>${window.__currentInvoiceSheet || ''}</body></html>`;
+}
+function _invNeedsUpdate(what) {
+  showToast(`${what} needs the latest STFM app — install the new APK from your admin`, 'warn');
+}
+
+const _scriptLoads = {};
+function _loadScriptOnce(src) {
+  return _scriptLoads[src] || (_scriptLoads[src] = new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = res;
+    el.onerror = () => { delete _scriptLoads[src]; rej(new Error('Could not load ' + src)); };
+    document.head.appendChild(el);
+  }));
+}
+
+// Renders the invoice at A4 width off-screen and returns a jsPDF document.
+async function _invBuildPdf() {
+  await Promise.all([_loadScriptOnce('vendor/html2canvas.js'), _loadScriptOnce('vendor/jspdf.js')]);
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;z-index:-1';
+  host.innerHTML = window.__currentInvoiceSheet || '';
+  document.body.appendChild(host);
+  try {
+    const canvas = await window.html2canvas(host, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
+    const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), margin = 18;
+    const imgW = pageW - margin * 2, imgH = canvas.height * imgW / canvas.width;
+    const img = canvas.toDataURL('image/jpeg', 0.92);
+    let shown = 0;
+    while (shown < imgH) { // long invoices continue on further pages
+      if (shown) pdf.addPage();
+      pdf.addImage(img, 'JPEG', margin, margin - shown, imgW, imgH);
+      shown += pageH - margin * 2;
+    }
+    return pdf;
+  } finally { host.remove(); }
+}
+
+async function _invWriteFile(dir, path, pdf) {
+  const fs = _invPlugin('Filesystem');
+  const data = pdf.output('datauristring').split(',')[1];
+  const r = await fs.writeFile({ path, data, directory: dir, recursive: true });
+  return r.uri;
+}
+
+async function printInvoice() {
+  if (!window.__currentInvoiceSheet) { showToast('No invoice open', 'warn'); return; }
+  if (_invNative()) {
+    const pr = _invPlugin('StfmPrint');
+    if (!pr) { _invNeedsUpdate('Printing'); return; }
+    try { await pr.print({ html: _invDocHtml(), name: _invFileName().replace(/\.pdf$/, '') }); }
+    catch (e) { showToast('Could not print: ' + (e.message || e), 'error'); }
+    return;
+  }
+  const print = document.getElementById('invoicePrintArea');
+  print.innerHTML = `<div style="background:#fff">${window.__currentInvoiceSheet}</div>`;
+  print.style.display = 'block';
   window.print();
-  setTimeout(()=>{print.style.display='none';},1000);
+  setTimeout(() => { print.style.display = 'none'; }, 1000);
 }
 
-function downloadInvoicePDF() {
-  const content=document.getElementById('invoiceContent');
-  if(!content){showToast('No invoice open','warn');return;}
-  const o=window.__currentInvoiceOrder;
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice ${o?.id||''}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>body{margin:0;font-family:'DM Sans',sans-serif;background:#fff;}</style>
-  </head><body>${content.outerHTML}
-  <script>window.onload=function(){window.print();}<\/script>
-  </body></html>`;
-  const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.target='_blank';
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(url),3000);
-  showToast('PDF opened in new tab — use browser Print to save as PDF','info');
+async function downloadInvoicePDF() {
+  if (!window.__currentInvoiceSheet) { showToast('No invoice open', 'warn'); return; }
+  const name = _invFileName();
+  showToast('Creating PDF…', 'info');
+  try {
+    const pdf = await _invBuildPdf();
+    if (!_invNative()) { pdf.save(name); return; }
+    if (!_invPlugin('Filesystem')) { _invNeedsUpdate('Saving PDFs'); return; }
+    try {
+      await _invWriteFile('DOCUMENTS', 'STFM/' + name, pdf);
+      showToast(`PDF saved: Documents/STFM/${name}`, 'success');
+    } catch (e) {
+      // Some Android versions block shared Documents: offer it to save instead.
+      const uri = await _invWriteFile('CACHE', name, pdf);
+      const sh = _invPlugin('Share');
+      if (sh) await sh.share({ title: name, files: [uri], dialogTitle: 'Save PDF to…' }).catch(() => {});
+      else showToast('Could not save the PDF: ' + (e.message || e), 'error');
+    }
+  } catch (e) { showToast('Could not create the PDF: ' + (e.message || e), 'error'); }
 }
 
-function shareInvoice() {
-  const o=window.__currentInvoiceOrder;
-  if(!o)return;
-  const co=_invoiceCompanyCache&&_invoiceCompanyCache.name||INVOICE_DEFAULT_COMPANY.name;
-  const text=`*${co}*\nInvoice: ${o.invoiceNo||o.id||o._docId}\nDate: ${o.date}\nOutlet: ${outletName(o.outletId)}\nItems: ${(o.items||[]).length}\n*Total: ${fmt(o.total)}*\nStatus: ${o.status}`;
-  if(navigator.share){
-    navigator.share({title:`Invoice ${o.id}`,text}).catch(()=>{});
-  } else {
-    navigator.clipboard?.writeText(text).then(()=>showToast('Invoice details copied to clipboard','success')).catch(()=>showToast('Could not share','error'));
+async function shareInvoice() {
+  const o = window.__currentInvoiceOrder;
+  if (!o || !window.__currentInvoiceSheet) return;
+  const co = _invoiceCompanyCache && _invoiceCompanyCache.name || INVOICE_DEFAULT_COMPANY.name;
+  const text = `*${co}*\nInvoice: ${o.invoiceNo || o.id || o._docId}\nDate: ${o.date}\nOutlet: ${outletName(o.outletId)}\n*Total: ${fmt(o.deliveredTotal ?? o.total)}*`;
+  const name = _invFileName();
+  showToast('Preparing invoice…', 'info');
+  try {
+    const pdf = await _invBuildPdf();
+    if (_invNative()) {
+      const sh = _invPlugin('Share');
+      if (!sh || !_invPlugin('Filesystem')) { _invNeedsUpdate('Sharing'); return; }
+      const uri = await _invWriteFile('CACHE', name, pdf);
+      await sh.share({ title: name, text, files: [uri], dialogTitle: 'Share invoice' });
+      return;
+    }
+    const file = new File([pdf.output('blob')], name, { type: 'application/pdf' });
+    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ title: name, text, files: [file] }); return; }
+    if (navigator.share) { await navigator.share({ title: name, text }); return; }
+    pdf.save(name);
+    navigator.clipboard?.writeText(text).catch(() => {});
+    showToast('PDF downloaded and invoice details copied', 'success');
+  } catch (e) {
+    if (e && (e.name === 'AbortError' || /cancel/i.test(e.message || ''))) return; // closed the share sheet
+    showToast('Could not share: ' + (e.message || e), 'error');
   }
 }
 

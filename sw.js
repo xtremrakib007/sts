@@ -14,7 +14,7 @@
  * Users NEVER need to manually clear their browser cache.
  */
 
-const CACHE_VERSION = 'stfm-v12';           // Bump when the hosted app shell changes
+const CACHE_VERSION = 'stfm-v13';           // Bump when the hosted app shell changes
 
 const APP_SHELL = [
   '/',
@@ -24,6 +24,7 @@ const APP_SHELL = [
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
+  '/logo.png',
 ];
 
 // Third-party CDN resources cached separately — NOT cleared on version bump

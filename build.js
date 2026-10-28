@@ -48,13 +48,17 @@ const COPY_FILES = [
   'firebase-messaging-sw.js',
   'fcm-client.js',
   'icon-192.png',
-  'icon-512.png'
+  'icon-512.png',
+  'logo.png',
+  'favicon.png'
 ];
 
 // Third-party browser files served as-is (the ERP portal loads these).
 const VENDOR_FILES = {
   'node_modules/qrcode-generator/qrcode.js': 'vendor/qrcode.js',
   'js/invoice-template.js': 'vendor/invoice-template.js',
+  'node_modules/html2canvas/dist/html2canvas.min.js': 'vendor/html2canvas.js', // invoice PDF (loaded on use)
+  'node_modules/jspdf/dist/jspdf.umd.min.js': 'vendor/jspdf.js',
   'node_modules/read-excel-file/bundle/read-excel-file.min.js': 'vendor/read-excel-file.js',
   'node_modules/write-excel-file/bundle/write-excel-file.min.js': 'vendor/write-excel-file.js',
 };
