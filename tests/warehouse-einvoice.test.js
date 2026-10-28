@@ -125,3 +125,26 @@ test('super_admin is the owner in the rules and the Sales App, and only the owne
   assert.match(rules, /request\.resource\.data\.get\('role',''\) != 'super_admin'\s*&& resource\.data\.get\('role',''\) != 'super_admin'/);
   assert.match(read('js/boot.js'), /if \(CU\.role === 'super_admin'\) CU = \{ \.\.\.CU, role: 'admin', isOwner: true, erpRole: 'super_admin' \};/);
 });
+
+// ── ERP products: Sales App catalogue, light theme, Excel/CSV ─────────────
+
+test('ERP products page reads the Sales App catalogue and offers Excel/CSV import and export', () => {
+  const p = read('public/portal/index.html');
+  assert.match(p, /getDocs\(collection\(_db, 'products'\)\)/, 'root catalogue is listed');
+  assert.match(p, /const \[prods, inv\] = await Promise\.all\(\[_allProducts\(\)/);
+  assert.match(p, /onclick="exportProducts\('xlsx'\)"/);
+  assert.match(p, /accept="\.xlsx,\.csv/);
+  assert.match(p, /<script src="\/vendor\/read-excel-file\.js"><\/script>/);
+  assert.match(p, /const _xlSafe = v => \(typeof v === 'string' && \/\^\[=\+@\\t\\r\]\/\.test\(v\)\)/, 'no spreadsheet formula injection');
+  assert.match(p, /<html lang="en" data-theme="light">/, 'light by default');
+  assert.match(p, /localStorage\.setItem\('erp-theme', next\)/);
+  const build = read('build.js');
+  assert.match(build, /'node_modules\/write-excel-file\/bundle\/write-excel-file\.min\.js': 'vendor\/write-excel-file\.js'/);
+});
+
+test('picker: + only opens entry; the cart changes on "Add to cart"', () => {
+  const o = read('js/orders.js');
+  assert.match(o, /<button class="oc-plus" onclick="ocOpenDraft\('\$\{p\.id\}'\)"/);
+  assert.match(o, /onclick="ocAddToCart\('\$\{p\.id\}'\)"/);
+  assert.doesNotMatch(o, /function ocQuickAdd/, 'no one-tap add any more');
+});

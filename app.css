@@ -70,3 +70,11 @@
 .ol-menu-sheet button:hover{background:var(--s2)}
 .ol-menu-sheet button.danger{color:var(--red)}
 .ol-menu-sheet .ol-menu-cancel{justify-content:center;font-weight:700;margin-top:4px;background:var(--s2)}
+
+.oc-row.oc-drafting{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.oc-incart{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:2px;border:1.5px solid var(--grn);background:rgba(34,197,94,.1);color:var(--grn);font-weight:800;font-size:12px;border-radius:14px;padding:8px 10px;cursor:pointer;max-width:110px;text-align:center}
+.oc-incart span{font-size:10px;font-weight:700;color:var(--tx3);text-decoration:underline}
+.oc-edit-actions{display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+.oc-cancel{background:var(--s2);border:1px solid var(--bdr);color:var(--tx2);border-radius:10px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer}
+.oc-addcart{flex:1 1 160px;background:var(--grn);border:0;color:#fff;border-radius:12px;padding:12px 16px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(34,197,94,.3)}
+.oc-addcart:disabled{opacity:.45;box-shadow:none;cursor:not-allowed}
