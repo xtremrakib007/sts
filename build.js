@@ -11,6 +11,9 @@ const { minify: minifyJS }   = require('terser');
 const { minify: minifyHTML } = require('html-minifier-terser');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const AdmZip = require('adm-zip');
+const pkg = require('./package.json');
 
 // Exact script loading sequence matching index.html (boot.js MUST be last)
 const JS_FILES = [
@@ -93,11 +96,20 @@ async function build() {
   const scriptRegex = /<script\s+src=["']js\/(core|ui|auth|fcm|tracking|dashboard|attendance|orders|outlets|products|collections|routes|deliveries|reports|users|delete|broadcast|misc|boot)\.js["']><\/script>\s*/gi;
   html = html.replace(scriptRegex, '');
 
+  // Version = hash of the shipped JS + CSS. It goes into the asset URLs so
+  // the year-long immutable cache can never serve stale code, and names the
+  // over-the-air package the Android app downloads (step 6).
+  const css = fs.readFileSync('app.css', 'utf8');
+  const version = crypto.createHash('sha256').update(jsResult.code).update(css).digest('hex').slice(0, 12);
+  html = html.replace(/href=(["'])app\.css\1/, `href="app.css?v=${version}"`);
+  const versionTag = `<script>window.__APP_VERSION='${version}';</script>`;
+  const bundleTag = `<script src="js/app.min.js?v=${version}"></script>`;
+
   // Inject bundle before closing body or right before custom scripts
   if (html.includes('</body>')) {
-    html = html.replace('</body>', '    <script src="js/app.min.js"></script>\n</body>');
+    html = html.replace('</body>', `    ${versionTag}\n    ${bundleTag}\n</body>`);
   } else {
-    html += '\n<script src="js/app.min.js"></script>';
+    html += `\n${versionTag}\n${bundleTag}`;
   }
 
   const htmlResult = await minifyHTML(html, {
@@ -115,6 +127,8 @@ async function build() {
     const kb = (fs.statSync(targetHtml).size / 1024).toFixed(1);
     console.log(`   ✅ ${targetHtml} (${kb} KB)`);
   }
+
+  console.log(`   🏷️  version ${version}`);
 
   // 4. Copy static assets
   console.log('\n⚙️  Copying static assets...');
@@ -141,6 +155,33 @@ async function build() {
       }
     }
   }
+
+  // 6. Over-the-air package for the Android app: the same files the APK
+  //    bundles, zipped, with a sha256 the updater plugin verifies before
+  //    installing. Raise stfm.otaMinNativeBuild in package.json whenever
+  //    a change also needs a new APK (new plugin, permission, native code).
+  console.log('\n📦 Publishing over-the-air update package...');
+  const otaDir = path.join('public', 'ota');
+  fs.rmSync(otaDir, { recursive: true, force: true });
+  fs.mkdirSync(otaDir, { recursive: true });
+  const zip = new AdmZip();
+  for (const file of ['index.html', 'js/app.min.js', ...COPY_FILES]) {
+    const src = path.join('www', file);
+    if (fs.existsSync(src)) zip.addLocalFile(src, path.dirname(file) === '.' ? '' : path.dirname(file));
+  }
+  const zipName = `${version}.zip`;
+  const zipBuf = zip.toBuffer();
+  fs.writeFileSync(path.join(otaDir, zipName), zipBuf);
+  const ota = pkg.stfm || {};
+  fs.writeFileSync(path.join(otaDir, 'latest.json'), JSON.stringify({
+    version,
+    url: zipName,
+    checksum: crypto.createHash('sha256').update(zipBuf).digest('hex'),
+    minNativeBuild: ota.otaMinNativeBuild || 0,
+    apkUrl: ota.apkUrl || '',
+    builtAt: new Date().toISOString(),
+  }, null, 2) + '\n', 'utf8');
+  console.log(`   ✅ public/ota/${zipName} (${(zipBuf.length / 1024).toFixed(1)} KB) + latest.json`);
 
   // 5. Clean up any sensitive files from output folders
   console.log('\n🔒 Verifying security of distribution directories...');

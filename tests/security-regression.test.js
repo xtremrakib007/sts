@@ -92,7 +92,7 @@ test('ERP FCM tokens can only be written by their owning user', () => {
 
 test('service worker precaches the actual hosted bundle and refreshes its cache version', () => {
   const sw = read('sw.js');
-  assert.match(sw, /const CACHE_VERSION = 'stfm-v11'/);
+  assert.match(sw, /const CACHE_VERSION = 'stfm-v12'/);
   assert.match(sw, /'\/js\/app\.min\.js'/);
   assert.doesNotMatch(sw, /'\/app\.js'/);
 });

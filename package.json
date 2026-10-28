@@ -10,7 +10,8 @@
     "test:security": "node --test tests/security-regression.test.js",
     "test:erp-sync": "node --test tests/erp-sync.test.js",
     "test:order-controls": "node --test tests/order-controls.test.js",
-    "test": "npm run test:security && npm run test:erp-sync && npm run test:order-controls"
+    "test": "npm run test:security && npm run test:erp-sync && npm run test:order-controls && npm run test:native-app",
+    "test:native-app": "node --test tests/native-app.test.js"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",
@@ -19,11 +20,17 @@
     "@capacitor/core": "^6.2.1",
     "@capacitor/geolocation": "^6.1.0",
     "@capacitor/push-notifications": "^6.0.3",
-    "@capacitor/splash-screen": "^6.0.4"
+    "@capacitor/splash-screen": "^6.0.4",
+    "@capgo/capacitor-updater": "6.53.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",
     "html-minifier-terser": "^7.2.0",
-    "terser": "^5.39.0"
+    "terser": "^5.39.0",
+    "adm-zip": "0.6.1"
+  },
+  "stfm": {
+    "otaMinNativeBuild": 2,
+    "apkUrl": ""
   }
 }
