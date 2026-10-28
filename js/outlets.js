@@ -79,13 +79,18 @@ async function loadOutlets() {
     const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+(Number(x.amount)||0),0);
     const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?Number(o.openingBalance)||0:0));
     const km=distKm(o);
-    const photo=o.signboardPhoto||o.coverPhoto||'';
+    const sign=o.signboardPhoto||'';
+    const cover=o.coverPhoto||o.interiorPhoto||sign;
     const rep=allUsers.find(u=>u.uid===(o.assignedRepId||o.createdBy));
-    const thumb=photo?`<img src="${escH(photo)}" alt="" loading="lazy">`:`<span>${escH((o.name||'?')[0].toUpperCase())}</span>`;
+    const thumbSrc=sign||cover;
+    const thumb=thumbSrc?`<img src="${escH(thumbSrc)}" alt="" loading="lazy">`:`<span>${escH((o.name||'?')[0].toUpperCase())}</span>`;
     const info=(ico,cls,label,val,valCls='')=>`<div class="olx-info"><div class="olx-ico ${cls}">${ico}</div><div class="olx-iv"><div class="olx-lbl">${label}</div><div class="olx-val ${valCls}">${val}</div></div></div>`;
     return`<div class="ol-card olx" onclick="viewOutlet('${o.id}')">
+      <div class="olx-cover${cover?' has':''}" ${cover?`onclick="event.stopPropagation();openOutletPhoto('${o.id}','cover')" role="button" aria-label="View cover photo"`:''}>
+        ${cover?`<img src="${escH(cover)}" alt="" loading="lazy"><span class="olx-zoom">⤢</span>`:''}
+      </div>
       <div class="olx-head">
-        <div class="olx-thumb">${thumb}</div>
+        <div class="olx-thumb" ${thumbSrc?`onclick="event.stopPropagation();openOutletPhoto('${o.id}','${sign?'sign':'cover'}')" role="button" aria-label="View photo"`:''}>${thumb}</div>
         <div class="olx-title">
           <div class="ol-name">${escH(o.name)}</div>
           <div class="olx-meta"><span class="olx-status ${due>0?'due':'ok'}">${due>0?'Due '+fmt(due):'Settled'}</span>
@@ -265,6 +270,35 @@ async function loadOutlets() {
   }
 
   tree.innerHTML=viewBar+html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
+}
+
+// Full-screen outlet photo (cover / signboard), tap or ✕ to close.
+function openOutletPhoto(id,which){
+  const o=allOutlets.find(x=>x.id===id); if(!o)return;
+  const photos=[];
+  const cover=o.coverPhoto||o.interiorPhoto;
+  if(cover)photos.push(['cover','Cover photo',cover]);
+  if(o.signboardPhoto)photos.push(['sign','Signboard',o.signboardPhoto]);
+  if(!photos.length)return;
+  let idx=Math.max(0,photos.findIndex(p=>p[0]===which));
+  document.getElementById('olPhotoView')?.remove();
+  const ov=document.createElement('div');
+  ov.id='olPhotoView';ov.className='olpv';
+  const draw=()=>{
+    const [,label,src]=photos[idx];
+    ov.innerHTML=`<div class="olpv-top"><div><div class="olpv-name">${escH(o.name)}</div><div class="olpv-lbl">${label}</div></div>
+        <button class="olpv-x" aria-label="Close">✕</button></div>
+      <img class="olpv-img" src="${escH(src)}" alt="${escH(label)}">
+      ${photos.length>1?`<div class="olpv-tabs">${photos.map((p,i)=>`<button data-i="${i}" class="${i===idx?'on':''}">${p[1]}</button>`).join('')}</div>`:''}`;
+    ov.querySelectorAll('.olpv-tabs button').forEach(b=>b.onclick=e=>{e.stopPropagation();idx=+b.dataset.i;draw();});
+    ov.querySelector('.olpv-img').onclick=e=>e.stopPropagation();
+  };
+  const close=()=>{ov.remove();document.removeEventListener('keydown',onKey);};
+  const onKey=e=>{if(e.key==='Escape')close();};
+  ov.onclick=close;
+  document.addEventListener('keydown',onKey);
+  draw();
+  document.body.appendChild(ov);
 }
 
 // ⋮ menu on an outlet card. Everyone gets view/edit/QR/call; admins also

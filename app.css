@@ -127,3 +127,21 @@
 .olx-btn.del{flex:0 0 42px;color:var(--red);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.06)}
 .olx-btn.more{flex:0 0 42px;color:var(--tx2);font-size:18px}
 .olx-btn.off{opacity:.45}
+
+.ol-card.olx{padding:0 14px 12px;background:var(--s1)}
+.olx-cover{height:96px;margin:0 -14px;background:linear-gradient(135deg,rgba(34,197,94,.14),rgba(132,204,22,.08));position:relative;overflow:hidden}
+.olx-cover.has{height:132px;cursor:zoom-in}
+.olx-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.olx-zoom{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px}
+.olx-head{margin-top:-34px;position:relative}
+.olx-thumb{cursor:zoom-in}
+.olx .olx-title{padding-top:44px}
+.olpv{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:70px 12px 80px}
+.olpv-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(14px + env(safe-area-inset-top,0px)) 16px 10px;color:#fff;background:linear-gradient(rgba(0,0,0,.6),transparent)}
+.olpv-name{font-weight:800;font-size:15px}
+.olpv-lbl{font-size:12px;opacity:.75}
+.olpv-x{width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.15);color:#fff;font-size:18px;cursor:pointer}
+.olpv-img{max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.olpv-tabs{position:absolute;bottom:calc(20px + env(safe-area-inset-bottom,0px));display:flex;gap:8px}
+.olpv-tabs button{border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer}
+.olpv-tabs button.on{background:#16a34a;border-color:#16a34a}
