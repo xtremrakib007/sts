@@ -583,9 +583,15 @@ service cloud.firestore {
     // (or an explicitly provisioned super_admin profile) can browse/manage the
     // full ERP dataset. Sales reps may submit only their own ERP order records.
     // ─────────────────────────────────────────────────────────────────────────
+    function stsbProfile() {
+      return exists(/databases/$(database)/documents/stsb_users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/stsb_users/$(request.auth.uid)).data
+        : ud();
+    }
+
     function isStsbERPAdmin() {
       return isSignedIn() && (
-        _isOwner(ud()) || ud().get('role', '') == 'super_admin'
+        _isOwner(stsbProfile()) || stsbProfile().get('role', '') == 'super_admin'
       );
     }
 
@@ -600,9 +606,9 @@ service cloud.firestore {
 
     match /stsb_orders/{orderId} {
       allow read: if isStsbERPAdmin()
-        || (isSignedIn() && _isSalesRep(ud()) && resource.data.repId == request.auth.uid);
+        || (isSignedIn() && stsbProfile().get('role', '') == 'sales_rep' && resource.data.repId == request.auth.uid);
       allow create: if isSignedIn()
-        && _isSalesRep(ud())
+        && stsbProfile().get('role', '') == 'sales_rep'
         && request.resource.data.repId == request.auth.uid;
       allow update, delete: if isStsbERPAdmin();
     }
