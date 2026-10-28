@@ -58,3 +58,8 @@ test('GitHub builds the APK: debug without secrets, signed release with them', (
   assert.match(gradle, /if \(System\.getenv\('STFM_KEYSTORE_FILE'\)\) \{\s*signingConfig signingConfigs\.release/);
   assert.doesNotMatch(gradle, /storePassword\s+['"]/, 'no passwords in the repo');
 });
+
+test('Android build stays on API 34: WorkManager pinned below 2.10 (needs compileSdk 35)', () => {
+  assert.match(read('android/build.gradle'), /resolutionStrategy\.force 'androidx\.work:work-runtime:2\.9\.1'/);
+  assert.match(read('android/variables.gradle'), /compileSdkVersion = 34/);
+});
