@@ -891,6 +891,7 @@ function queueRealtimeRefresh() {
     if (!_realtimeRefreshPending || !_db || !window.__curPage) return;
     if (realtimePageIsBeingEdited()) {
       setRealtimeStatus('● Update waiting', '#d97706');
+      _realtimeRefreshTimer = setTimeout(queueRealtimeRefresh, 1200);
       return;
     }
     _realtimeRefreshPending = false;
