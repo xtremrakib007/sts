@@ -240,3 +240,15 @@ test('STSB ERP portal subscribes to Firestore changes and cleans up listeners', 
   assert.match(portal, /stopRealtimeSync\(\);[\s\S]*authScreen/);
   assert.match(portal, /realtimePageIsBeingEdited\(\)/);
 });
+
+
+test('ERP includes salesman-wise/day-wise order reporting and printable delivery top sheet date filtering', () => {
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /data-page="salesmanOrdersReport"/);
+  assert.match(portal, /async function salesmanOrdersReport\(\)/);
+  assert.match(portal, /window\.applySalesmanOrdersReport = function\(\)/);
+  assert.match(portal, /repId \|\| o\.salesmanId \|\| o\.salesRepId/);
+  assert.match(portal, /window\.printSalesmanOrdersReport = function\(\)/);
+  assert.match(portal, /const rawDate = v\.deliveryDate \|\| v\.scheduledDeliveryDate \|\| v\.createdAt/);
+  assert.match(portal, /if \(orderDay !== dateStr\) return;/);
+});
