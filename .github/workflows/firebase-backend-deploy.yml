@@ -1,0 +1,70 @@
+# Deploys Cloud Functions, Firestore rules and Firestore indexes to the
+# stfm-sales project whenever they change on main (Hosting is deployed by
+# firebase-hosting-merge.yml). Can also be run by hand from the Actions tab.
+#
+# Uses the same FIREBASE_SERVICE_ACCOUNT_STFM_SALES secret as the Hosting
+# deploy. That account needs extra Google Cloud roles to deploy functions
+# and rules — see "Automatic backend deploys" in BUILD-GUIDE.md.
+name: Deploy Firebase backend on merge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'firebase.json'
+      - '.github/workflows/firebase-backend-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stfm-production-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix functions
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Write service account key
+        env:
+          SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STFM_SALES }}
+        run: |
+          if [ -z "$SA_KEY" ]; then
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT_STFM_SALES is not set."
+            exit 1
+          fi
+          printf '%s' "$SA_KEY" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      # No --force: if a deploy would delete a live function it stops
+      # instead, so nothing is removed without a person deciding to.
+      - name: Deploy functions, rules and indexes
+        run: |
+          npx --yes firebase-tools@13.29.1 deploy \
+            --only functions,firestore:rules,firestore:indexes \
+            --project stfm-sales --non-interactive \
+          || { echo "::error title=Backend deploy failed::If the log shows 'permission denied' or 'missing permissions', give the service account the roles listed in BUILD-GUIDE.md (Automatic backend deploys)."; exit 1; }
+
+      - name: Remove service account key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

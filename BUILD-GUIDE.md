@@ -284,3 +284,33 @@ Actions → New repository secret**, add:
 | `STFM_KEY_PASSWORD` | key password |
 
 Never commit the keystore or the `.b64` file to the repository.
+
+---
+
+## Automatic backend deploys (functions, rules, indexes)
+
+Merging to `main` deploys Hosting (`firebase-hosting-merge.yml`) and, when
+`functions/`, `firestore.rules`, `firestore.indexes.json` or `firebase.json`
+changed, also Cloud Functions, Firestore rules and indexes
+(`firebase-backend-deploy.yml`). You can also run it any time from
+**Actions → Deploy Firebase backend on merge → Run workflow**.
+
+It uses the existing `FIREBASE_SERVICE_ACCOUNT_STFM_SALES` secret. That
+service account was created for Hosting only, so give it these roles once:
+
+1. Open the secret's account: Google Cloud console → project **stfm-sales**
+   → **IAM & Admin → IAM**. Find the account named like
+   `github-action-…@stfm-sales.iam.gserviceaccount.com`.
+2. Click the pencil (Edit principal) → **Add another role**, and add:
+   - Cloud Functions Admin
+   - Service Account User
+   - Cloud Build Editor
+   - Artifact Registry Administrator
+   - Firebase Rules Admin
+   - Cloud Datastore Index Admin
+   - Service Usage Consumer
+3. Save, then re-run the workflow from the Actions tab.
+
+If a deploy would delete a function that is live but no longer in the code,
+the workflow stops instead of deleting it; deploy that change by hand with
+`firebase deploy --only functions` and answer the prompt.
