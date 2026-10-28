@@ -15,6 +15,7 @@ const erpCol = (name) => `${ERP_PREFIX}_${name}`;
 const SYNC_META_FIELDS = [
   'erpSynced', 'erpSyncedAt', 'erpSyncError',
   '_syncedFromERP', '_syncedFromSales', '_syncedAt',
+  'stockDeducted', 'stockDeductedAt', 'stockUnmatched', 'stockSyncError',
 ];
 
 /**
@@ -58,13 +59,15 @@ const ORDER_STATUS_MAP = {
 };
 
 /**
- * Orders held for discount approval stay out of the ERP until an
+ * Orders held for discount or credit-limit approval stay out of the ERP until an
  * admin decides — the Sales App's documented business rule.
  * @param {object} o
  * @return {boolean}
  */
 function isHeldFromErp(o) {
-  return !!o.erpHeld || (o.status === 'Pending' && !!o.discount && o.discount.status === 'pending');
+  return !!o.erpHeld ||
+    (o.status === 'Pending' && !!o.discount && o.discount.status === 'pending') ||
+    (!!o.creditHold && o.creditHold.status === 'pending');
 }
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -159,6 +162,13 @@ function buildErpOrder({order: o, erpCurrent = null, docId, zoneId, outlet = {},
     cancelledAt: o.cancelledAt || '',
     cancelledBy: o.cancelledBy || '',
     stockDeducted: !!o.stockDeducted,
+    deliveryDate: o.deliveryDate || undefined,
+    deliveryOutcome: o.deliveryOutcome || '',
+    partial: !!o.partial,
+    deliveredItems: Array.isArray(o.deliveredItems) ? o.deliveredItems.map(mapItem) : undefined,
+    deliveredTotal: o.deliveredTotal != null ? num(o.deliveredTotal) : undefined,
+    receiverName: o.receiverName || '',
+    hasProof: !!o.hasProof,
     source: 'sales_app',
     updatedAt: nowIso,
     _syncedFromSales: true,
@@ -167,6 +177,7 @@ function buildErpOrder({order: o, erpCurrent = null, docId, zoneId, outlet = {},
   const statusChanged = !erpCurrent || erpCurrent.appStatus !== o.status;
   if (statusChanged && ORDER_STATUS_MAP[o.status]) {
     Object.assign(payload, ORDER_STATUS_MAP[o.status]);
+    if (o.status === 'Delivered' && o.partial) payload.deliveryStatus = 'partially_delivered';
   }
   if (!erpCurrent) {
     payload.collectionStatus = 'not_required';
@@ -268,14 +279,23 @@ function appPatchFromErp(before, after, appStatus) {
       patch.deliveredAt = toIso(after.deliveredAt) || new Date().toISOString();
     } else if (after.status === 'dispatched' && appStatus !== 'In Transit') {
       patch.status = 'In Transit';
+    } else if (after.deliveryStatus === 'failed' && appStatus !== 'Failed') {
+      patch.status = 'Failed';
+      patch.failureReason = after.failureReason || 'Marked failed in ERP';
+    } else if (after.deliveryStatus === 'rescheduled') {
+      // Back into the queue for a new delivery date.
+      patch.status = after.deliveryManId ? 'Assigned' : 'Confirmed';
+      patch.failureReason = '';
     }
   }
   if (changed('deliveryManId') && after.deliveryManId) {
     patch.deliveryManId = after.deliveryManId;
     patch.deliveryManName = after.deliveryManName || '';
-    if (appStatus === 'Confirmed' && !patch.status) patch.status = 'Assigned';
+    if (['Confirmed', 'Failed'].includes(appStatus) && !patch.status) patch.status = 'Assigned';
   }
+  if (changed('deliveryDate') && after.deliveryDate) patch.deliveryDate = after.deliveryDate;
   if (patch.status === appStatus) delete patch.status;
+  if (changed('status')) patch.erpStatus = after.status || '';
   if (!Object.keys(patch).length) return null;
   patch.erpStatus = after.status || '';
   return patch;

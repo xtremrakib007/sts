@@ -1,0 +1,49 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
+
+test('Android app bundles its code instead of loading the website', () => {
+  const cfg = JSON.parse(read('capacitor.config.json'));
+  assert.equal(cfg.webDir, 'www');
+  assert.equal(cfg.server.url, undefined);
+  const upd = cfg.plugins.CapacitorUpdater;
+  assert.equal(upd.autoUpdate, false, 'updates are applied by js/boot.js, never mid-task');
+  assert.equal(upd.statsUrl, '', 'no telemetry to the plugin vendor');
+});
+
+test('build publishes a checksummed OTA package and versioned asset URLs', () => {
+  const build = read('build.js');
+  assert.match(build, /app\.min\.js\?v=\$\{version\}/);
+  assert.match(build, /latest\.json/);
+  assert.match(build, /createHash\('sha256'\)\.update\(zipBuf\)/);
+  const pkg = JSON.parse(read('package.json'));
+  assert.ok(pkg.stfm.otaMinNativeBuild >= 1);
+  assert.ok(pkg.dependencies['@capgo/capacitor-updater']);
+});
+
+test('OTA manifest is never cached and is reachable from the app', () => {
+  const headers = JSON.parse(read('firebase.json')).hosting.headers;
+  const latest = headers.find((h) => h.source === 'ota/latest.json');
+  assert.ok(latest.headers.some((h) => h.key === 'Cache-Control' && h.value === 'no-store'));
+  assert.ok(latest.headers.some((h) => h.key === 'Access-Control-Allow-Origin'));
+  assert.match(read('index.html'), /connect-src 'self' https:\/\/stfm-sales\.web\.app/);
+  assert.match(read('sw.js'), /url\.pathname\.startsWith\('\/ota\/'\)[\s\S]*stfm-sales\.web\.app/);
+});
+
+test('app confirms each bundle and only applies updates when safe', () => {
+  const boot = read('js/boot.js');
+  assert.match(boot, /notifyAppReady\(\)/);
+  assert.match(boot, /applyIfSafe && _safeToReload\(\)/);
+  assert.match(boot, /checksum: m\.checksum/);
+  assert.match(boot, /minNativeBuild/);
+});
+
+test('field staff are blocked from the web Sales App, admins are not', () => {
+  const boot = read('js/boot.js');
+  assert.match(boot, /user\.role === 'sales_rep' \|\| user\.role === 'delivery_man'/);
+  assert.match(boot, /_fieldStaffBlockedOnWeb\(CU\)/);
+});

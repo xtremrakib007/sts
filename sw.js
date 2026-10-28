@@ -1,20 +1,20 @@
 /**
  * STFM — Service Worker
  *
- * ★ HOW TO PUSH AN UPDATE:
- *   1. Bump CACHE_VERSION below  (e.g. 'v9' → 'v10')
- *   2. Deploy  →  firebase deploy --only hosting
+ * ★ HOW UPDATES REACH USERS:
+ *   Merging to main builds and deploys Hosting. Nothing to bump by hand:
+ *   • Pages are fetched network-first and revalidated on every open.
+ *   • JS/CSS URLs carry a ?v=<build hash>, so the immutable HTTP cache
+ *     never serves an old bundle.
+ *   The Android app bundles its code and updates over the air from
+ *   /ota/ (see build.js and js/boot.js).
  *
- * The SW will:
- *   • Install the new cache in the background
- *   • Immediately call skipWaiting() — no user action needed
- *   • Delete every old cache on activate
- *   • Claim all open tabs so they reload with fresh assets
+ * Bump CACHE_VERSION only when this file's caching rules change.
  *
  * Users NEVER need to manually clear their browser cache.
  */
 
-const CACHE_VERSION = 'stfm-v11';           // Bump when the hosted app shell changes
+const CACHE_VERSION = 'stfm-v12';           // Bump when the hosted app shell changes
 
 const APP_SHELL = [
   '/',
@@ -93,11 +93,23 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // 3. App shell (same origin) — Network-first, fall back to cache
-  //    This ensures fresh JS/CSS on reload; cached copy used when offline
+  // 3. Update packages for the Android app — never cached by this worker.
+  //    The app runs on its own origin and fetches these cross-origin, so
+  //    they must not fall through to the cache-first CDN rule below.
+  if (url.pathname.startsWith('/ota/') &&
+      (url.origin === self.location.origin || url.hostname === 'stfm-sales.web.app')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // 4. App shell (same origin) — Network-first, fall back to cache
+  //    Pages revalidate with the server on every load, so a new deploy is
+  //    picked up on the next open; JS/CSS URLs carry a ?v= build hash.
+  //    The cached copy is used when offline.
   if (url.origin === self.location.origin) {
+    const fresh = request.mode === 'navigate' ? fetch(request, { cache: 'no-cache' }) : fetch(request);
     event.respondWith(
-      fetch(request)
+      fresh
         .then(response => {
           if (response && response.status === 200) {
             const clone = response.clone();
@@ -105,12 +117,14 @@ self.addEventListener('fetch', event => {
           }
           return response;
         })
-        .catch(() => caches.match(request)) // offline fallback
+        // Offline fallback; ignoreSearch lets a new ?v= URL use the cached copy
+        .catch(() => caches.match(request, { ignoreSearch: true })
+          .then(hit => hit || (request.mode === 'navigate' ? caches.match('/index.html') : undefined)))
     );
     return;
   }
 
-  // 4. CDN resources (fonts, Firebase SDK from CDN, etc.) — Cache-first
+  // 5. CDN resources (fonts, Firebase SDK from CDN, etc.) — Cache-first
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;

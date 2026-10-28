@@ -122,12 +122,13 @@ async function loadOrders() {
     const discPending=hasDiscount&&o.discount.status==='pending';
     const discApproved=hasDiscount&&o.discount.status==='approved';
     const discRejected=hasDiscount&&o.discount.status==='rejected';
+    const creditPending=!!(o.creditHold&&o.creditHold.status==='pending');
     const discBadge=hasDiscount
       ?`<span class="bdg ${discApproved?'bdg-grn':discRejected?'bdg-red':'bdg-ylw'}" style="font-size:10px;margin-left:4px" title="Discount: ${o.discount.type==='percent'?o.discount.value+'%':fmt(o.discount.amount)}">🏷️${discPending?'?':discApproved?'✓':'✕'}</span>`:'';
     const erpBadge=o.erpSynced
       ?`<span class="bdg bdg-grn" style="font-size:9px;margin-left:4px" title="Synced to ERP">ERP✓</span>`
       :o.erpHeld
-        ?`<span class="bdg bdg-ylw" style="font-size:9px;margin-left:4px" title="Held — awaiting discount approval">ERP⏳</span>`
+        ?`<span class="bdg bdg-ylw" style="font-size:9px;margin-left:4px" title="Held — awaiting ${creditPending?'credit':'discount'} approval">ERP⏳</span>`
         :`<span class="bdg bdg-gry" style="font-size:9px;margin-left:4px" title="Pending ERP sync">ERP?</span>`;
     return`<tr>
     <td><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px">${o.id||o._docId}</span>${erpBadge}</td>
@@ -136,11 +137,12 @@ async function loadOrders() {
     <td style="font-size:12px;color:var(--tx2)">${o.items?.length||0} item${(o.items?.length||0)!==1?'s':''}</td>
     <td><span style="font-family:'Syne',sans-serif;font-weight:700;color:var(--acc)">${fmt(o.total)}</span>${discBadge}</td>
     <td style="font-size:12px;color:var(--tx2)">${o.date||'—'}</td>
-    <td><span class="bdg ${sBadge[o.status]||'bdg-gry'}">${o.status}</span>${discPending?'<span class="bdg bdg-ylw" style="font-size:9px;margin-left:3px">🏷️ Disc?</span>':''}</td>
+    <td><span class="bdg ${sBadge[o.status]||'bdg-gry'}">${o.status}</span>${discPending?'<span class="bdg bdg-ylw" style="font-size:9px;margin-left:3px">🏷️ Disc?</span>':''}${creditPending?`<span class="bdg bdg-red" style="font-size:9px;margin-left:3px" title="Over credit limit by ${fmt(o.creditHold.exceededBy)}">💳 Credit?</span>`:''}</td>
     <td style="font-size:11px;color:var(--tx3)">ERP</td>
     <td>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-xs" onclick="viewOrder('${o._docId}')">👁</button>
+        ${isAdmin()&&creditPending?`<button class="btn btn-ylw btn-xs" onclick="approveCredit('${o._docId}',true)" title="Approve over credit limit">💳 Approve</button><button class="btn btn-red btn-xs" onclick="approveCredit('${o._docId}',false)" title="Reject — cancels the order">✕ Credit</button>`:''}
         ${isAdmin()&&discPending?`<button class="btn btn-ylw btn-xs" onclick="approveDiscount('${o._docId}',true)" title="Approve discount & send to ERP">🏷️ Approve</button><button class="btn btn-red btn-xs" onclick="approveDiscount('${o._docId}',false)" title="Reject discount & send to ERP at full price">✕ Disc</button>`:''}
         ${isAdmin()&&(o.status==='Pending'||o.status==='Confirmed')&&!discPending?`<button class="btn btn-red btn-xs" onclick="cancelOrder('${o._docId}')">✕</button>`:''}
         ${isStrictAdmin()?`<button class="btn btn-red btn-xs" onclick="deleteOrder('${o._docId}','Order ${o.id||o._docId}','${o._zoneId||""}')" title="Permanently delete">🗑</button>`:''}
@@ -739,8 +741,13 @@ async function saveOrder() {
   // ★ KEY LOGIC:
   // No discount  → auto Confirmed, sync to ERP immediately, no approval needed
   // Has discount → stays Pending, blocked from ERP until admin approves discount
-  const initialStatus=hasDiscount?'Pending':'Confirmed';
   const total=subtotal; // discount applied to total only after approval
+  // Credit outlets: an order that takes the outlet past its credit limit is
+  // held for admin approval (the server re-checks this on every new order).
+  const creditHold=await _creditLimitCheck(outletId,total);
+  if(creditHold&&!confirm(`⚠️ Credit limit exceeded\n\nLimit: ${fmt(creditHold.limit)}\nOutstanding: ${fmt(creditHold.outstanding)}\nThis order: ${fmt(total)}\nOver by: ${fmt(creditHold.exceededBy)}\n\nThe order will be held until an admin approves it. Place it anyway?`))return;
+  const held=hasDiscount||!!creditHold;
+  const initialStatus=held?'Pending':'Confirmed';
   const ordId='ORD-'+uid6();
   const orderDate=document.getElementById('ordDate').value;
   const notes=document.getElementById('ordNotes').value;
@@ -754,25 +761,26 @@ async function saveOrder() {
       status:initialStatus,
       notes,
       createdBy:CU.uid, createdByName:CU.name,
-      approvedBy:   hasDiscount?'':CU.uid,
-      approvedAt:   hasDiscount?'':new Date().toISOString(),
-      approvedByName:hasDiscount?'':'Auto (no discount)',
+      approvedBy:   held?'':CU.uid,
+      approvedAt:   held?'':new Date().toISOString(),
+      approvedByName:held?'':'Auto (no discount)',
       erpSynced:false,
-      erpHeld:hasDiscount,   // flag: blocked from ERP pending discount approval
+      erpHeld:held,   // flag: blocked from ERP pending discount / credit approval
+      creditHold:creditHold?{...creditHold,at:new Date().toISOString()}:null,
       createdAt:window.__SF.serverTimestamp()
     });
 
-    // ── 2. Stock reservation ─────────────────────────────────────────────
-    await _reserveStock(ordItems, ordId, 'reserve');
-
-    // ── 3. ERP sync — done server-side in real time by the erpBridge Cloud
-    //       Functions (functions/index.js). Discount orders stay held
-    //       (erpHeld) and reach the ERP the moment an admin decides.
+    // ── 2. Stock reservation and ERP sync run server-side in real time
+    //       (erpBridge Cloud Functions). Held orders reserve stock but reach
+    //       the ERP only once an admin decides.
 
     closeOrderCatalog();
     invalidateDashCache();
 
-    if(hasDiscount){
+    if(creditHold){
+      showToast(`Order ${ordId} placed ✅\n⏳ Over credit limit by ${fmt(creditHold.exceededBy)} — waiting for admin approval`,'warn');
+      notifyAdmins('💳 Credit Limit Approval Needed',`${CU.name} placed ${ordId} for ${outletName(outletId)} — ${fmt(creditHold.exceededBy)} over credit limit`,{tag:'credit-pending',ordId});
+    } else if(hasDiscount){
       showToast(`Order ${ordId} placed ✅\n⏳ Discount ${fmt(totalDiscountAmt)} pending admin approval — will appear in ERP after approval`,'warn');
       notifyAdmins('🏷️ Discount Approval Needed',`${CU.name} placed ${ordId} with discount ${fmt(totalDiscountAmt)} — approval required`,{tag:'discount-pending',ordId});
     } else {
@@ -787,58 +795,60 @@ async function saveOrder() {
   }
 }
 
-// ── Reserve / release stock in stsb_inventory ────────────────────────────────
-async function _reserveStock(items, orderId, action='reserve') {
+// ── Stock ───────────────────────────────────────────────────────────────────
+// Reservation (order placed), release (cancelled/deleted) and deduction
+// (delivered) are applied to stsb_inventory by the erpBridge Cloud Functions,
+// whichever app or ERP screen changed the order. The client only reads stock.
+
+// ── Credit limit ────────────────────────────────────────────────────────────
+// Outstanding = non-cancelled orders − collections + approved opening balance,
+// the same figure the collection screen shows. Returns the hold record when a
+// salesman's order would exceed the outlet's credit limit, else null.
+async function _creditLimitCheck(outletId, orderTotal) {
+  const outlet=allOutlets.find(o=>o.id===outletId);
+  const limit=Number(outlet?.creditLimit)||0;
+  if(!outlet||outlet.paymentType!=='credit'||limit<=0||isAdmin())return null;
   try {
-    const db = window.__SF.db;
-    const batch = window.__SF.writeBatch(db);
-    let anyUpdated = false;
-
-    for (const item of items) {
-      const stock = _getStock(item);
-      if (!stock || !stock.id) continue;
-      const ref = window.__SF.doc(db, erpCol('inventory'), stock.id);
-      const pcsQty = item.qty; // always in pcs
-
-      if (action === 'reserve') {
-        const newReserved = (stock.reservedQty || 0) + pcsQty;
-        batch.update(ref, {
-          reservedQty: newReserved,
-          [`reservations.${orderId}`]: pcsQty,
-          updatedAt: new Date().toISOString(),
-        });
-        // Update local cache
-        if (_stockMap[stock.sku?.toLowerCase()] || _stockMap[stock.name?.toLowerCase()]) {
-          const key = (stock.sku||stock.name||'').toLowerCase();
-          if (_stockMap[key]) _stockMap[key].reservedQty = newReserved;
-        }
-      } else if (action === 'release') {
-        const reserved = (stock.reservedQty || 0) - pcsQty;
-        batch.update(ref, {
-          reservedQty: Math.max(0, reserved),
-          [`reservations.${orderId}`]: window.__SF.deleteField?.() || null,
-          updatedAt: new Date().toISOString(),
-        });
-      } else if (action === 'deduct') {
-        // Actual deduction on delivery: reduce real qty, clear reservation
-        const newQty = Math.max(0, (stock.qty || 0) - pcsQty);
-        const newReserved = Math.max(0, (stock.reservedQty || 0) - pcsQty);
-        batch.update(ref, {
-          qty: newQty,
-          reservedQty: newReserved,
-          [`reservations.${orderId}`]: window.__SF.deleteField?.() || null,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      anyUpdated = true;
-    }
-
-    if (anyUpdated) await batch.commit();
-    console.log(`[Stock] ${action} complete for order ${orderId}`);
+    const {where}=window.__SF;
+    const [ordD,colD]=await Promise.all([
+      sfGet('orders',[where('outletId','==',outletId)]),
+      sfGet('collections',[where('outletId','==',outletId)]),
+    ]);
+    const ordered=ordD.map(d=>d.data()).filter(x=>x.status!=='Cancelled').reduce((s,x)=>s+_orderAmountDue(x),0);
+    const paid=colD.map(d=>d.data()).reduce((s,x)=>s+(Number(x.amount)||0),0);
+    const opening=outlet.balanceStatus==='approved'?(Number(outlet.openingBalance)||0):0;
+    const outstanding=Math.max(0,ordered-paid+opening);
+    const after=outstanding+(Number(orderTotal)||0);
+    if(after<=limit)return null;
+    return {status:'pending',limit,outstanding:Math.round(outstanding*100)/100,orderTotal:Number(orderTotal)||0,exceededBy:Math.round((after-limit)*100)/100};
   } catch(e) {
-    console.warn('[Stock] reservation failed:', e.message);
-    // Non-fatal — order still saves
+    console.warn('[credit] check failed — server will enforce:', e.message);
+    return null;
   }
+}
+
+async function approveCredit(id, approve=true) {
+  if(!isAdmin()){showToast('Only admin can approve credit','error');return;}
+  const ordDoc=await window.__SF.getDoc(docRef('orders',id));
+  const o=ordDoc.exists()?{_docId:ordDoc.id,...ordDoc.data()}:null;
+  if(!o){showToast('Order not found','error');return;}
+  const h=o.creditHold;
+  if(!h||h.status!=='pending'){showToast('No pending credit approval on this order','warn');return;}
+  const msg=`${approve?'APPROVE':'REJECT'} order ${o.id||id} over the credit limit?\n\nLimit: ${fmt(h.limit)}\nOutstanding: ${fmt(h.outstanding)}\nThis order: ${fmt(h.orderTotal)}\nOver by: ${fmt(h.exceededBy)}\n\n${approve?'The order continues to the ERP.':'The order will be cancelled and its stock released.'}`;
+  if(!confirm(msg))return;
+  const now=new Date().toISOString();
+  const decided={...h,status:approve?'approved':'rejected',decidedBy:CU.uid,decidedByName:CU.name,decidedAt:now};
+  if(!approve){
+    await sfUpdate('orders',id,{creditHold:decided,status:'Cancelled',cancelledBy:CU.uid,cancelledAt:now,cancelReason:'Credit limit exceeded'});
+  } else {
+    const discPending=o.discount&&o.discount.status==='pending';
+    await sfUpdate('orders',id,discPending
+      ?{creditHold:decided}
+      :{creditHold:decided,status:'Confirmed',erpHeld:false,approvedBy:CU.uid,approvedAt:now,approvedByName:CU.name});
+  }
+  showToast(approve?`Credit approved ✅ · ${o.id||id}${o.discount?.status==='pending'?' — discount still pending':' sent to ERP'}`:`Order ${o.id||id} rejected — over credit limit`,approve?'success':'warn');
+  invalidateDashCache();loadOrders();renderDashboard();updateBadges();
+  try{notifyRep(o.createdBy,approve?'✅ Credit Approved':'❌ Order Rejected',approve?`Your order ${o.id||id} was approved over the credit limit`:`Your order ${o.id||id} was rejected: credit limit exceeded`,{tag:'credit-decision'});}catch(e){}
 }
 
 // ── ERP order sync ───────────────────────────────────────────────────────────
@@ -872,10 +882,11 @@ async function approveDiscount(id, approve=true) {
 
   const discStatus=approve?'approved':'rejected';
   const newTotal=approve?(o.subtotal||o.total)-discAmt:(o.subtotal||o.total);
+  const creditPending=o.creditHold&&o.creditHold.status==='pending';
   await sfUpdate('orders',id,{
-    status:'Confirmed',
+    status:creditPending?'Pending':'Confirmed',
     total:newTotal,
-    erpHeld:false,
+    erpHeld:!!creditPending,
     discount:{...o.discount,status:discStatus,decidedBy:CU.uid,decidedAt:new Date().toISOString()},
     approvedBy:CU.uid,
     approvedAt:new Date().toISOString(),
@@ -894,6 +905,11 @@ async function approveOrder(id) {
   const ordDoc=await window.__SF.getDoc(docRef('orders',id));
   const o=ordDoc.exists()?{_docId:ordDoc.id,...ordDoc.data()}:null;
   if(!o)return;
+
+  if(o.creditHold&&o.creditHold.status==='pending'){
+    await approveCredit(id, true);
+    return;
+  }
 
   // If order has a pending discount, route to discount approval flow
   if(o.discount&&o.discount.status==='pending'){
@@ -917,19 +933,14 @@ async function approveOrder(id) {
 // ★ Delivery is now managed by ERP — this function just syncs status back from ERP
 async function deliverOrder(id) {
   if(!isAdmin()){showToast('Only admin can mark delivered','error');return;}
-  // Get the order to deduct real stock
   const ordDoc = await window.__SF.getDoc(docRef('orders',id));
   const o = ordDoc.exists() ? {_docId:ordDoc.id,...ordDoc.data()} : null;
   if(!o) return;
 
+  // Stock is deducted server-side when the status becomes Delivered
   await sfUpdate('orders',id,{status:'Delivered', deliveredAt:new Date().toISOString()});
 
-  // ★ Actual stock deduction on delivery
-  if (o.items && o.items.length) {
-    await _reserveStock(o.items, o.id||id, 'deduct');
-  }
-
-  showToast('Order marked as delivered — stock deducted ✅','success');
+  showToast('Order marked as delivered — stock will be deducted ✅','success');
   invalidateDashCache();loadOrders();renderDashboard();
   try{const _dODoc=await window.__SF.getDoc(window.__SF.doc(window.__SF.db,_zonePath('orders'),id));if(_dODoc.exists()){const _dOD=_dODoc.data();notifyRep(_dOD.createdBy,'🚚 Order Delivered',`Order ${_dOD.id||id} has been delivered`,{tag:'order-delivered'});}}
   catch(e){}
@@ -943,10 +954,7 @@ async function cancelOrder(id) {
   if(isStrictAdmin()){
     if(!confirm(`Cancel ${label}?`))return;
     await sfUpdate('orders',id,{status:'Cancelled',cancelledBy:CU.uid,cancelledAt:new Date().toISOString()});
-    // Release reserved stock on cancel
-    if(o && o.items && o.items.length) {
-      await _reserveStock(o.items, o.id||id, 'release');
-    }
+    // Reserved stock is released server-side when the status becomes Cancelled
     showToast('Order cancelled — stock reservation released','warn');
     invalidateDashCache();loadOrders();renderDashboard();updateBadges();
     try{const _cODoc=await window.__SF.getDoc(window.__SF.doc(window.__SF.db,_zonePath('orders'),id));if(_cODoc.exists()){const _cOD=_cODoc.data();notifyRep(_cOD.createdBy,'❌ Order Cancelled',`Order ${_cOD.id||id} was cancelled`,{tag:'order-cancelled'});}}
@@ -1294,9 +1302,6 @@ async function saveManualInvoice() {
       createdBy:CU.uid, createdByName:CU.name,
       createdAt:window.__SF.serverTimestamp()
     });
-
-    // Reserve stock
-    await _reserveStock(_manInvItems, ordId, 'reserve');
 
     // ERP sync happens server-side (erpBridge) from the saved invoice items
 

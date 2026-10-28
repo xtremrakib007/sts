@@ -173,8 +173,9 @@ test('ERP delivery, dispatch, cancel and driver assignment flow back to the app 
   assert.equal(erp.appPatchFromErp(base, {...base, status: 'cancelled'}, 'Confirmed').status, 'Cancelled');
   const a = erp.appPatchFromErp(base, {...base, deliveryManId: 'dm1', deliveryManName: 'Ali'}, 'Confirmed');
   assert.deepEqual([a.status, a.deliveryManId, a.deliveryManName], ['Assigned', 'dm1', 'Ali']);
-  // ERP-internal progress with no app equivalent, and finished app orders, are left alone.
-  assert.equal(erp.appPatchFromErp(base, {...base, status: 'processing'}, 'Confirmed'), null);
+  // ERP acceptance shows on the app order without changing its status.
+  assert.deepEqual(erp.appPatchFromErp(base, {...base, status: 'processing'}, 'Confirmed'), {erpStatus: 'processing'});
+  // Finished app orders and ERP-only fields are left alone.
   assert.equal(erp.appPatchFromErp(base, {...base, status: 'cancelled'}, 'Delivered'), null);
   assert.equal(erp.appPatchFromErp(base, {...base, collectionStatus: 'collection_accepted'}, 'Confirmed'), null);
 });
@@ -183,4 +184,29 @@ test('ERP records written by the bridge are not echoed back to the app', () => {
   assert.equal(erp.isBridgeWrite({_srcEventTime: 'a'}, {_srcEventTime: 'b'}), true);
   assert.equal(erp.isBridgeWrite({_srcEventTime: 'a'}, {_srcEventTime: 'a', status: 'delivered'}), false);
   assert.match(read('functions/index.js'), /document\(`\$\{erp\.erpCol\('orders'\)\}\/\{orderId\}`\)\s*\n\s*\.onUpdate/);
+});
+
+test('ERP failed deliveries, reschedules and delivery dates reach the app', () => {
+  const base = {status: 'dispatched', deliveryStatus: 'in_transit', deliveryManId: 'dm1'};
+  const f = erp.appPatchFromErp(base, {...base, deliveryStatus: 'failed', failureReason: 'Shop closed'}, 'In Transit');
+  assert.deepEqual([f.status, f.failureReason], ['Failed', 'Shop closed']);
+  const r = erp.appPatchFromErp({...base, deliveryStatus: 'failed'},
+      {...base, status: 'processing', deliveryStatus: 'rescheduled', deliveryDate: '2026-11-02'}, 'Failed');
+  assert.deepEqual([r.status, r.deliveryDate, r.failureReason], ['Assigned', '2026-11-02', '']);
+  const d = erp.appPatchFromErp({status: 'processing'}, {status: 'processing', deliveryDate: '2026-11-03'}, 'Confirmed');
+  assert.deepEqual(d, {deliveryDate: '2026-11-03', erpStatus: 'processing'});
+});
+
+test('partial deliveries reach the ERP with delivered quantities and value', () => {
+  const p = erp.buildErpOrder({
+    order: {id: 'O', status: 'Delivered', partial: true, total: 36, deliveredTotal: 27,
+      items: [{name: 'A', qty: 10, price: 2}], deliveredItems: [{name: 'A', qty: 5, price: 2}],
+      receiverName: 'Ali', hasProof: true, deliveryOutcome: 'partial'},
+    erpCurrent: {appStatus: 'In Transit'}, docId: 'd', outlet: {}, nowIso: '2026-10-28T00:00:00Z',
+  });
+  assert.equal(p.status, 'delivered');
+  assert.equal(p.deliveryStatus, 'partially_delivered');
+  assert.equal(p.deliveredTotal, 27);
+  assert.equal(p.deliveredItems[0].qty, 5);
+  assert.equal(p.receiverName, 'Ali');
 });

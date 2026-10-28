@@ -19,6 +19,12 @@
     },
     "Camera": {
       "presentationStyle": "fullscreen"
+    },
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "statsUrl": "",
+      "appReadyTimeout": 15000,
+      "resetWhenUpdate": true
     }
   }
 }

@@ -186,7 +186,9 @@ service cloud.firestore {
                      'status','deliveryNote','updatedAt',
                      'inTransitAt','inTransitBy',
                      'deliveredAt','deliveredBy',
-                     'failureReason','failedAt','failedBy'
+                     'failureReason','failedAt','failedBy',
+                     'deliveryOutcome','partial','deliveredItems','deliveredTotal',
+                     'receiverName','hasProof'
                    ])
               && (
                 !('inTransitBy' in request.resource.data)
@@ -364,7 +366,9 @@ service cloud.firestore {
                    'status','deliveryNote','updatedAt',
                    'inTransitAt','inTransitBy',
                    'deliveredAt','deliveredBy',
-                   'failureReason','failedAt','failedBy'
+                   'failureReason','failedAt','failedBy',
+                   'deliveryOutcome','partial','deliveredItems','deliveredTotal',
+                   'receiverName','hasProof'
                  ])
             && (
               !('inTransitBy' in request.resource.data)
@@ -585,6 +589,17 @@ service cloud.firestore {
     }
 
     // AUDIT LOG — append-only events from authenticated internal users.
+    // Proof of delivery (photo, receiver, GPS), one per app order. Written
+    // once by the delivery man completing the delivery; never edited.
+    match /deliveryProofs/{orderDocId} {
+      allow read: if isSignedIn() && (_isAdminOrSub(ud()) || resource.data.deliveredBy == request.auth.uid);
+      allow create: if isSignedIn()
+        && (_isDeliveryMan(ud()) || _isAdminOrSub(ud()))
+        && request.resource.data.deliveredBy == request.auth.uid
+        && request.resource.data.get('photo', '').size() < 400000;
+      allow update, delete: if false;
+    }
+
     match /audit_log/{entryId} {
       allow read: if isSignedIn() && _isAdminOrSub(ud());
       allow create: if isSignedIn() && isStfmUser()
@@ -638,8 +653,75 @@ service cloud.firestore {
       allow update, delete: if isStsbERPAdmin();
     }
 
+    // Stock quantities, average cost and reservations change only through
+    // the server (stock requests and the order bridge), so every change has
+    // a ledger entry. Item details (name, SKU, prices, reorder level) stay
+    // editable by ERP admins; new items start at zero and get opening stock
+    // through a stock request.
     match /stsb_inventory/{itemId} {
-      allow read, create, update, delete: if isStsbERPAdmin();
+      allow read, delete: if isStsbERPAdmin();
+      allow create: if isStsbERPAdmin()
+        && request.resource.data.get('qty', 0) == 0
+        && request.resource.data.get('reservedQty', 0) == 0
+        && !('reservations' in request.resource.data)
+        && !('avgCost' in request.resource.data);
+      allow update: if isStsbERPAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['qty', 'reservedQty', 'reservations', 'avgCost', 'lastMovementAt']);
+    }
+
+    // Stock movement requests: created by an ERP admin as themselves, then
+    // posted by the erpStockRequest function. The only client change after
+    // that is a different admin approving or rejecting a held request.
+    match /stsb_stock_requests/{reqId} {
+      allow read: if isStsbERPAdmin();
+      allow create: if isStsbERPAdmin()
+        && request.resource.data.status == 'requested'
+        && request.resource.data.requestedBy == request.auth.uid;
+      allow update: if isStsbERPAdmin()
+        && resource.data.status == 'pending_approval'
+        && request.resource.data.status in ['approved', 'rejected']
+        && resource.data.requestedBy != request.auth.uid
+        && request.resource.data.approvedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'approvedBy', 'approvedByName', 'decidedAt', 'decisionNote']);
+      allow delete: if false;
+    }
+
+    // Immutable movement history and per-order stock state: server-written.
+    match /stsb_stock_ledger/{entryId} {
+      allow read: if isStsbERPAdmin();
+      allow write: if false;
+    }
+
+    match /stsb_stock_moves/{orderId} {
+      allow read: if isStsbERPAdmin();
+      allow write: if false;
+    }
+
+    // Sales returns: raised by an ERP admin, priced and posted by the
+    // erpReturn function; only a different admin can approve or reject.
+    match /stsb_returns/{retId} {
+      allow read: if isStsbERPAdmin();
+      allow create: if isStsbERPAdmin()
+        && request.resource.data.status == 'pending_approval'
+        && request.resource.data.requestedBy == request.auth.uid
+        && !('priced' in request.resource.data)
+        && !('amount' in request.resource.data);
+      allow update: if isStsbERPAdmin()
+        && resource.data.status == 'pending_approval'
+        && resource.data.get('priced', false) == true
+        && request.resource.data.status in ['approved', 'rejected']
+        && resource.data.requestedBy != request.auth.uid
+        && request.resource.data.approvedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'approvedBy', 'approvedByName', 'decidedAt', 'decisionNote']);
+      allow delete: if false;
+    }
+
+    match /stsb_credit_notes/{cnId} {
+      allow read: if isStsbERPAdmin();
+      allow write: if false;
     }
 
     match /stsb_invoices/{invoiceId} {

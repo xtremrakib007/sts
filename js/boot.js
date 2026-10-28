@@ -10,6 +10,13 @@ async function bootApp() {
     CU = window.__currentUser;
     if(!CU || !CU.uid) { showLoginPage(); return; }
 
+    // ★ Field staff work only in the Android app
+    if (_fieldStaffBlockedOnWeb(CU)) {
+      showNativeAppOnlyScreen();
+      await window.__SF.signOut(window.__SF.auth).catch(() => {});
+      return;
+    }
+
     // ★ DEVICE APPROVAL GATE — enforce inside bootApp for sales_rep
     if (CU.role === 'sales_rep') {
       const allowed = await _enforceDeviceGate(CU);
@@ -413,3 +420,138 @@ function initDateDefaults() {
   if(tdEl)tdEl.value=t;
 }
 
+// ═══════════════ OVER-THE-AIR APP UPDATES (Android) ═══════════════
+// The Android app runs the code bundled inside it. Each deploy also
+// publishes that code as a checksummed package at /ota/ (see build.js);
+// the app downloads it in the background with @capgo/capacitor-updater
+// and switches to it on the next cold start, or when the rep returns to
+// the app with nothing in progress. A package that fails to start is
+// rolled back by the plugin and never retried. Native changes (new
+// permissions or plugins) still need a new APK: those packages declare a
+// higher minNativeBuild and the app asks the user to install the new APK.
+const OTA_BASE = 'https://stfm-sales.web.app/ota/';
+const OTA_PENDING_KEY = 'stfm_ota_pending';
+const OTA_BAD_KEY = 'stfm_ota_bad';
+let _otaBusy = false;
+
+function isNativeApp() { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); }
+function _updater() { return window.Capacitor?.Plugins?.CapacitorUpdater || null; }
+function _lsGet(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+function _lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+async function startOtaUpdates() {
+  const U = _updater();
+  if (!isNativeApp() || !U) return;
+  // Tell the plugin this bundle started fine — otherwise it rolls back.
+  try { await U.notifyAppReady(); } catch (e) { console.warn('[OTA] notifyAppReady', e.message); }
+  await _otaCleanup();
+  _otaCheck(true); // cold start: nothing is in progress yet
+  setInterval(() => _otaCheck(false), 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _otaCheck(true);
+  });
+}
+
+async function _otaCheck(applyIfSafe) {
+  const U = _updater();
+  if (!U || _otaBusy || !navigator.onLine) return;
+  _otaBusy = true;
+  try {
+    const res = await fetch(OTA_BASE + 'latest.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const m = await res.json();
+    if (!m.version || m.version === window.__APP_VERSION) { _lsSet(OTA_PENDING_KEY, null); return; }
+    if ((_lsGet(OTA_BAD_KEY) || []).includes(m.version)) return;
+
+    const info = await window.Capacitor.Plugins.App.getInfo();
+    if ((parseInt(info.build, 10) || 0) < (m.minNativeBuild || 0)) { _showApkUpdateBanner(m.apkUrl); return; }
+
+    let pending = _lsGet(OTA_PENDING_KEY);
+    if (!pending || pending.version !== m.version) {
+      const bundle = await U.download({ url: new URL(m.url, OTA_BASE).href, version: m.version, checksum: m.checksum });
+      pending = { id: bundle.id, version: m.version };
+      _lsSet(OTA_PENDING_KEY, pending);
+      console.log('[OTA] downloaded', m.version);
+    }
+    if (applyIfSafe && _safeToReload()) {
+      console.log('[OTA] applying', pending.version);
+      await U.set({ id: pending.id }); // reloads into the new code
+    }
+  } catch (e) {
+    console.warn('[OTA] check failed:', e.message);
+  } finally {
+    _otaBusy = false;
+  }
+}
+
+// Remember versions the plugin rolled back, and drop old downloads.
+async function _otaCleanup() {
+  const U = _updater();
+  try {
+    const [{ bundle: current }, { bundles }] = await Promise.all([U.current(), U.list()]);
+    const pending = _lsGet(OTA_PENDING_KEY);
+    for (const b of bundles || []) {
+      if (b.status === 'error') {
+        _lsSet(OTA_BAD_KEY, [...new Set([...(_lsGet(OTA_BAD_KEY) || []), b.version])].slice(-10));
+        if (pending && pending.id === b.id) _lsSet(OTA_PENDING_KEY, null);
+      }
+      const keep = b.id === current.id || (pending && pending.id === b.id && b.status !== 'error');
+      if (!keep) await U.delete({ id: b.id }).catch(() => {});
+    }
+  } catch (e) { console.warn('[OTA] cleanup', e.message); }
+}
+
+// Never reload over unsaved work: an open modal or an order being built.
+function _safeToReload() {
+  if (document.querySelector('.moverlay.show')) return false;
+  const cat = document.getElementById('orderCatalog');
+  if (cat && cat.style.display && cat.style.display !== 'none') return false;
+  if (typeof ordItems !== 'undefined' && ordItems.length) return false;
+  return true;
+}
+
+function _showApkUpdateBanner(apkUrl) {
+  if (document.getElementById('apkUpdateBanner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'apkUpdateBanner';
+  bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:9998;' +
+    'display:flex;align-items:center;gap:10px;background:var(--s1);border:1px solid var(--ylw);border-radius:12px;' +
+    'padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:13px;color:var(--tx)';
+  bar.innerHTML = '<span style="flex:1">📲 A new version of the STFM app must be installed. ' +
+    (apkUrl ? '' : 'Ask your admin for the latest app.') + '</span>' +
+    (apkUrl ? '<button class="btn btn-primary btn-sm" id="apkUpdateBtn">Download</button>' : '') +
+    '<button class="btn btn-ghost btn-sm" onclick="this.parentNode.remove()">Later</button>';
+  document.body.appendChild(bar);
+  const btn = document.getElementById('apkUpdateBtn');
+  if (btn) btn.onclick = () => window.open(apkUrl, '_system');
+}
+
+window.addEventListener('load', () => { startOtaUpdates(); });
+
+// ═══════════════ FIELD STAFF: ANDROID APP ONLY ═══════════════
+// Salesmen and delivery men must use the Android app; in a web browser
+// they are signed out with instructions. Admins can still use the web.
+function _fieldStaffBlockedOnWeb(user) {
+  return !isNativeApp() && !!user && (user.role === 'sales_rep' || user.role === 'delivery_man');
+}
+
+function showNativeAppOnlyScreen() {
+  document.getElementById('loader')?.classList.add('hidden');
+  const app = document.getElementById('app');
+  if (app) app.style.display = 'none';
+  const login = document.getElementById('loginPage');
+  if (login) login.style.display = 'none';
+  let el = document.getElementById('nativeOnlyScreen');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'nativeOnlyScreen';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)';
+    el.innerHTML = '<div style="max-width:340px;text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:20px;padding:28px 24px">' +
+      '<div style="font-size:44px;margin-bottom:12px">📱</div>' +
+      '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:800;margin-bottom:8px;color:var(--tx)">Use the STFM Sales app</div>' +
+      '<div style="font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:18px">Sales and delivery work is done in the STFM Sales Android app. The web version is for admins only.</div>' +
+      '<button class="btn btn-primary" style="width:100%" onclick="location.reload()">Back to sign in</button></div>';
+    document.body.appendChild(el);
+  }
+  el.style.display = 'flex';
+}

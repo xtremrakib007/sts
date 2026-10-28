@@ -344,6 +344,111 @@ function _eventTime(change, ctx) {
   return t ? t.toDate().toISOString() : new Date(ctx.timestamp).toISOString();
 }
 
+// ── Stock and credit controls ────────────────────────────────
+const ctl = require('./order-controls');
+const sl = require('./stock-ledger');
+const rt = require('./returns');
+const _num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+let _invIndex = null;
+let _invIndexAt = 0;
+async function _inventoryIndex() {
+  if (_invIndex && Date.now() - _invIndexAt < 60000) return _invIndex;
+  const snap = await db().collection(erp.erpCol('inventory')).get();
+  _invIndex = ctl.inventoryIndex(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  _invIndexAt = Date.now();
+  return _invIndex;
+}
+
+// Root copy and zone copy of an app order share the same doc id.
+async function _updateAppOrder(docId, zoneId, data, patch) {
+  const z = zoneId || data._zoneId || data.zoneId || null;
+  const refs = [db().doc(`orders/${docId}`)];
+  if (z) refs.push(db().doc(`zones/${z}/orders/${docId}`));
+  await Promise.all(refs.map(r => r.update(patch).catch((e) => {
+    if (e.code !== 5) throw e; // NOT_FOUND: owner orders have no zone copy
+  })));
+}
+
+// Brings stsb_inventory in line with what the order should hold now.
+// A per-order ledger (stsb_stock_moves) records what was already applied,
+// so retries, the root+zone double trigger and item edits only ever move
+// the difference.
+async function _reconcileStock(status, items, ordId, eventTime, nowIso) {
+  const { lines, unmatched } = ctl.orderStockLines(items, await _inventoryIndex());
+  const ledgerRef = db().doc(`${erp.erpCol('stock_moves')}/${ordId}`);
+  const erpOrderRef = db().doc(`${erp.erpCol('orders')}/${ordId}`);
+  return db().runTransaction(async (tx) => {
+    const led = await tx.get(ledgerRef);
+    const cur = led.exists ? led.data() : {};
+    if (erp.isStaleEvent(led.exists ? cur : null, eventTime)) return null;
+    const desired = ctl.desiredStock(status, lines, cur);
+    const deltas = ctl.stockDeltas(cur, desired);
+    const invRefs = Object.keys(deltas).map(id => db().doc(`${erp.erpCol('inventory')}/${id}`));
+    const invSnaps = invRefs.length ? await tx.getAll(...invRefs) : [];
+    const erpOrder = await tx.get(erpOrderRef);
+
+    invSnaps.forEach((snap) => {
+      if (!snap.exists) return;
+      const v = snap.data();
+      const d = deltas[snap.id];
+      const held = desired.reserved[snap.id];
+      const patch = {
+        reservedQty: Math.max(0, _num(v.reservedQty) + d.reserved),
+        qty: _num(v.qty) + d.qty,
+        [`reservations.${ordId}`]: held ? held : FieldValue.delete(),
+        updatedAt: nowIso,
+      };
+      if (d.qty) {
+        // Deliveries leave the warehouse, so they are recorded even if the
+        // book stock was already short (that shows up as negative stock).
+        const cost = _num(v.avgCost) || _num(v.costPrice);
+        patch.lastMovementAt = nowIso;
+        tx.set(db().doc(`${erp.erpCol('stock_ledger')}/${ordId}_${snap.id}_${Date.parse(eventTime)}`), {
+          invId: snap.id, sku: v.sku || '', name: v.name || '',
+          type: 'sale', label: sl.MOVEMENT_TYPES.sale.label,
+          qty: d.qty, qtyBefore: _num(v.qty), qtyAfter: _num(v.qty) + d.qty,
+          unitCost: cost, value: Math.round(d.qty * cost * 100) / 100, avgCostAfter: cost,
+          ref: ordId, reason: '', requestedBy: 'system', at: nowIso,
+        });
+      }
+      tx.update(snap.ref, patch);
+    });
+    const deducted = Object.keys(desired.deducted).length > 0;
+    tx.set(ledgerRef, {
+      orderId: ordId, status: status || 'Deleted',
+      reserved: desired.reserved, deducted: desired.deducted, unmatched,
+      updatedAt: nowIso, _srcEventTime: eventTime,
+    });
+    if (erpOrder.exists) tx.update(erpOrderRef, { stockDeducted: deducted });
+    if (Object.keys(deltas).length) console.log(`[stock] ${ordId} ${status || 'Deleted'}`, JSON.stringify(deltas));
+    return { deducted, unmatched };
+  });
+}
+
+// Credit outlets: hold a salesman's order that would take the outlet past
+// its credit limit until an admin approves it. Orders placed by admins are
+// their own approval.
+async function _creditHold(order, zid) {
+  const outlet = await _loadOutlet(order.outletId, zid);
+  if (outlet.paymentType !== 'credit' || !(_num(outlet.creditLimit) > 0)) return null;
+  const creator = order.createdBy ? await db().doc(`users/${order.createdBy}`).get() : null;
+  const role = creator && creator.exists ? creator.data().role : '';
+  if (role === 'admin' || role === 'sub_admin') return null;
+  const [ords, cols, cns] = await Promise.all([
+    db().collection('orders').where('outletId', '==', order.outletId).get(),
+    db().collection('collections').where('outletId', '==', order.outletId).get(),
+    db().collection(erp.erpCol('credit_notes')).where('outletId', '==', order.outletId).get(),
+  ]);
+  const outstanding = ctl.outletOutstanding({
+    orders: ords.docs.map(d => d.data()),
+    collections: cols.docs.map(d => d.data()),
+    creditNotes: cns.docs.map(d => d.data()),
+    outlet, excludeOrderId: order.id,
+  });
+  return ctl.creditCheck({ outlet, outstanding, orderTotal: order.total });
+}
+
 async function _bridgeOrder(change, ctx, zoneId) {
   const docId = ctx.params.orderId;
   const before = change.before.exists ? change.before.data() : null;
@@ -352,7 +457,11 @@ async function _bridgeOrder(change, ctx, zoneId) {
   const eventTime = _eventTime(change, ctx);
 
   if (!after) {
-    const ref = db().doc(`${erp.erpCol('orders')}/${erp.erpOrderId(before, docId)}`);
+    const ordId = erp.erpOrderId(before, docId);
+    try {
+      await _reconcileStock(null, before.items, ordId, eventTime, nowIso);
+    } catch (e) { console.error(`[stock] ${ordId} release failed:`, e.message); }
+    const ref = db().doc(`${erp.erpCol('orders')}/${ordId}`);
     await db().runTransaction(async (tx) => {
       const cur = await tx.get(ref);
       if (!cur.exists || erp.isStaleEvent(cur.data(), eventTime)) return;
@@ -362,18 +471,66 @@ async function _bridgeOrder(change, ctx, zoneId) {
     return;
   }
   if (before && erp.onlySyncMetaChanged(before, after)) return;
-  if (before && erp.isErpOriginatedWrite(before, after)) return;
-  if (erp.isHeldFromErp(after)) return;
 
   const zid = zoneId || after.zoneId || after._zoneId || null;
+  const ordId = erp.erpOrderId(after, docId);
+  let stockDeducted = !!after.stockDeducted;
+
+  // Stock follows every status/item change, including ones the ERP made.
+  // A delivered order deducts what was actually delivered (partial
+  // deliveries release the rest of the reservation).
+  const stockRelevant = !before || before.status !== after.status ||
+    JSON.stringify(before.items) !== JSON.stringify(after.items) ||
+    JSON.stringify(before.deliveredItems) !== JSON.stringify(after.deliveredItems);
+  const stockItems = after.status === 'Delivered' && Array.isArray(after.deliveredItems) ? after.deliveredItems : after.items;
+  if (stockRelevant) {
+    try {
+      const res = await _reconcileStock(after.status, stockItems, ordId, eventTime, nowIso);
+      if (res) {
+        stockDeducted = res.deducted;
+        const patch = {};
+        if (res.deducted !== !!after.stockDeducted) {
+          patch.stockDeducted = res.deducted;
+          patch.stockDeductedAt = res.deducted ? nowIso : '';
+        }
+        if (JSON.stringify(res.unmatched) !== JSON.stringify(after.stockUnmatched || [])) {
+          patch.stockUnmatched = res.unmatched;
+        }
+        if (after.stockSyncError) patch.stockSyncError = FieldValue.delete();
+        if (Object.keys(patch).length) await _updateAppOrder(docId, zid, after, patch);
+      }
+    } catch (e) {
+      console.error(`[stock] ${ordId} failed:`, e.message);
+      await _updateAppOrder(docId, zid, after, { stockSyncError: e.message }).catch(() => {});
+    }
+  }
+
+  if (before && erp.isErpOriginatedWrite(before, after)) return;
+
+  if (!before && after.status !== 'Cancelled' && !ctl.isCreditHeld(after)) {
+    const hold = await _creditHold(after, zid);
+    if (hold) {
+      await _updateAppOrder(docId, zid, after, {
+        status: 'Pending', erpHeld: true,
+        creditHold: { ...hold, at: nowIso },
+        approvedBy: '', approvedByName: '', approvedAt: '',
+      });
+      console.log(`[credit] ${ordId} held: over limit by ${hold.exceededBy}`);
+      return;
+    }
+  }
+  if (erp.isHeldFromErp(after)) return;
+
   try {
     const outlet = await _loadOutlet(after.outletId, zid);
-    const ref = db().doc(`${erp.erpCol('orders')}/${erp.erpOrderId(after, docId)}`);
+    const ref = db().doc(`${erp.erpCol('orders')}/${ordId}`);
     await db().runTransaction(async (tx) => {
       const cur = await tx.get(ref);
       const erpCurrent = cur.exists ? cur.data() : null;
       if (erp.isStaleEvent(erpCurrent, eventTime)) return;
-      const payload = erp.buildErpOrder({ order: after, erpCurrent, docId, zoneId: zid, outlet, nowIso });
+      const payload = erp.buildErpOrder({
+        order: { ...after, stockDeducted }, erpCurrent, docId, zoneId: zid, outlet, nowIso,
+      });
       // The ERP portal sorts by createdAt, so keep it a Timestamp like its own records.
       if (payload.createdAt) payload.createdAt = FieldValue.serverTimestamp();
       tx.set(ref, { ...payload, _srcEventTime: eventTime }, { merge: true });
@@ -384,7 +541,7 @@ async function _bridgeOrder(change, ctx, zoneId) {
         erpSyncError: FieldValue.delete(),
       });
     }
-    console.log(`[→ERP] order ${erp.erpOrderId(after, docId)} (${after.status})`);
+    console.log(`[→ERP] order ${ordId} (${after.status})`);
   } catch (e) {
     console.error(`[→ERP] order ${docId} failed:`, e.message);
     await change.after.ref.update({ erpSynced: false, erpSyncError: e.message }).catch(() => {});
@@ -474,4 +631,186 @@ exports.erpOrderToApp = functions.firestore
     await Promise.all(snaps.map(s => s.ref.update(stamped)));
     if (patch.status) await change.after.ref.update({ appStatus: patch.status });
     console.log(`[ERP→App] ${ctx.params.orderId} ${appStatus} → ${patch.status || '(fields)'}`);
+  });
+
+// ─────────────────────────────────────────────────────────────
+// 12. ERP STOCK MOVEMENTS — receive, adjust, damage/expiry, count, transfer
+//
+// The ERP portal never edits stock quantities directly (rules forbid it).
+// It writes a request to stsb_stock_requests; this function validates it,
+// holds it for a second admin's approval when the value is above the
+// configured threshold, and posts it: inventory qty / average cost and an
+// immutable stsb_stock_ledger entry change together in one transaction.
+// ─────────────────────────────────────────────────────────────
+async function _stockConfig() {
+  const snap = await db().doc(`${erp.erpCol('config')}/stock`).get();
+  return { ...sl.DEFAULT_CONFIG, ...(snap.exists ? snap.data() : {}) };
+}
+
+exports.erpStockRequest = functions.firestore
+  .document(`${erp.erpCol('stock_requests')}/{reqId}`)
+  .onWrite(async (change, ctx) => {
+    if (!change.after.exists) return;
+    const r = change.after.data();
+    if (!['requested', 'approved'].includes(r.status)) return;
+    const reqRef = change.after.ref;
+    const nowIso = new Date().toISOString();
+
+    const invalid = sl.validateRequest(r);
+    if (invalid) {
+      await reqRef.update({ status: 'failed', error: invalid, processedAt: nowIso });
+      return;
+    }
+    if (r.status === 'approved' && !sl.canApprove(r, r.approvedBy)) {
+      await reqRef.update({ status: 'pending_approval', error: 'Approver must be a different admin', approvedBy: FieldValue.delete() });
+      return;
+    }
+
+    const config = await _stockConfig();
+    const invRef = db().doc(`${erp.erpCol('inventory')}/${r.invId}`);
+    const ledgerRef = db().doc(`${erp.erpCol('stock_ledger')}/${ctx.params.reqId}`);
+    const result = await db().runTransaction(async (tx) => {
+      const [req, inv, led] = await Promise.all([tx.get(reqRef), tx.get(invRef), tx.get(ledgerRef)]);
+      const cur = req.data();
+      if (led.exists || !['requested', 'approved'].includes(cur.status)) return null; // already handled
+      if (!inv.exists) {
+        tx.update(reqRef, { status: 'failed', error: 'Stock item not found', processedAt: nowIso });
+        return null;
+      }
+      const item = inv.data();
+      if (cur.status === 'requested' && sl.needsApproval(cur, item, config)) {
+        const est = Math.abs(sl.movementDelta(cur, item)) * (_num(item.avgCost) || _num(item.costPrice));
+        tx.update(reqRef, { status: 'pending_approval', estimatedValue: Math.round(est * 100) / 100, processedAt: nowIso });
+        return { pending: true, item };
+      }
+      const posting = sl.computePosting({ request: cur, inventory: item, config, nowIso });
+      if (posting.error) {
+        tx.update(reqRef, { status: 'failed', error: posting.error, processedAt: nowIso });
+        return null;
+      }
+      tx.update(invRef, { ...posting.inventoryPatch, updatedAt: nowIso });
+      tx.set(ledgerRef, { ...posting.entry, requestId: ctx.params.reqId });
+      tx.update(reqRef, {
+        status: 'posted', postedAt: nowIso, qtyAfter: posting.entry.qtyAfter,
+        error: FieldValue.delete(),
+      });
+      return { posted: posting.entry, item };
+    });
+    if (!result) return;
+
+    if (result.pending) {
+      const tokens = await _getAdminTokens(null);
+      await _sendPush(tokens, '📦 Stock approval needed',
+        `${r.requestedByName || 'An admin'}: ${sl.MOVEMENT_TYPES[r.type].label} — ${result.item.name || r.invId}`,
+        { screen: 'inventory', type: 'stock_approval' });
+      return;
+    }
+    const e = result.posted;
+    console.log(`[stock] ${e.type} ${e.name || e.invId} ${e.qty} → ${e.qtyAfter}`);
+    if (sl.crossedReorderLevel(e.qtyBefore, e.qtyAfter, result.item.minStock)) {
+      const tokens = await _getAdminTokens(null);
+      await _sendPush(tokens, '⚠️ Low stock', `${e.name || e.invId} is down to ${e.qtyAfter} (reorder level ${result.item.minStock})`,
+        { screen: 'inventory', type: 'low_stock' });
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────
+// 13. SALES RETURNS → CREDIT NOTES
+//
+// Raised in the ERP against a delivered order (stsb_returns), priced here
+// from the order, approved by a second admin (rules), then posted in one
+// transaction: resellable goods back into stock with ledger entries, a
+// numbered credit note, and the returned quantities on the order so the
+// same goods cannot be returned twice. The app order gets returnedTotal.
+// ─────────────────────────────────────────────────────────────
+exports.erpReturn = functions.firestore
+  .document(`${erp.erpCol('returns')}/{retId}`)
+  .onWrite(async (change, ctx) => {
+    if (!change.after.exists) return;
+    const ret = change.after.data();
+    const retRef = change.after.ref;
+    const nowIso = new Date().toISOString();
+    const orderRef = db().doc(`${erp.erpCol('orders')}/${ret.orderId}`);
+
+    // New return: price it from the order so the approver sees the credit.
+    if (ret.status === 'pending_approval' && !ret.priced) {
+      const order = (await orderRef.get()).data();
+      const priced = rt.priceReturn({ ret, order });
+      await retRef.update(priced.error
+        ? { status: 'failed', error: priced.error, processedAt: nowIso }
+        : { lines: priced.lines, amount: priced.amount, priced: true,
+            outletId: order.outletId || '', customer: order.customer || '' });
+      return;
+    }
+    if (ret.status !== 'approved') return;
+    if (!ret.approvedBy || ret.approvedBy === ret.requestedBy) {
+      await retRef.update({ status: 'pending_approval', error: 'Approver must be a different admin' });
+      return;
+    }
+
+    const index = await _inventoryIndex();
+    const counterRef = db().doc(`${erp.erpCol('config')}/counters`);
+    const result = await db().runTransaction(async (tx) => {
+      const [r, ordSnap, counter] = await Promise.all([tx.get(retRef), tx.get(orderRef), tx.get(counterRef)]);
+      const cur = r.data();
+      if (cur.status !== 'approved') return null;
+      const order = ordSnap.exists ? ordSnap.data() : null;
+      const priced = rt.priceReturn({ ret: cur, order });
+      if (priced.error) {
+        tx.update(retRef, { status: 'failed', error: priced.error, processedAt: nowIso });
+        return null;
+      }
+      // Resellable lines go back into stock.
+      const back = priced.lines.filter(l => l.condition === 'resellable')
+        .map(l => ({ ...l, invId: ctl.orderStockLines([{ sku: l.sku, name: l.name, qty: l.qty }], index).lines }))
+        .map(l => ({ ...l, invId: Object.keys(l.invId)[0] || null }));
+      const invIds = [...new Set(back.map(l => l.invId).filter(Boolean))];
+      const invSnaps = invIds.length ? await tx.getAll(...invIds.map(id => db().doc(`${erp.erpCol('inventory')}/${id}`))) : [];
+      const invState = Object.fromEntries(invSnaps.filter(x => x.exists).map(x => [x.id, x.data()]));
+
+      const n = _num(counter.exists ? counter.data().creditNote : 0) + 1;
+      const cnNo = rt.creditNoteNumber(n);
+      back.forEach((l, i) => {
+        if (!l.invId || !invState[l.invId]) return;
+        const posting = sl.computePosting({
+          request: { type: 'return_in', invId: l.invId, qty: l.qty, reason: cur.reason, ref: `${cnNo} · ${ret.orderId}`,
+                     requestedBy: cur.requestedBy, requestedByName: cur.requestedByName, approvedBy: cur.approvedBy },
+          inventory: invState[l.invId], nowIso,
+        });
+        invState[l.invId] = { ...invState[l.invId], ...posting.inventoryPatch };
+        tx.set(db().doc(`${erp.erpCol('stock_ledger')}/${ctx.params.retId}_${i}`), { ...posting.entry, returnId: ctx.params.retId });
+      });
+      Object.entries(invState).forEach(([id, v]) => {
+        tx.update(db().doc(`${erp.erpCol('inventory')}/${id}`), { qty: v.qty, avgCost: v.avgCost, lastMovementAt: nowIso, updatedAt: nowIso });
+      });
+
+      tx.set(counterRef, { creditNote: n }, { merge: true });
+      tx.set(db().doc(`${erp.erpCol('credit_notes')}/${cnNo}`), {
+        number: cnNo, returnId: ctx.params.retId, orderId: ret.orderId,
+        outletId: order.outletId || '', customer: order.customer || '', repId: order.repId || '',
+        lines: priced.lines, amount: priced.amount, reason: cur.reason,
+        requestedBy: cur.requestedBy, approvedBy: cur.approvedBy, createdAt: nowIso,
+      });
+      const qtyPatch = {};
+      priced.lines.forEach(l => { qtyPatch[`returnedQty.${l.line}`] = FieldValue.increment(l.qty); });
+      tx.update(orderRef, { ...qtyPatch, returnedTotal: FieldValue.increment(priced.amount), updatedAt: nowIso });
+      tx.update(retRef, {
+        status: 'posted', creditNoteNo: cnNo, lines: priced.lines, amount: priced.amount,
+        postedAt: nowIso, error: FieldValue.delete(),
+      });
+      return { cnNo, amount: priced.amount, order };
+    });
+    if (!result) return;
+
+    const o = result.order;
+    if (o.appDocId) {
+      const appRef = db().doc(`orders/${o.appDocId}`);
+      const app = await appRef.get();
+      if (app.exists) {
+        const total = Math.round((_num(app.data().returnedTotal) + result.amount) * 100) / 100;
+        await _updateAppOrder(o.appDocId, o.zoneId, app.data(),
+          { returnedTotal: total, _syncedFromERP: true, _syncedAt: FieldValue.serverTimestamp() });
+      }
+    }
+    console.log(`[return] ${ret.orderId} → ${result.cnNo} RM ${result.amount}`);
   });

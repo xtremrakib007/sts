@@ -52,15 +52,22 @@ npm install
 
 ---
 
-## STEP 4 — Create www folder (web assets)
+## STEP 4 — Build the web assets into www/
 
-Since the app loads from https://stfm-sales.web.app (server mode),
-you only need a minimal www/index.html placeholder:
+The APK bundles the app code (it does not load the website). Build it:
 
 ```bash
-mkdir www
-echo "<html><body>Loading...</body></html>" > www/index.html
+npm run build
 ```
+
+After this first install, code changes reach phones **over the air**: every
+deploy publishes a package at https://stfm-sales.web.app/ota/ and the app
+downloads it in the background, applying it on the next start. Rebuild the
+APK only for native changes (new Capacitor plugin, permission or Android
+code) — and when you do, raise `versionCode` in `android/app/build.gradle`
+and `stfm.otaMinNativeBuild` in `package.json` to the same number so older
+APKs are told to install the new one. Put the APK's download link in
+`stfm.apkUrl` to show a Download button.
 
 ---
 
