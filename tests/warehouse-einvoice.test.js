@@ -70,7 +70,7 @@ test('invoices carry a random token and print an e-Invoice QR code', () => {
   const p = read('public/portal/index.html');
   assert.match(p, /crypto\.getRandomValues\(new Uint8Array\(16\)\)/);
   assert.match(p, /tx\.set\(invRef, \{ \.\.\._invoiceFromOrder\(orderId, o, no\), einvoiceToken \}\)/);
-  assert.match(p, /Need an LHDN e-Invoice\?/);
+  assert.match(read('js/invoice-template.js'), /Scan for E-Invoice/);
   assert.match(p, /<script src="\/vendor\/qrcode\.js"><\/script>/);
   const page = read('public/einvoice.html');
   assert.match(page, /setDoc\(doc\(db, 'stsb_einvoice_requests', invoiceNo\), data\)/);
@@ -147,4 +147,24 @@ test('picker: + only opens entry; the cart changes on "Add to cart"', () => {
   assert.match(o, /<button class="oc-plus" onclick="ocOpenDraft\('\$\{p\.id\}'\)"/);
   assert.match(o, /onclick="ocAddToCart\('\$\{p\.id\}'\)"/);
   assert.doesNotMatch(o, /function ocQuickAdd/, 'no one-tap add any more');
+});
+
+// ── Sales Invoice layout ──────────────────────────────────────────────────
+
+test('sales invoice: company header, customer block, rows, totals and amount in words', () => {
+  const t = require('../js/invoice-template.js');
+  assert.equal(t.amountInWords(254), 'Two Hundred Fifty Four only');
+  assert.equal(t.amountInWords(1012.5), 'One Thousand Twelve and Fifty Sen only');
+  const rows = t.invoiceRows([{name: 'Tea', qty: 26, ctnQty: 2, pcsQty: 2, ctnSize: 12, ctnPrice: 22, price: 2, unit: 'pcs'}, {name: 'Kobis CN', qty: 2, unit: 'bag', price: 25}]);
+  assert.deepEqual(rows.map(r => [r.qty, r.unit, r.total]), [[2, 'CTN', 44], [2, 'PCS', 4], [2, 'BAG', 50]]);
+  const html = t.renderSalesInvoice({company: {name: 'ACME <b>', tin: 'C1'}, number: 'INV-000008', date: '2026-10-28', salesBy: 'Rakib',
+    customer: {id: 'CL-1', name: 'GREEN YED', mobile: '0165109491'}, items: [{name: 'Kobis CN', qty: 2, unit: 'bag', price: 25}], total: 45, paid: 10});
+  assert.match(html, /ACME &lt;b&gt;/, 'escaped');
+  assert.match(html, /ST FRESH MART/, 'default branch');
+  assert.match(html, /Customer Mobile:<\/strong> 0165109491/);
+  assert.match(html, /<strong>Invoice No\.:<\/strong> INV-000008/);
+  assert.match(html, />Discount<\/td><td[^>]*>5\.00</, 'discount = rows − total');
+  assert.match(html, />Due<\/td><td[^>]*>35\.00</);
+  assert.match(html, /Forty Five only/);
+  assert.match(html, /Received by/);
 });

@@ -18,6 +18,7 @@ const pkg = require('./package.json');
 // Exact script loading sequence matching index.html (boot.js MUST be last)
 const JS_FILES = [
   'node_modules/qrcode-generator/qrcode.js', // global qrcode() for invoice QR codes
+  'js/invoice-template.js',                   // renderSalesInvoice(), shared with the ERP
   'js/core.js',
   'js/ui.js',
   'js/auth.js',
@@ -53,6 +54,7 @@ const COPY_FILES = [
 // Third-party browser files served as-is (the ERP portal loads these).
 const VENDOR_FILES = {
   'node_modules/qrcode-generator/qrcode.js': 'vendor/qrcode.js',
+  'js/invoice-template.js': 'vendor/invoice-template.js',
   'node_modules/read-excel-file/bundle/read-excel-file.min.js': 'vendor/read-excel-file.js',
   'node_modules/write-excel-file/bundle/write-excel-file.min.js': 'vendor/write-excel-file.js',
 };
@@ -101,7 +103,7 @@ async function build() {
   let html = fs.readFileSync('index.html', 'utf8');
 
   // Replace individual script tags with single minified script bundle
-  const scriptRegex = /<script\s+src=["']js\/(core|ui|auth|fcm|tracking|dashboard|attendance|orders|outlets|products|collections|routes|deliveries|reports|users|delete|broadcast|misc|boot)\.js["']><\/script>\s*/gi;
+  const scriptRegex = /<script\s+src=["']js\/(invoice-template|core|ui|auth|fcm|tracking|dashboard|attendance|orders|outlets|products|collections|routes|deliveries|reports|users|delete|broadcast|misc|boot)\.js["']><\/script>\s*/gi;
   html = html.replace(scriptRegex, '');
 
   // Version = hash of the shipped JS + CSS. It goes into the asset URLs so
