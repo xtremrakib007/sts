@@ -62,6 +62,8 @@ test('GitHub builds the APK: debug without secrets, signed release with them', (
 test('Android build stays on API 34: WorkManager pinned below 2.10 (needs compileSdk 35)', () => {
   assert.match(read('android/build.gradle'), /resolutionStrategy\.force 'androidx\.work:work-runtime:2\.9\.1'/);
   assert.match(read('android/variables.gradle'), /compileSdkVersion = 34/);
+  // androidx.savedstate 1.4 (via the updater plugin) and Capacitor 7 need Android 6.0+.
+  assert.match(read('android/variables.gradle'), /minSdkVersion = 23/);
 });
 
 test('a Firebase config without this app id disables push instead of failing the build, with a warning', () => {
