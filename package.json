@@ -9,7 +9,8 @@
     "open": "npx cap open android",
     "test:security": "node --test tests/security-regression.test.js",
     "test:erp-sync": "node --test tests/erp-sync.test.js",
-    "test": "npm run test:security && npm run test:erp-sync"
+    "test:order-controls": "node --test tests/order-controls.test.js",
+    "test": "npm run test:security && npm run test:erp-sync && npm run test:order-controls"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",

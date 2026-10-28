@@ -344,6 +344,93 @@ function _eventTime(change, ctx) {
   return t ? t.toDate().toISOString() : new Date(ctx.timestamp).toISOString();
 }
 
+// ── Stock and credit controls ────────────────────────────────
+const ctl = require('./order-controls');
+const _num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+let _invIndex = null;
+let _invIndexAt = 0;
+async function _inventoryIndex() {
+  if (_invIndex && Date.now() - _invIndexAt < 60000) return _invIndex;
+  const snap = await db().collection(erp.erpCol('inventory')).get();
+  _invIndex = ctl.inventoryIndex(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  _invIndexAt = Date.now();
+  return _invIndex;
+}
+
+// Root copy and zone copy of an app order share the same doc id.
+async function _updateAppOrder(docId, zoneId, data, patch) {
+  const z = zoneId || data._zoneId || data.zoneId || null;
+  const refs = [db().doc(`orders/${docId}`)];
+  if (z) refs.push(db().doc(`zones/${z}/orders/${docId}`));
+  await Promise.all(refs.map(r => r.update(patch).catch((e) => {
+    if (e.code !== 5) throw e; // NOT_FOUND: owner orders have no zone copy
+  })));
+}
+
+// Brings stsb_inventory in line with what the order should hold now.
+// A per-order ledger (stsb_stock_moves) records what was already applied,
+// so retries, the root+zone double trigger and item edits only ever move
+// the difference.
+async function _reconcileStock(status, items, ordId, eventTime, nowIso) {
+  const { lines, unmatched } = ctl.orderStockLines(items, await _inventoryIndex());
+  const ledgerRef = db().doc(`${erp.erpCol('stock_moves')}/${ordId}`);
+  const erpOrderRef = db().doc(`${erp.erpCol('orders')}/${ordId}`);
+  return db().runTransaction(async (tx) => {
+    const led = await tx.get(ledgerRef);
+    const cur = led.exists ? led.data() : {};
+    if (erp.isStaleEvent(led.exists ? cur : null, eventTime)) return null;
+    const desired = ctl.desiredStock(status, lines, cur);
+    const deltas = ctl.stockDeltas(cur, desired);
+    const invRefs = Object.keys(deltas).map(id => db().doc(`${erp.erpCol('inventory')}/${id}`));
+    const invSnaps = invRefs.length ? await tx.getAll(...invRefs) : [];
+    const erpOrder = await tx.get(erpOrderRef);
+
+    invSnaps.forEach((snap) => {
+      if (!snap.exists) return;
+      const v = snap.data();
+      const d = deltas[snap.id];
+      const held = desired.reserved[snap.id];
+      tx.update(snap.ref, {
+        reservedQty: Math.max(0, _num(v.reservedQty) + d.reserved),
+        qty: _num(v.qty) + d.qty,
+        [`reservations.${ordId}`]: held ? held : FieldValue.delete(),
+        updatedAt: nowIso,
+      });
+    });
+    const deducted = Object.keys(desired.deducted).length > 0;
+    tx.set(ledgerRef, {
+      orderId: ordId, status: status || 'Deleted',
+      reserved: desired.reserved, deducted: desired.deducted, unmatched,
+      updatedAt: nowIso, _srcEventTime: eventTime,
+    });
+    if (erpOrder.exists) tx.update(erpOrderRef, { stockDeducted: deducted });
+    if (Object.keys(deltas).length) console.log(`[stock] ${ordId} ${status || 'Deleted'}`, JSON.stringify(deltas));
+    return { deducted, unmatched };
+  });
+}
+
+// Credit outlets: hold a salesman's order that would take the outlet past
+// its credit limit until an admin approves it. Orders placed by admins are
+// their own approval.
+async function _creditHold(order, zid) {
+  const outlet = await _loadOutlet(order.outletId, zid);
+  if (outlet.paymentType !== 'credit' || !(_num(outlet.creditLimit) > 0)) return null;
+  const creator = order.createdBy ? await db().doc(`users/${order.createdBy}`).get() : null;
+  const role = creator && creator.exists ? creator.data().role : '';
+  if (role === 'admin' || role === 'sub_admin') return null;
+  const [ords, cols] = await Promise.all([
+    db().collection('orders').where('outletId', '==', order.outletId).get(),
+    db().collection('collections').where('outletId', '==', order.outletId).get(),
+  ]);
+  const outstanding = ctl.outletOutstanding({
+    orders: ords.docs.map(d => d.data()),
+    collections: cols.docs.map(d => d.data()),
+    outlet, excludeOrderId: order.id,
+  });
+  return ctl.creditCheck({ outlet, outstanding, orderTotal: order.total });
+}
+
 async function _bridgeOrder(change, ctx, zoneId) {
   const docId = ctx.params.orderId;
   const before = change.before.exists ? change.before.data() : null;
@@ -352,7 +439,11 @@ async function _bridgeOrder(change, ctx, zoneId) {
   const eventTime = _eventTime(change, ctx);
 
   if (!after) {
-    const ref = db().doc(`${erp.erpCol('orders')}/${erp.erpOrderId(before, docId)}`);
+    const ordId = erp.erpOrderId(before, docId);
+    try {
+      await _reconcileStock(null, before.items, ordId, eventTime, nowIso);
+    } catch (e) { console.error(`[stock] ${ordId} release failed:`, e.message); }
+    const ref = db().doc(`${erp.erpCol('orders')}/${ordId}`);
     await db().runTransaction(async (tx) => {
       const cur = await tx.get(ref);
       if (!cur.exists || erp.isStaleEvent(cur.data(), eventTime)) return;
@@ -362,18 +453,62 @@ async function _bridgeOrder(change, ctx, zoneId) {
     return;
   }
   if (before && erp.onlySyncMetaChanged(before, after)) return;
-  if (before && erp.isErpOriginatedWrite(before, after)) return;
-  if (erp.isHeldFromErp(after)) return;
 
   const zid = zoneId || after.zoneId || after._zoneId || null;
+  const ordId = erp.erpOrderId(after, docId);
+  let stockDeducted = !!after.stockDeducted;
+
+  // Stock follows every status/item change, including ones the ERP made.
+  const stockRelevant = !before || before.status !== after.status ||
+    JSON.stringify(before.items) !== JSON.stringify(after.items);
+  if (stockRelevant) {
+    try {
+      const res = await _reconcileStock(after.status, after.items, ordId, eventTime, nowIso);
+      if (res) {
+        stockDeducted = res.deducted;
+        const patch = {};
+        if (res.deducted !== !!after.stockDeducted) {
+          patch.stockDeducted = res.deducted;
+          patch.stockDeductedAt = res.deducted ? nowIso : '';
+        }
+        if (JSON.stringify(res.unmatched) !== JSON.stringify(after.stockUnmatched || [])) {
+          patch.stockUnmatched = res.unmatched;
+        }
+        if (after.stockSyncError) patch.stockSyncError = FieldValue.delete();
+        if (Object.keys(patch).length) await _updateAppOrder(docId, zid, after, patch);
+      }
+    } catch (e) {
+      console.error(`[stock] ${ordId} failed:`, e.message);
+      await _updateAppOrder(docId, zid, after, { stockSyncError: e.message }).catch(() => {});
+    }
+  }
+
+  if (before && erp.isErpOriginatedWrite(before, after)) return;
+
+  if (!before && after.status !== 'Cancelled' && !ctl.isCreditHeld(after)) {
+    const hold = await _creditHold(after, zid);
+    if (hold) {
+      await _updateAppOrder(docId, zid, after, {
+        status: 'Pending', erpHeld: true,
+        creditHold: { ...hold, at: nowIso },
+        approvedBy: '', approvedByName: '', approvedAt: '',
+      });
+      console.log(`[credit] ${ordId} held: over limit by ${hold.exceededBy}`);
+      return;
+    }
+  }
+  if (erp.isHeldFromErp(after)) return;
+
   try {
     const outlet = await _loadOutlet(after.outletId, zid);
-    const ref = db().doc(`${erp.erpCol('orders')}/${erp.erpOrderId(after, docId)}`);
+    const ref = db().doc(`${erp.erpCol('orders')}/${ordId}`);
     await db().runTransaction(async (tx) => {
       const cur = await tx.get(ref);
       const erpCurrent = cur.exists ? cur.data() : null;
       if (erp.isStaleEvent(erpCurrent, eventTime)) return;
-      const payload = erp.buildErpOrder({ order: after, erpCurrent, docId, zoneId: zid, outlet, nowIso });
+      const payload = erp.buildErpOrder({
+        order: { ...after, stockDeducted }, erpCurrent, docId, zoneId: zid, outlet, nowIso,
+      });
       // The ERP portal sorts by createdAt, so keep it a Timestamp like its own records.
       if (payload.createdAt) payload.createdAt = FieldValue.serverTimestamp();
       tx.set(ref, { ...payload, _srcEventTime: eventTime }, { merge: true });
@@ -384,7 +519,7 @@ async function _bridgeOrder(change, ctx, zoneId) {
         erpSyncError: FieldValue.delete(),
       });
     }
-    console.log(`[→ERP] order ${erp.erpOrderId(after, docId)} (${after.status})`);
+    console.log(`[→ERP] order ${ordId} (${after.status})`);
   } catch (e) {
     console.error(`[→ERP] order ${docId} failed:`, e.message);
     await change.after.ref.update({ erpSynced: false, erpSyncError: e.message }).catch(() => {});

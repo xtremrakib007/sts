@@ -15,6 +15,7 @@ const erpCol = (name) => `${ERP_PREFIX}_${name}`;
 const SYNC_META_FIELDS = [
   'erpSynced', 'erpSyncedAt', 'erpSyncError',
   '_syncedFromERP', '_syncedFromSales', '_syncedAt',
+  'stockDeducted', 'stockDeductedAt', 'stockUnmatched', 'stockSyncError',
 ];
 
 /**
@@ -58,13 +59,15 @@ const ORDER_STATUS_MAP = {
 };
 
 /**
- * Orders held for discount approval stay out of the ERP until an
+ * Orders held for discount or credit-limit approval stay out of the ERP until an
  * admin decides — the Sales App's documented business rule.
  * @param {object} o
  * @return {boolean}
  */
 function isHeldFromErp(o) {
-  return !!o.erpHeld || (o.status === 'Pending' && !!o.discount && o.discount.status === 'pending');
+  return !!o.erpHeld ||
+    (o.status === 'Pending' && !!o.discount && o.discount.status === 'pending') ||
+    (!!o.creditHold && o.creditHold.status === 'pending');
 }
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);

@@ -66,34 +66,14 @@ function saveDeliveryAssignment() {
 
 async function markDelivered(ordDocId) {
   if(!confirm('Mark this order as delivered? This will permanently deduct stock from ERP inventory.'))return;
-
-  // Fetch order to get items for stock deduction
-  const ordSnap = await window.__SF.getDoc(docRef('orders', ordDocId));
-  const o = ordSnap.exists() ? {_docId: ordSnap.id, ...ordSnap.data()} : null;
-  if(!o){ showToast('Order not found','error'); return; }
-
+  // Stock is deducted server-side (erpBridge) when the status becomes Delivered;
+  // the order's stockDeducted flag turns on once that has happened.
   await sfUpdate('orders', ordDocId, {
     status: 'Delivered',
     deliveredAt: new Date().toISOString(),
     deliveredBy: CU.uid,
-    stockDeducted: false, // will be set true after deduction
   });
-
-  // ★ Actual stock deduction on delivery — deducts from stsb_inventory
-  if (o.items && o.items.length) {
-    try {
-      await _reserveStock(o.items, o.id || ordDocId, 'deduct');
-      // Mark stock as deducted
-      await sfUpdate('orders', ordDocId, { stockDeducted: true, stockDeductedAt: new Date().toISOString() });
-      showToast('Order marked as Delivered ✅ — stock deducted from ERP', 'success');
-    } catch(e) {
-      showToast('Delivered but stock deduction failed — check ERP manually', 'warn');
-      console.error('[markDelivered stock]', e);
-    }
-  } else {
-    showToast('Order marked as Delivered ✅', 'success');
-  }
-
+  showToast('Order marked as Delivered ✅ — stock is being deducted in ERP', 'success');
   invalidateDashCache(); loadDeliveries(); renderDashboard();
 }
 
