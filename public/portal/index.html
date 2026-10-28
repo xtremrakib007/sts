@@ -567,6 +567,10 @@ let _auth = null;     // Firebase auth instance
 let _db = null;       // Firestore instance
 let _user = null;     // current user data
 let _appRole = 'erp'; // 'erp' or 'sales'
+let _realtimeUnsubs = [];
+let _realtimeRefreshTimer = null;
+let _realtimeRefreshPending = false;
+let _realtimeFocusHandlerAdded = false;
 const _selectedLoginRole = 'erp'; // STSB: always ERP
 
 // Helpers scoped to active tenant
@@ -668,6 +672,7 @@ window.selectTenant = function(tenantId) {
           showApp();
         }
       } else {
+        stopRealtimeSync();
         document.getElementById('authScreen').style.display = _tenant ? 'flex' : 'none';
         document.getElementById('app').classList.remove('visible');
       }
@@ -747,6 +752,7 @@ function showApp() {
   buildSidebar();
   goPage(_appRole === 'erp' ? 'dashboard' : 'salesDashboard');
   updateBadges();
+  startRealtimeSync();
 }
 
 // ═══════════════════════════════════════════
@@ -838,6 +844,108 @@ window.goPage = function(page) {
   };
   if (renders[page]) renders[page]();
 };
+
+// ═══════════════════════════════════════════
+//  FIRESTORE REAL-TIME SYNC
+//  Keep the visible page fresh when another user or app changes ERP data.
+//  Initial snapshots are ignored because goPage() already loads the first view.
+// ═══════════════════════════════════════════
+const REALTIME_COLLECTIONS = [
+  'users', 'products', 'orders', 'inventory', 'invoices',
+  'suppliers', 'transfers', 'hq_orders', 'collections', 'config'
+];
+
+function setRealtimeStatus(message, color) {
+  const el = document.getElementById('topbarSync');
+  if (!el) return;
+  el.textContent = message;
+  el.style.color = color || 'var(--tx3)';
+  el.title = message;
+}
+
+function stopRealtimeSync() {
+  _realtimeUnsubs.forEach(unsub => {
+    try { unsub(); } catch (e) { console.warn('[ERP live sync] unsubscribe failed:', e); }
+  });
+  _realtimeUnsubs = [];
+  if (_realtimeRefreshTimer) clearTimeout(_realtimeRefreshTimer);
+  _realtimeRefreshTimer = null;
+  _realtimeRefreshPending = false;
+  setRealtimeStatus('● Offline', 'var(--tx3)');
+}
+
+function realtimePageIsBeingEdited() {
+  const active = document.activeElement;
+  const typing = active && (
+    active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' ||
+    active.tagName === 'SELECT' || active.isContentEditable
+  );
+  return !!typing || !!document.querySelector('.moverlay.open');
+}
+
+function queueRealtimeRefresh() {
+  _realtimeRefreshPending = true;
+  if (_realtimeRefreshTimer) clearTimeout(_realtimeRefreshTimer);
+  _realtimeRefreshTimer = setTimeout(() => {
+    _realtimeRefreshTimer = null;
+    if (!_realtimeRefreshPending || !_db || !window.__curPage) return;
+    if (realtimePageIsBeingEdited()) {
+      setRealtimeStatus('● Update waiting', '#d97706');
+      return;
+    }
+    _realtimeRefreshPending = false;
+    const page = window.__curPage;
+    if (document.getElementById('app')?.classList.contains('visible')) {
+      window.goPage(page);
+      updateBadges();
+    }
+  }, 450);
+}
+
+function startRealtimeSync() {
+  stopRealtimeSync();
+  if (!_db || !_user) return;
+  const role = _user.role || '';
+  const canReadAllERP = role === 'super_admin' || (role === 'admin' && _user.isOwner === true);
+  if (!canReadAllERP) {
+    setRealtimeStatus('● Live sync restricted', '#d97706');
+    return;
+  }
+
+  if (!_realtimeFocusHandlerAdded) {
+    document.addEventListener('focusout', () => {
+      if (_realtimeRefreshPending && !realtimePageIsBeingEdited()) queueRealtimeRefresh();
+    });
+    _realtimeFocusHandlerAdded = true;
+  }
+
+  setRealtimeStatus('● Connecting…', 'var(--tx3)');
+  let readyCount = 0;
+  let errorCount = 0;
+  REALTIME_COLLECTIONS.forEach(name => {
+    let firstSnapshot = true;
+    const unsub = onSnapshot(
+      collection(_db, C(name)),
+      () => {
+        if (firstSnapshot) {
+          firstSnapshot = false;
+          readyCount++;
+          if (readyCount === REALTIME_COLLECTIONS.length) setRealtimeStatus('● Live', '#16a34a');
+          return;
+        }
+        setRealtimeStatus('● Live', '#16a34a');
+        queueRealtimeRefresh();
+      },
+      error => {
+        firstSnapshot = false;
+        errorCount++;
+        console.error('[ERP live sync] ' + C(name) + ' listener failed:', error.code || error.message);
+        setRealtimeStatus('● Sync error (' + errorCount + ')', '#dc2626');
+      }
+    );
+    _realtimeUnsubs.push(unsub);
+  });
+}
 
 // ═══════════════════════════════════════════
 //  BADGE UPDATER
