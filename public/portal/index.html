@@ -12,11 +12,13 @@
   --bdr:rgba(255,255,255,0.07);--tx:#eef0f7;--tx2:#7a7f9a;--tx3:#3e4260;
   --acc:#00e5a0;--acc2:#00b37d;--blu:#4f8ef7;--ylw:#f5a623;
   --red:#f05252;--pur:#9b72f5;--ora:#f97316;--pin:#ec4899;
+  --chart-1:#00b07a;
   --sidebar-w:240px;--hdr-h:56px;
   --tenant-color:#00e5a0;
 }
 [data-theme="light"] {
   --bg:#f0f2f9;--s1:#ffffff;--s2:#eaecf5;--s3:#dde0ee;
+  --chart-1:#008f62;
   --bdr:rgba(0,0,0,0.08);--tx:#111219;--tx2:#4a5068;--tx3:#9ba3c0;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -1970,6 +1972,8 @@ function _localDate(d) {
   if (Number.isNaN(dt.getTime())) return String(d || '').slice(0, 10);
   return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
 }
+// Orders without a scheduled delivery date are due from their order date
+// but are never "overdue" — they show as not scheduled instead.
 const _dueDate = v => v.deliveryDate || v.date || _localDate(v.createdAt);
 
 async function _deliveryMen() {
@@ -1999,10 +2003,11 @@ async function deliveryPlanner() {
       .filter(v => !v.appDeleted && _dueDate(v) <= date && (!dmFilter || (v.deliveryManId || '') === (dmFilter === '_none' ? '' : dmFilter)))
       .sort((a, b) => _dueDate(a).localeCompare(_dueDate(b)) || String(a.customer || '').localeCompare(String(b.customer || '')));
     window.__plannerRows = Object.fromEntries(rows.map(v => [v.id, v]));
-    const k = { due: rows.length, overdue: 0, unassigned: 0, out: 0, failed: 0, cod: 0 };
+    const k = { due: rows.length, overdue: 0, unscheduled: 0, unassigned: 0, out: 0, failed: 0, cod: 0 };
     const html = rows.map(v => {
-      const due = _dueDate(v), overdue = due < date;
+      const due = _dueDate(v), overdue = !!v.deliveryDate && v.deliveryDate < date;
       if (overdue) k.overdue++;
+      if (!v.deliveryDate) k.unscheduled++;
       if (!v.deliveryManId) k.unassigned++;
       if (v.status === 'dispatched') k.out++;
       if (v.deliveryStatus === 'failed') k.failed++;
@@ -2012,7 +2017,7 @@ async function deliveryPlanner() {
         <td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(v.orderId || v.id)}${v.isInvoice ? ' <span class="badge badge-purple">INV</span>' : ''}</td>
         <td><strong>${_esc(v.customer || '—')}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.outletRoute || '')}${v.outletPhone ? ' · ' + _esc(v.outletPhone) : ''}</div></td>
         <td style="font-size:11px">${_esc(v.date || '')}</td>
-        <td style="font-size:11px;color:${overdue ? 'var(--red)' : 'var(--tx)'}">${_esc(due)}${overdue ? ' ⚠️' : ''}</td>
+        <td style="font-size:11px;color:${overdue ? 'var(--red)' : 'var(--tx)'}">${v.deliveryDate ? _esc(due) + (overdue ? ' ⚠️' : '') : '<span style="color:var(--tx3)">Not scheduled</span>'}</td>
         <td style="font-size:12px">${v.deliveryManId ? _esc(v.deliveryManName || dms[v.deliveryManId] || v.deliveryManId) : '<span style="color:var(--tx3)">—</span>'}</td>
         <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(v.total)}</td>
         <td><span class="badge badge-gray">${_esc(v.payTerms || 'COD')}</span></td>
@@ -2029,7 +2034,7 @@ async function deliveryPlanner() {
         </div></div>
       <div class="kpi-grid">
         <div class="kpi" style="--kpi-color:var(--blu)"><div class="kpi-ico">📦</div><div class="kpi-val">${k.due}</div><div class="kpi-lbl">To deliver</div></div>
-        <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">⏰</div><div class="kpi-val">${k.overdue}</div><div class="kpi-lbl">Overdue</div></div>
+        <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">⏰</div><div class="kpi-val">${k.overdue}</div><div class="kpi-lbl">Overdue</div><div class="kpi-delta">${k.unscheduled} not scheduled</div></div>
         <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">👤</div><div class="kpi-val">${k.unassigned}</div><div class="kpi-lbl">No driver</div></div>
         <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">🚚</div><div class="kpi-val">${k.out}</div><div class="kpi-lbl">Out for delivery</div></div>
         <div class="kpi" style="--kpi-color:var(--ora)"><div class="kpi-ico">❌</div><div class="kpi-val">${k.failed}</div><div class="kpi-lbl">Failed — reschedule</div></div>
@@ -2154,9 +2159,9 @@ async function returns() {
         <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⏳</div><div class="kpi-val">${rs.docs.filter(d => d.data().status === 'pending_approval').length}</div><div class="kpi-lbl">Waiting for approval</div></div>
         <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">🧾</div><div class="kpi-val">${fmt(cnTotal)}</div><div class="kpi-lbl">Credit notes (latest ${cns.size})</div></div>
       </div>
-      <div class="card" style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:8px">Returns</div><div class="twrap"><table><thead><tr><th>Date</th><th>Order</th><th>Customer</th><th>Items</th><th style="text-align:right">Credit</th><th>Reason</th><th>Status</th><th>By</th><th></th></tr></thead>
+      <div class="card" style="margin-bottom:14px"><div style="font-weight:700;padding:12px 14px 8px">Returns</div><div class="twrap"><table><thead><tr><th>Date</th><th>Order</th><th>Customer</th><th>Items</th><th style="text-align:right">Credit</th><th>Reason</th><th>Status</th><th>By</th><th></th></tr></thead>
         <tbody>${rRows || '<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:24px">No returns yet</td></tr>'}</tbody></table></div></div>
-      <div class="card"><div style="font-weight:700;margin-bottom:8px">Credit notes</div><div class="twrap"><table><thead><tr><th>No.</th><th>Date</th><th>Customer</th><th>Order</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+      <div class="card"><div style="font-weight:700;padding:12px 14px 8px">Credit notes</div><div class="twrap"><table><thead><tr><th>No.</th><th>Date</th><th>Customer</th><th>Order</th><th style="text-align:right">Amount</th><th></th></tr></thead>
         <tbody>${cRows || '<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:24px">No credit notes yet</td></tr>'}</tbody></table></div></div>`;
   } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
 }
@@ -2811,30 +2816,476 @@ async function salesmanOrdersReport() {
   } catch(e) { mc.innerHTML='<div style="color:var(--red);padding:20px">Unable to load salesman orders: '+String(e.message||e)+'</div>'; }
 }
 
-async function reports() {
-  const mc = document.getElementById('mainContent');
-  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
-  try {
-    const [ordSnap,invSnap,collSnap] = await Promise.all([
-      getDocs(collection(_db, C('orders'))).catch(()=>({size:0,forEach:()=>{}})),
-      getDocs(collection(_db, C('invoices'))).catch(()=>({size:0,forEach:()=>{}})),
-      getDocs(collection(_db, C('collections'))).catch(()=>({size:0,forEach:()=>{}})),
-    ]);
-    let ordTotal=0,invTotal=0,invPaid=0,collTotal=0;
-    ordSnap.forEach(d=>{ordTotal+=d.data().total||0;});
-    invSnap.forEach(d=>{invTotal+=d.data().total||0;if(d.data().status==='paid')invPaid+=d.data().total||0;});
-    collSnap.forEach(d=>{if(d.data().status==='accepted')collTotal+=d.data().amount||0;});
-    mc.innerHTML = `
-      <div class="page-title">Reports</div>
-      <div class="page-sub">Summary for ${_tenant?.name||'Company'}</div>
-      <div class="kpi-grid">
-        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">📋</div><div class="kpi-val">${ordSnap.size}</div><div class="kpi-lbl">Total Orders</div><div class="kpi-delta">${fmt(ordTotal)} GMV</div></div>
-        <div class="kpi" style="--kpi-color:var(--blu)"><div class="kpi-ico">🧾</div><div class="kpi-val">${invSnap.size}</div><div class="kpi-lbl">Invoices Issued</div><div class="kpi-delta">${fmt(invPaid)} paid</div></div>
-        <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⏳</div><div class="kpi-val">${fmt(invTotal-invPaid)}</div><div class="kpi-lbl">Outstanding AR</div></div>
-        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">💰</div><div class="kpi-val">${fmt(collTotal)}</div><div class="kpi-lbl">Collections Accepted</div></div>
-      </div>`;
-  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+// <reports-core> — pure report calculations (no Firestore). Tests load this
+// block straight from this file (tests/reports.test.js), so keep it free of
+// DOM and network calls.
+const ReportsCore = (() => {
+  const n = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const r2 = v => Math.round(n(v) * 100) / 100;
+  const day = d => {
+    if (!d) return '';
+    if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    const dt = typeof d.toDate === 'function' ? d.toDate() : new Date(d);
+    if (Number.isNaN(dt.getTime())) return String(d).slice(0, 10);
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  };
+  const daysBetween = (a, b) => Math.round((Date.parse(b + 'T00:00:00') - Date.parse(a + 'T00:00:00')) / 86400000);
+  const inRange = (d, from, to) => !!d && d >= from && d <= to;
+  const orderDay = o => o.date || day(o.createdAt);
+  const isLive = o => o.status !== 'cancelled' && !o.appDeleted;
+  const isDelivered = o => o.status === 'delivered' || o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partially_delivered';
+  const deliveredValue = o => (isDelivered(o) ? n(o.deliveredTotal != null ? o.deliveredTotal : o.total) : 0);
+  const lineNet = it => (it.total != null ? n(it.total) : n(it.price) * n(it.qty) - n(it.discount));
+  // Share of line value the customer pays after an order-level discount.
+  const ratio = o => {
+    const lines = (o.items || []).reduce((s, it) => s + lineNet(it), 0);
+    return lines > 0 && o.total != null ? Math.min(1, n(o.total) / lines) : 1;
+  };
+  const custKey = (outletId, name) => outletId || ('name:' + String(name || '').trim().toLowerCase());
+  const prodKey = it => String(it.sku || it.name || '?').trim().toLowerCase();
+
+  const GROUPS = {
+    day: o => [orderDay(o), orderDay(o)],
+    salesman: o => [o.repId || '—', o.repName || o.repId || '—'],
+    customer: o => [custKey(o.outletId, o.customer), o.customer || '—'],
+    route: o => [o.outletRoute || '—', o.outletRoute || '— No route —'],
+    zone: o => [o.zone || o.zoneId || '—', o.zone || o.zoneId || '— No zone —'],
+  };
+
+  // Sales by group: ordered, delivered, returns (credit notes), net, cost of
+  // goods delivered (stock-ledger "sale" entries) and margin.
+  function sales({ orders, creditNotes, ledger, from, to, groupBy }) {
+    const byId = Object.fromEntries((orders || []).map(o => [o.orderId || o.id, o]));
+    const rows = {};
+    const row = (k, label) => (rows[k] = rows[k] || { key: k, label, orders: 0, qty: 0, ordered: 0, delivered: 0, returns: 0, cogs: 0 });
+    const live = (orders || []).filter(o => isLive(o) && inRange(orderDay(o), from, to));
+    const liveIds = new Set(live.map(o => o.orderId || o.id));
+    const cogsByOrderProd = {};
+    (ledger || []).forEach(e => {
+      if (e.type !== 'sale' || !liveIds.has(e.ref)) return;
+      const k = e.ref + '|' + prodKey(e);
+      cogsByOrderProd[k] = (cogsByOrderProd[k] || 0) - n(e.value);
+    });
+    live.forEach(o => {
+      const id = o.orderId || o.id;
+      if (groupBy === 'product') {
+        const rt = ratio(o);
+        (o.items || []).forEach((it, i) => {
+          const r = row(prodKey(it), it.name || it.sku || '?');
+          const dq = isDelivered(o) ? (Array.isArray(o.deliveredItems) && o.deliveredItems[i] ? n(o.deliveredItems[i].qty) : n(it.qty)) : 0;
+          const unit = n(it.qty) > 0 ? (lineNet(it) * rt) / n(it.qty) : 0;
+          r.orders++; r.qty += dq;
+          r.ordered += lineNet(it) * rt; r.delivered += unit * dq;
+          r.cogs += cogsByOrderProd[id + '|' + prodKey(it)] || 0;
+        });
+      } else {
+        const [k, label] = GROUPS[groupBy](o);
+        const r = row(k, label);
+        r.orders++; r.ordered += n(o.total); r.delivered += deliveredValue(o);
+        r.cogs += Object.entries(cogsByOrderProd).filter(([key]) => key.startsWith(id + '|')).reduce((s, [, v]) => s + v, 0);
+      }
+    });
+    (creditNotes || []).forEach(c => {
+      const d = day(c.createdAt);
+      if (!inRange(d, from, to)) return;
+      const o = byId[c.orderId] || { customer: c.customer, outletId: c.outletId, repId: c.repId };
+      if (groupBy === 'product') {
+        (c.lines || []).forEach(l => { row(prodKey(l), l.name || l.sku || '?').returns += n(l.amount); });
+      } else if (groupBy === 'day') {
+        row(d, d).returns += n(c.amount);
+      } else {
+        const [k, label] = GROUPS[groupBy](o);
+        row(k, label).returns += n(c.amount);
+      }
+    });
+    const list = Object.values(rows).map(r => {
+      const net = r.delivered - r.returns;
+      const margin = r.cogs ? net - r.cogs : null;
+      return { ...r, ordered: r2(r.ordered), delivered: r2(r.delivered), returns: r2(r.returns), net: r2(net), cogs: r2(r.cogs),
+        margin: margin == null ? null : r2(margin), marginPct: margin == null || net <= 0 ? null : Math.round((margin / net) * 1000) / 10 };
+    });
+    list.sort(groupBy === 'day' ? (a, b) => a.key.localeCompare(b.key) : (a, b) => b.net - a.net || b.ordered - a.ordered);
+    const t = list.reduce((s, r) => ({ orders: s.orders + r.orders, qty: s.qty + r.qty, ordered: s.ordered + r.ordered, delivered: s.delivered + r.delivered,
+      returns: s.returns + r.returns, net: s.net + r.net, cogs: s.cogs + r.cogs }), { orders: 0, qty: 0, ordered: 0, delivered: 0, returns: 0, net: 0, cogs: 0 });
+    const margin = t.cogs ? t.net - t.cogs : null;
+    return { rows: list, totals: { ...t, ordered: r2(t.ordered), delivered: r2(t.delivered), returns: r2(t.returns), net: r2(t.net), cogs: r2(t.cogs),
+      orders: groupBy === 'product' ? live.length : t.orders, margin: margin == null ? null : r2(margin),
+      marginPct: margin == null || t.net <= 0 ? null : Math.round((margin / t.net) * 1000) / 10 } };
+  }
+
+  // Delivery performance for orders placed in the range.
+  function fulfilment({ orders, from, to, today }) {
+    const list = (orders || []).filter(o => !o.appDeleted && inRange(orderDay(o), from, to));
+    const k = { orders: list.length, full: 0, partial: 0, failed: 0, cancelled: 0, open: 0, unscheduled: 0, onTime: 0, withDue: 0, leadDays: 0, leadN: 0, orderedDelivered: 0, deliveredValue: 0 };
+    const overdue = [];
+    list.forEach(o => {
+      if (o.status === 'cancelled') { k.cancelled++; return; }
+      if (isDelivered(o)) {
+        if (o.deliveryStatus === 'partially_delivered' || o.partial) k.partial++; else k.full++;
+        const dd = day(o.deliveredAt);
+        if (o.deliveryDate && dd) { k.withDue++; if (dd <= o.deliveryDate) k.onTime++; }
+        if (dd) { k.leadDays += Math.max(0, daysBetween(orderDay(o), dd)); k.leadN++; }
+        k.orderedDelivered += n(o.total); k.deliveredValue += deliveredValue(o);
+        return;
+      }
+      if (o.deliveryStatus === 'failed') k.failed++; else k.open++;
+      if (!o.deliveryDate) { k.unscheduled++; return; }
+      if (o.deliveryDate < today) overdue.push({ ...o, due: o.deliveryDate, daysLate: daysBetween(o.deliveryDate, today) });
+    });
+    overdue.sort((a, b) => b.daysLate - a.daysLate);
+    return {
+      ...k,
+      onTimePct: k.withDue ? Math.round((k.onTime / k.withDue) * 1000) / 10 : null,
+      avgLeadDays: k.leadN ? Math.round((k.leadDays / k.leadN) * 10) / 10 : null,
+      fillRatePct: k.orderedDelivered ? Math.round((k.deliveredValue / k.orderedDelivered) * 1000) / 10 : null,
+      overdue,
+    };
+  }
+
+  // Receivables ageing as of a date: delivered orders are debts from their
+  // delivery day; collections (not rejected) and credit notes pay the
+  // oldest debts first.
+  function ageing({ orders, collections, creditNotes, asOf }) {
+    const nameToOutlet = {};
+    (orders || []).forEach(o => { if (o.outletId && o.customer) nameToOutlet[String(o.customer).trim().toLowerCase()] = o.outletId; });
+    const keyOf = (outletId, name) => custKey(outletId || nameToOutlet[String(name || '').trim().toLowerCase()], name);
+    const cust = {};
+    const c = (k, name) => (cust[k] = cust[k] || { key: k, customer: name || '—', debts: [], credit: 0 });
+    (orders || []).forEach(o => {
+      if (!isLive(o) || !isDelivered(o)) return;
+      const d = day(o.deliveredAt) || orderDay(o);
+      if (d > asOf) return;
+      c(keyOf(o.outletId, o.customer), o.customer).debts.push({ day: d, amount: deliveredValue(o), orderId: o.orderId || o.id });
+    });
+    (collections || []).forEach(x => {
+      if (x.status === 'rejected' || x.status === 'void') return;
+      if ((x.date || day(x.createdAt)) > asOf) return;
+      c(keyOf(x.outletId, x.customer), x.customer).credit += n(x.amount);
+    });
+    (creditNotes || []).forEach(x => {
+      if (day(x.createdAt) > asOf) return;
+      c(keyOf(x.outletId, x.customer), x.customer).credit += n(x.amount);
+    });
+    const rows = Object.values(cust).map(cu => {
+      let credit = cu.credit;
+      const b = { current: 0, d31: 0, d61: 0, d90: 0 };
+      let oldest = null;
+      cu.debts.sort((a, z) => a.day.localeCompare(z.day)).forEach(d => {
+        const paid = Math.min(credit, d.amount);
+        credit -= paid;
+        const left = d.amount - paid;
+        if (left <= 0.004) return;
+        const age = daysBetween(d.day, asOf);
+        if (oldest == null) oldest = age;
+        if (age <= 30) b.current += left; else if (age <= 60) b.d31 += left; else if (age <= 90) b.d61 += left; else b.d90 += left;
+      });
+      const total = b.current + b.d31 + b.d61 + b.d90 - credit;
+      return { key: cu.key, customer: cu.customer, current: r2(b.current), d31: r2(b.d31), d61: r2(b.d61), d90: r2(b.d90),
+        unapplied: r2(credit), total: r2(total), oldestDays: oldest };
+    }).filter(r => Math.abs(r.total) > 0.004 || r.unapplied > 0.004);
+    rows.sort((a, z) => z.total - a.total);
+    const totals = rows.reduce((s, r) => ({ current: s.current + r.current, d31: s.d31 + r.d31, d61: s.d61 + r.d61, d90: s.d90 + r.d90, total: s.total + r.total }),
+      { current: 0, d31: 0, d61: 0, d90: 0, total: 0 });
+    Object.keys(totals).forEach(k => { totals[k] = r2(totals[k]); });
+    return { rows, totals };
+  }
+
+  // Collections in the range vs cash expected from COD orders delivered in
+  // the range, per salesman; plus totals by payment method.
+  function collections({ collections: cols, orders, from, to }) {
+    const reps = {};
+    const rep = (id, name) => (reps[id] = reps[id] || { key: id, name: name || id, expected: 0, accepted: 0, pending: 0, rejected: 0 });
+    const byMethod = {};
+    (orders || []).forEach(o => {
+      if (!isLive(o) || !isDelivered(o) || String(o.payTerms || 'COD').toLowerCase() !== 'cod') return;
+      if (!inRange(day(o.deliveredAt) || orderDay(o), from, to)) return;
+      rep(o.repId || '—', o.repName).expected += deliveredValue(o);
+    });
+    (cols || []).forEach(x => {
+      const d = x.date || day(x.createdAt);
+      if (!inRange(d, from, to)) return;
+      const r = rep(x.repId || x.submittedBy || '—', x.repName);
+      const st = x.status === 'accepted' ? 'accepted' : x.status === 'rejected' || x.status === 'void' ? 'rejected' : 'pending';
+      r[st] += n(x.amount);
+      if (st !== 'rejected') { const m = x.method || x.mode || '—'; byMethod[m] = r2((byMethod[m] || 0) + n(x.amount)); }
+    });
+    const rows = Object.values(reps).map(r => ({ ...r, expected: r2(r.expected), accepted: r2(r.accepted), pending: r2(r.pending), rejected: r2(r.rejected),
+      variance: r2(r.accepted + r.pending - r.expected) })).sort((a, b) => a.variance - b.variance);
+    return { rows, byMethod };
+  }
+
+  // Stock valuation by category, movements in the range, low stock, and
+  // items on hand that did not sell in the range.
+  function inventory({ items, ledger, from, to }) {
+    const cat = {};
+    const sold = new Set();
+    const moves = {};
+    (ledger || []).forEach(e => {
+      if (!inRange(day(e.at), from, to)) return;
+      const m = (moves[e.type] = moves[e.type] || { type: e.type, label: e.label || e.type, count: 0, qty: 0, value: 0 });
+      m.count++; m.qty += n(e.qty); m.value += n(e.value);
+      if (e.type === 'sale') sold.add(e.invId);
+    });
+    const low = [], slow = [];
+    (items || []).forEach(v => {
+      const cost = n(v.avgCost) || n(v.costPrice), q = n(v.qty);
+      const c = (cat[v.category || '—'] = cat[v.category || '—'] || { category: v.category || '—', items: 0, qty: 0, value: 0 });
+      c.items++; c.qty += Math.max(0, q); c.value += Math.max(0, q) * cost;
+      if (n(v.minStock) > 0 && q <= n(v.minStock)) low.push(v);
+      if (q > 0 && !sold.has(v.id)) slow.push({ ...v, value: r2(q * cost) });
+    });
+    slow.sort((a, b) => b.value - a.value);
+    return {
+      byCategory: Object.values(cat).map(c => ({ ...c, value: r2(c.value) })).sort((a, b) => b.value - a.value),
+      moves: Object.values(moves).map(m => ({ ...m, qty: r2(m.qty), value: r2(m.value) })),
+      low, slow,
+    };
+  }
+
+  // Returns (credit notes) in the range by customer, product and reason.
+  function returnsReport({ creditNotes, orders, from, to }) {
+    const by = { customer: {}, product: {}, reason: {} };
+    let total = 0, count = 0;
+    const add = (map, k, label, amt, qty) => { const r = (map[k] = map[k] || { key: k, label, amount: 0, qty: 0, count: 0 }); r.amount += amt; r.qty += qty; r.count++; };
+    (creditNotes || []).forEach(c => {
+      if (!inRange(day(c.createdAt), from, to)) return;
+      total += n(c.amount); count++;
+      add(by.customer, custKey(c.outletId, c.customer), c.customer || '—', n(c.amount), 0);
+      add(by.reason, String(c.reason || '—').trim().toLowerCase(), c.reason || '—', n(c.amount), 0);
+      (c.lines || []).forEach(l => add(by.product, prodKey(l), l.name || l.sku || '?', n(l.amount), n(l.qty)));
+    });
+    const deliveredInRange = (orders || []).filter(o => isLive(o) && inRange(orderDay(o), from, to)).reduce((s, o) => s + deliveredValue(o), 0);
+    const sortRows = m => Object.values(m).map(r => ({ ...r, amount: r2(r.amount) })).sort((a, b) => b.amount - a.amount);
+    return { total: r2(total), count, ratePct: deliveredInRange ? Math.round((total / deliveredInRange) * 1000) / 10 : null,
+      byCustomer: sortRows(by.customer), byProduct: sortRows(by.product), byReason: sortRows(by.reason) };
+  }
+
+  return { day, orderDay, sales, fulfilment, ageing, collections, inventory, returnsReport };
+})();
+// </reports-core>
+
+// ═══════════════════════════════════════════
+//  REPORTS — sales, delivery, receivables, collections, inventory, returns
+//  Data is loaded once per visit (refresh button reloads); every tab has a
+//  date range, CSV export and print. Calculations live in ReportsCore.
+// ═══════════════════════════════════════════
+const REPORT_TABS = [
+  ['sales', '📈 Sales'], ['delivery', '🚚 Delivery'], ['ageing', '⏳ Receivables'],
+  ['collections', '💰 Collections'], ['inventory', '📦 Inventory'], ['returns', '↩️ Returns'],
+];
+function _repRange(preset) {
+  const t = new Date(), d = x => _localDate(x);
+  const first = new Date(t.getFullYear(), t.getMonth(), 1);
+  if (preset === 'today') return [d(t), d(t)];
+  if (preset === 'week') { const m = new Date(t); m.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return [d(m), d(t)]; }
+  if (preset === 'lastmonth') return [d(new Date(t.getFullYear(), t.getMonth() - 1, 1)), d(new Date(t.getFullYear(), t.getMonth(), 0))];
+  if (preset === 'year') return [d(new Date(t.getFullYear(), 0, 1)), d(t)];
+  return [d(first), d(t)];
 }
+window.__rep = window.__rep || { tab: 'sales', preset: 'month', from: _repRange('month')[0], to: _repRange('month')[1], groupBy: 'day' };
+
+async function _loadReportData(force) {
+  const cache = window.__repData;
+  if (!force && cache && Date.now() - cache.at < 120000) return cache;
+  const all = c => getDocs(collection(_db, C(c))).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))).catch(() => []);
+  const [orders, collections, creditNotes, ledger, items] = await Promise.all([
+    all('orders'), all('collections'), all('credit_notes'), all('stock_ledger'), all('inventory')]);
+  return (window.__repData = { at: Date.now(), orders, collections, creditNotes, ledger, items });
+}
+
+async function reports(force) {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading report data…</div>';
+  try {
+    const data = await _loadReportData(force === true);
+    const st = window.__rep;
+    const tabs = REPORT_TABS.map(([k, l]) => `<div class="rtab${st.tab === k ? ' active' : ''}" onclick="window.__rep.tab='${k}';reports()">${l}</div>`).join('');
+    const presets = [['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['lastmonth', 'Last month'], ['year', 'This year'], ['custom', 'Custom']]
+      .map(([k, l]) => `<option value="${k}"${st.preset === k ? ' selected' : ''}>${l}</option>`).join('');
+    const body = _renderReport(st, data);
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Reports</div><div class="page-sub">${st.tab === 'ageing' ? 'As of ' + _esc(st.to) : _esc(st.from) + ' → ' + _esc(st.to)} · data loaded ${new Date(data.at).toLocaleTimeString()}</div></div>
+        <div class="srch-bar" style="flex-wrap:wrap">
+          <select class="finp" style="width:140px" onchange="_repPreset(this.value)">${presets}</select>
+          <input class="finp" type="date" value="${st.from}" style="width:150px" onchange="window.__rep.preset='custom';window.__rep.from=this.value;reports()"${st.tab === 'ageing' ? ' disabled title="Ageing uses the end date"' : ''}>
+          <input class="finp" type="date" value="${st.to}" style="width:150px" onchange="window.__rep.preset='custom';window.__rep.to=this.value;reports()">
+          <button class="btn btn-ghost" onclick="reports(true)" title="Reload data">🔄</button>
+          <button class="btn btn-ghost" onclick="_repExport()">⬇️ CSV</button>
+          <button class="btn btn-ghost" onclick="_repPrint()">🖨️ Print</button>
+        </div></div>
+      <div class="rtabs">${tabs}</div>
+      <div id="repBody">${body}</div>`;
+  } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+window._repPreset = function(p) {
+  window.__rep.preset = p;
+  if (p !== 'custom') [window.__rep.from, window.__rep.to] = _repRange(p);
+  reports();
+};
+
+// Each tab sets window.__repTable = {title, header, rows} for CSV / print.
+function _table(title, header, rows, align) {
+  window.__repTables = window.__repTables || [];
+  window.__repTables.push({ title, header, rows });
+  const a = i => (align && align[i] === 'r' ? ' style="text-align:right;font-family:\'DM Mono\',monospace"' : '');
+  return `<div class="card" style="margin-bottom:14px"><div style="font-weight:700;padding:12px 14px 8px">${_esc(title)}</div><div class="twrap"><table>
+    <thead><tr>${header.map((h, i) => `<th${align && align[i] === 'r' ? ' style="text-align:right"' : ''}>${_esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length ? rows.map(r => `<tr>${r.map((c, i) => `<td${a(i)}>${_esc(c)}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${header.length}" style="text-align:center;color:var(--tx3);padding:22px">No data for this period</td></tr>`}</tbody></table></div></div>`;
+}
+const _kpi = (ico, val, lbl, color, sub) => `<div class="kpi" style="--kpi-color:var(${color})"><div class="kpi-ico">${ico}</div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl}</div>${sub ? `<div class="kpi-delta">${sub}</div>` : ''}</div>`;
+const _m = v => (v == null ? '—' : fmt(v));
+const _pct = v => (v == null ? '—' : v + '%');
+
+// Single-series bar chart of net sales per day (hover shows the values).
+function _dailyChart(dataRows, from, to) {
+  const byDay = Object.fromEntries(dataRows.map(r => [r.key, r]));
+  const rows = [];
+  for (let d = new Date(from + 'T00:00:00'); _localDate(d) <= to && rows.length <= 93; d.setDate(d.getDate() + 1)) {
+    const k = _localDate(d);
+    rows.push(byDay[k] || { key: k, label: k, net: 0, orders: 0 });
+  }
+  if (rows.length < 2 || rows.length > 93) return '';
+  const W = 720, H = 180, pad = 28, max = Math.max(...rows.map(r => Math.max(0, r.net)), 1);
+  const step = (W - pad) / rows.length, bw = Math.max(2, Math.min(40, step - 2));
+  const bars = rows.map((r, i) => {
+    const h = Math.max(0, r.net) / max * (H - 30), cx = pad + i * step, x = cx + (step - bw) / 2;
+    const tip = `${r.label}: net ${fmt(r.net)} · ${r.orders} order(s)`;
+    return `<g class="rep-bar" data-tip="${_esc(tip)}"><rect x="${cx}" y="0" width="${step}" height="${H}" fill="transparent"></rect>
+      ${h > 0 ? `<path d="M${x},${H - 20} v${-(h - Math.min(4, h))} q0,-${Math.min(4, h)} ${Math.min(4, bw / 2)},-${Math.min(4, h)} h${bw - 2 * Math.min(4, bw / 2)} q${Math.min(4, bw / 2)},0 ${Math.min(4, bw / 2)},${Math.min(4, h)} v${h - Math.min(4, h)} z" fill="var(--chart-1)"></path>` : ''}</g>`;
+  }).join('');
+  const lbl = i => `<text x="${pad + i * step + step / 2}" y="${H - 5}" text-anchor="middle" font-size="10" fill="var(--tx3)">${_esc(rows[i].label.slice(5))}</text>`;
+  const ticks = [0, Math.floor(rows.length / 2), rows.length - 1].map(lbl).join('');
+  return `<div class="card" style="margin-bottom:14px;position:relative;padding:12px 14px"><div style="font-weight:700;margin-bottom:6px">Net sales by day</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Net sales by day, see table below"
+      onmousemove="_repTip(event)" onmouseleave="document.getElementById('repTip').style.display='none'">
+      <line x1="${pad}" x2="${W}" y1="${H - 20}" y2="${H - 20}" stroke="var(--bdr)"></line>
+      <text x="0" y="12" font-size="10" fill="var(--tx3)">${_esc(fmt(max))}</text>${bars}${ticks}</svg>
+    <div id="repTip" style="display:none;position:absolute;pointer-events:none;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;padding:6px 9px;font-size:12px;color:var(--tx);white-space:nowrap"></div></div>`;
+}
+window._repTip = function(ev) {
+  const g = ev.target.closest('.rep-bar'), tip = document.getElementById('repTip');
+  if (!g) { tip.style.display = 'none'; return; }
+  const box = tip.parentElement.getBoundingClientRect();
+  tip.textContent = g.dataset.tip;
+  tip.style.display = '';
+  tip.style.left = Math.min(ev.clientX - box.left + 12, box.width - tip.offsetWidth - 8) + 'px';
+  tip.style.top = (ev.clientY - box.top - 36) + 'px';
+};
+
+function _renderReport(st, data) {
+  window.__repTables = [];
+  const R = ReportsCore, today = _localDate();
+  if (st.tab === 'sales') {
+    const s = R.sales({ ...data, from: st.from, to: st.to, groupBy: st.groupBy });
+    const groups = [['day', 'Day'], ['salesman', 'Salesman'], ['customer', 'Customer'], ['product', 'Product'], ['route', 'Route'], ['zone', 'Zone']]
+      .map(([k, l]) => `<option value="${k}"${st.groupBy === k ? ' selected' : ''}>${l}</option>`).join('');
+    const t = s.totals, isProd = st.groupBy === 'product';
+    return `<div class="kpi-grid">
+        ${_kpi('🧾', t.orders, 'Orders', '--blu', 'avg ' + fmt(t.orders ? t.ordered / t.orders : 0))}
+        ${_kpi('📦', fmt(t.ordered), 'Ordered value', '--blu')}
+        ${_kpi('🚚', fmt(t.delivered), 'Delivered value', '--acc')}
+        ${_kpi('↩️', fmt(t.returns), 'Returns (credit notes)', '--red')}
+        ${_kpi('💵', fmt(t.net), 'Net sales', '--acc')}
+        ${_kpi('📊', _m(t.margin), 'Gross margin', '--pur', t.marginPct == null ? 'needs stock costs' : t.marginPct + '% of net')}
+      </div>
+      <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center"><span style="font-size:12px;color:var(--tx3)">Group by</span>
+        <select class="finp" style="width:150px" onchange="window.__rep.groupBy=this.value;reports()">${groups}</select></div>
+      ${st.groupBy === 'day' ? _dailyChart(s.rows, st.from, st.to) : ''}
+      ${_table(`Sales by ${st.groupBy}`, [st.groupBy === 'day' ? 'Day' : st.groupBy[0].toUpperCase() + st.groupBy.slice(1), isProd ? 'Order lines' : 'Orders', ...(isProd ? ['Qty delivered'] : []), 'Ordered', 'Delivered', 'Returns', 'Net', 'Cost', 'Margin', 'Margin %'],
+        s.rows.map(r => [r.label, r.orders, ...(isProd ? [r.qty] : []), fmt(r.ordered), fmt(r.delivered), fmt(r.returns), fmt(r.net), _m(r.cogs || null), _m(r.margin), _pct(r.marginPct)]),
+        isProd ? ['', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r'] : ['', 'r', 'r', 'r', 'r', 'r', 'r', 'r', 'r'])}
+      <div style="font-size:11px;color:var(--tx3)">Orders by order date (cancelled excluded). Returns by credit-note date. Cost = cost of goods delivered from the stock ledger; margin shows only where costs were recorded.</div>`;
+  }
+  if (st.tab === 'delivery') {
+    const f = R.fulfilment({ orders: data.orders, from: st.from, to: st.to, today });
+    return `<div class="kpi-grid">
+        ${_kpi('⏱️', _pct(f.onTimePct), 'On time', '--acc', `${f.onTime} of ${f.withDue} with a delivery date`)}
+        ${_kpi('📦', _pct(f.fillRatePct), 'Fill rate (value)', '--blu', 'delivered ÷ ordered')}
+        ${_kpi('📅', f.avgLeadDays == null ? '—' : f.avgLeadDays + ' d', 'Order → delivery', '--pur')}
+        ${_kpi('✅', f.full, 'Delivered in full', '--acc')}
+        ${_kpi('🟠', f.partial, 'Partly delivered', '--ora')}
+        ${_kpi('❌', f.failed, 'Failed (open)', '--red', `${f.open} other open (${f.unscheduled} not scheduled) · ${f.cancelled} cancelled`)}
+      </div>
+      ${_table(`Overdue — not delivered after the due date (${f.overdue.length})`, ['Order', 'Customer', 'Salesman', 'Due', 'Days late', 'Driver', 'Status', 'Total'],
+        f.overdue.map(o => [o.orderId || o.id, o.customer || '—', o.repName || '', o.due, o.daysLate, o.deliveryManName || '—', o.deliveryStatus || o.status, fmt(o.total)]),
+        ['', '', '', '', 'r', '', '', 'r'])}`;
+  }
+  if (st.tab === 'ageing') {
+    const a = R.ageing({ ...data, asOf: st.to });
+    const t = a.totals;
+    return `<div class="kpi-grid">
+        ${_kpi('💳', fmt(t.total), 'Total receivable', '--blu', `${a.rows.length} customer(s)`)}
+        ${_kpi('🟢', fmt(t.current), '0–30 days', '--acc')}
+        ${_kpi('🟡', fmt(t.d31), '31–60 days', '--ylw')}
+        ${_kpi('🟠', fmt(t.d61), '61–90 days', '--ora')}
+        ${_kpi('🔴', fmt(t.d90), 'Over 90 days', '--red')}
+      </div>
+      ${_table('Receivables ageing by customer', ['Customer', '0–30', '31–60', '61–90', '90+', 'Unapplied credit', 'Total', 'Oldest (days)'],
+        a.rows.map(r => [r.customer, fmt(r.current), fmt(r.d31), fmt(r.d61), fmt(r.d90), r.unapplied ? fmt(r.unapplied) : '', fmt(r.total), r.oldestDays ?? '']),
+        ['', 'r', 'r', 'r', 'r', 'r', 'r', 'r'])}
+      <div style="font-size:11px;color:var(--tx3)">Debt starts on the delivery date at the delivered value. Collections (except rejected) and credit notes pay the oldest debts first.</div>`;
+  }
+  if (st.tab === 'collections') {
+    const c = R.collections({ collections: data.collections, orders: data.orders, from: st.from, to: st.to });
+    const sum = k => c.rows.reduce((s, r) => s + r[k], 0);
+    return `<div class="kpi-grid">
+        ${_kpi('🎯', fmt(sum('expected')), 'Expected (COD delivered)', '--blu')}
+        ${_kpi('✅', fmt(sum('accepted')), 'Accepted', '--acc')}
+        ${_kpi('⏳', fmt(sum('pending')), 'Pending ERP acceptance', '--ylw')}
+        ${_kpi('⚖️', fmt(sum('accepted') + sum('pending') - sum('expected')), 'Variance', '--red', 'collected − expected')}
+      </div>
+      ${_table('Cash by salesman', ['Salesman', 'Expected', 'Accepted', 'Pending', 'Rejected', 'Variance'],
+        c.rows.map(r => [r.name, fmt(r.expected), fmt(r.accepted), fmt(r.pending), fmt(r.rejected), fmt(r.variance)]), ['', 'r', 'r', 'r', 'r', 'r'])}
+      ${_table('By payment method', ['Method', 'Amount'], Object.entries(c.byMethod).sort((a, b) => b[1] - a[1]).map(([m, v]) => [m, fmt(v)]), ['', 'r'])}`;
+  }
+  if (st.tab === 'inventory') {
+    const v = R.inventory({ items: data.items, ledger: data.ledger, from: st.from, to: st.to });
+    const total = v.byCategory.reduce((s, c) => s + c.value, 0);
+    return `<div class="kpi-grid">
+        ${_kpi('💰', fmt(total), 'Stock value (now)', '--acc')}
+        ${_kpi('⚠️', v.low.length, 'At / below reorder level', '--ylw')}
+        ${_kpi('🐢', v.slow.length, 'Did not sell in period', '--ora', fmt(v.slow.reduce((s, x) => s + x.value, 0)) + ' tied up')}
+      </div>
+      ${_table('Valuation by category (current)', ['Category', 'Items', 'Qty on hand', 'Value'], v.byCategory.map(c => [c.category, c.items, _qty(c.qty), fmt(c.value)]), ['', 'r', 'r', 'r'])}
+      ${_table('Stock movements in period', ['Movement', 'Entries', 'Qty', 'Value'], v.moves.map(m => [m.label, m.count, _qty(m.qty), fmt(m.value)]), ['', 'r', 'r', 'r'])}
+      ${_table('Reorder list', ['Item', 'SKU', 'On hand', 'Reorder level', 'Supplier'], v.low.map(x => [x.name, x.sku || '', _qty(x.qty), _qty(x.minStock), x.supplier || '']), ['', '', 'r', 'r', ''])}
+      ${_table('Slow movers — on hand, no sales in period', ['Item', 'SKU', 'On hand', 'Value'], v.slow.slice(0, 100).map(x => [x.name, x.sku || '', _qty(x.qty), fmt(x.value)]), ['', '', 'r', 'r'])}`;
+  }
+  const r = R.returnsReport({ creditNotes: data.creditNotes, orders: data.orders, from: st.from, to: st.to });
+  return `<div class="kpi-grid">
+      ${_kpi('↩️', fmt(r.total), 'Credited', '--red', `${r.count} credit note(s)`)}
+      ${_kpi('📉', _pct(r.ratePct), 'Return rate', '--ora', 'credited ÷ delivered value')}
+    </div>
+    ${_table('By customer', ['Customer', 'Credit notes', 'Amount'], r.byCustomer.map(x => [x.label, x.count, fmt(x.amount)]), ['', 'r', 'r'])}
+    ${_table('By product', ['Product', 'Qty', 'Amount'], r.byProduct.map(x => [x.label, _qty(x.qty), fmt(x.amount)]), ['', 'r', 'r'])}
+    ${_table('By reason', ['Reason', 'Credit notes', 'Amount'], r.byReason.map(x => [x.label, x.count, fmt(x.amount)]), ['', 'r', 'r'])}`;
+}
+
+window._repExport = function() {
+  const st = window.__rep, tables = window.__repTables || [];
+  if (!tables.length) return;
+  const rows = [];
+  tables.forEach((t, i) => { if (i) rows.push([]); rows.push([t.title]); rows.push(t.header); t.rows.forEach(r => rows.push(r)); });
+  _downloadCsv(`report-${st.tab}-${st.from}-to-${st.to}.csv`, [`Report: ${st.tab}`, `${st.from} to ${st.to}`], rows);
+};
+
+window._repPrint = function() {
+  const st = window.__rep, w = window.open('', '_blank');
+  if (!w) { showToast('Allow pop-ups to print', 'warn'); return; }
+  const tables = (window.__repTables || []).map(t => `<h3>${_esc(t.title)}</h3><table><thead><tr>${t.header.map(h => `<th>${_esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${t.rows.map(r => `<tr>${r.map(c => `<td>${_esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`).join('');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Report ${_esc(st.tab)}</title><style>body{font-family:Arial,sans-serif;color:#111;padding:24px}
+    h1{font-size:18px;margin:0}h3{font-size:14px;margin:18px 0 6px}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;padding:5px 6px;font-size:12px;text-align:left}
+    .muted{color:#666;font-size:12px}</style></head><body><h1>${_esc(_tenant?.name || 'Company')} — ${_esc(REPORT_TABS.find(t => t[0] === st.tab)?.[1] || st.tab)} report</h1>
+    <div class="muted">${st.tab === 'ageing' ? 'As of ' + _esc(st.to) : _esc(st.from) + ' to ' + _esc(st.to)} · printed ${new Date().toLocaleString()}</div>${tables}
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+};
+
+// This page script is an ES module, so its functions are not global. Expose
+// the ones called from inline onclick/onchange handlers.
+Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports });
 
 async function settings() {
   const mc = document.getElementById('mainContent');
