@@ -63,3 +63,8 @@ test('Android build stays on API 34: WorkManager pinned below 2.10 (needs compil
   assert.match(read('android/build.gradle'), /resolutionStrategy\.force 'androidx\.work:work-runtime:2\.9\.1'/);
   assert.match(read('android/variables.gradle'), /compileSdkVersion = 34/);
 });
+
+test('a Firebase config without this app id disables push instead of failing the build, with a warning', () => {
+  assert.match(read('android/app/build.gradle'), /servicesJSON\.text\.contains\("\\"package_name\\": \\"\$\{appId\}\\""\)/);
+  assert.match(read('.github/workflows/android-apk.yml'), /::warning title=Push notifications disabled::/);
+});
