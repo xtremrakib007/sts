@@ -814,7 +814,7 @@ async function _creditLimitCheck(outletId, orderTotal) {
       sfGet('orders',[where('outletId','==',outletId)]),
       sfGet('collections',[where('outletId','==',outletId)]),
     ]);
-    const ordered=ordD.map(d=>d.data()).filter(x=>x.status!=='Cancelled').reduce((s,x)=>s+(Number(x.total)||0),0);
+    const ordered=ordD.map(d=>d.data()).filter(x=>x.status!=='Cancelled').reduce((s,x)=>s+_orderAmountDue(x),0);
     const paid=colD.map(d=>d.data()).reduce((s,x)=>s+(Number(x.amount)||0),0);
     const opening=outlet.balanceStatus==='approved'?(Number(outlet.openingBalance)||0):0;
     const outstanding=Math.max(0,ordered-paid+opening);

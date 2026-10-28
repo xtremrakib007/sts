@@ -597,6 +597,8 @@ function badgeStatus(s) {
   const map = {
     draft:'badge-gray', pending:'badge-yellow', pending_erp:'badge-yellow',
     ordered:'badge-blue', partially_received:'badge-orange', received:'badge-green',
+    assigned:'badge-blue', in_transit:'badge-blue', failed:'badge-red', rescheduled:'badge-orange',
+    partially_delivered:'badge-orange', pending_approval:'badge-yellow', posted:'badge-green',
     approved:'badge-green', rejected:'badge-red', processing:'badge-blue',
     dispatched:'badge-blue', delivered:'badge-green', cancelled:'badge-gray',
     paid:'badge-green', unpaid:'badge-yellow', overdue:'badge-red',
@@ -779,7 +781,9 @@ function buildSidebar() {
       <div class="sb-item" data-page="invoices" onclick="goPage('invoices')"><span class="ico">🧾</span> Invoices</div>
       <div class="sb-item" data-page="collections" onclick="goPage('collections')"><span class="ico">💰</span> Collections <span class="sb-badge sb-badge-ylw" id="badgeColl" style="display:none">0</span></div>
       <div class="sb-section">Operations</div>
+      <div class="sb-item" data-page="deliveryPlanner" onclick="goPage('deliveryPlanner')"><span class="ico">🗓️</span> Delivery Planner</div>
       <div class="sb-item" data-page="dispatch" onclick="goPage('dispatch')"><span class="ico">🚚</span> Dispatch & Delivery</div>
+      <div class="sb-item" data-page="returns" onclick="goPage('returns')"><span class="ico">↩️</span> Returns</div>
       <div class="sb-item" data-page="hqOrders" onclick="goPage('hqOrders')"><span class="ico">🛒</span> HQ Orders</div>
       <div class="sb-item" data-page="transfers" onclick="goPage('transfers')"><span class="ico">↔️</span> Transfers</div>
       <div class="sb-item" data-page="suppliers" onclick="goPage('suppliers')"><span class="ico">🏭</span> Suppliers</div>
@@ -809,6 +813,8 @@ const pageConfig = {
   inventory:      {title:'Inventory',       icon:'📦', action:'+ Add Item',         modal:'mInventory', prep:'inventory'},
   stockLedger:    {title:'Stock Movements', icon:'📜'},
   stockApprovals: {title:'Stock Approvals', icon:'✅'},
+  deliveryPlanner:{title:'Delivery Planner', icon:'🗓️'},
+  returns:        {title:'Returns & Credit Notes', icon:'↩️'},
   salesOrders:    {title:'Sales Orders',    icon:'📋', action:null},
   discounts:      {title:'Discount Queue',  icon:'🏷️', action:null},
   invoices:       {title:'Invoices',        icon:'🧾', action:'+ New Invoice',      modal:'mInvoice', prep:'invoice'},
@@ -851,6 +857,7 @@ window.goPage = function(page) {
   const renders = {
     dashboard, inventory, salesOrders, discounts, invoices, collections,
     stockLedger: () => window.stockLedger(), stockApprovals: () => window.stockApprovals(),
+    deliveryPlanner, returns,
     dispatch, suppliers, reports, settings, salesmanOrdersReport,
     hqOrders, transfers,
     salesDashboard, myOrders, myCollections, myDeliveries, products
@@ -866,7 +873,7 @@ window.goPage = function(page) {
 const REALTIME_COLLECTIONS = [
   'users', 'products', 'orders', 'inventory', 'invoices',
   'suppliers', 'transfers', 'hq_orders', 'collections', 'config',
-  'stock_requests', 'stock_ledger'
+  'stock_requests', 'stock_ledger', 'returns', 'credit_notes'
 ];
 
 function setRealtimeStatus(message, color) {
@@ -1951,6 +1958,277 @@ function _matchInventory(items, text) {
   return items.find(v => String(v.sku||'').toLowerCase() === k) || items.find(v => String(v.name||'').toLowerCase() === k) || null;
 }
 
+// ═══════════════════════════════════════════
+//  DELIVERY PLANNER
+//  Every order due on or before the chosen date that is not yet delivered
+//  or cancelled — including overdue and failed ones — with bulk accept,
+//  assign driver & date, dispatch, reschedule and cancel. Changes reach the
+//  Sales App live (erpOrderToApp).
+// ═══════════════════════════════════════════
+function _localDate(d) {
+  const dt = d ? (typeof d.toDate === 'function' ? d.toDate() : new Date(d)) : new Date();
+  if (Number.isNaN(dt.getTime())) return String(d || '').slice(0, 10);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+const _dueDate = v => v.deliveryDate || v.date || _localDate(v.createdAt);
+
+async function _deliveryMen() {
+  // Delivery staff live in the Sales App users collection (same project);
+  // older setups may also list them in stsb_users.
+  const [a, b] = await Promise.all([
+    getDocs(query(collection(_db, 'users'), where('role', '==', 'delivery_man'))).catch(() => ({ docs: [] })),
+    getDocs(query(collection(_db, C('users')), where('role', '==', 'delivery_man'))).catch(() => ({ docs: [] })),
+  ]);
+  const map = {};
+  [...a.docs, ...b.docs].forEach(d => { const v = d.data(); map[d.id] = v.name || v.email || d.id; });
+  return map;
+}
+
+async function deliveryPlanner() {
+  const mc = document.getElementById('mainContent');
+  const date = window.__plannerDate || _localDate();
+  const dmFilter = window.__plannerDm || '';
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const [snap, dms] = await Promise.all([
+      getDocs(query(collection(_db, C('orders')), where('status', 'in', ['pending', 'processing', 'dispatched']))),
+      _deliveryMen(),
+    ]);
+    window.__plannerDms = dms;
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(v => !v.appDeleted && _dueDate(v) <= date && (!dmFilter || (v.deliveryManId || '') === (dmFilter === '_none' ? '' : dmFilter)))
+      .sort((a, b) => _dueDate(a).localeCompare(_dueDate(b)) || String(a.customer || '').localeCompare(String(b.customer || '')));
+    window.__plannerRows = Object.fromEntries(rows.map(v => [v.id, v]));
+    const k = { due: rows.length, overdue: 0, unassigned: 0, out: 0, failed: 0, cod: 0 };
+    const html = rows.map(v => {
+      const due = _dueDate(v), overdue = due < date;
+      if (overdue) k.overdue++;
+      if (!v.deliveryManId) k.unassigned++;
+      if (v.status === 'dispatched') k.out++;
+      if (v.deliveryStatus === 'failed') k.failed++;
+      if ((v.payTerms || 'cod').toLowerCase() === 'cod') k.cod += _n(v.total);
+      return `<tr>
+        <td><input type="checkbox" class="pl-chk" value="${v.id}"></td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(v.orderId || v.id)}${v.isInvoice ? ' <span class="badge badge-purple">INV</span>' : ''}</td>
+        <td><strong>${_esc(v.customer || '—')}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.outletRoute || '')}${v.outletPhone ? ' · ' + _esc(v.outletPhone) : ''}</div></td>
+        <td style="font-size:11px">${_esc(v.date || '')}</td>
+        <td style="font-size:11px;color:${overdue ? 'var(--red)' : 'var(--tx)'}">${_esc(due)}${overdue ? ' ⚠️' : ''}</td>
+        <td style="font-size:12px">${v.deliveryManId ? _esc(v.deliveryManName || dms[v.deliveryManId] || v.deliveryManId) : '<span style="color:var(--tx3)">—</span>'}</td>
+        <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(v.total)}</td>
+        <td><span class="badge badge-gray">${_esc(v.payTerms || 'COD')}</span></td>
+        <td>${badgeStatus(v.status)} ${v.deliveryStatus && v.deliveryStatus !== 'pending' ? badgeStatus(v.deliveryStatus) : ''}${v.failureReason ? `<div style="font-size:10px;color:var(--red)">${_esc(v.failureReason)}</div>` : ''}</td>
+      </tr>`;
+    }).join('');
+    const dmOpts = Object.entries(dms).map(([id, n]) => `<option value="${id}"${dmFilter === id ? ' selected' : ''}>${_esc(n)}</option>`).join('');
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Delivery Planner</div><div class="page-sub">Orders due on or before the date that are not yet delivered</div></div>
+        <div class="srch-bar" style="flex-wrap:wrap">
+          <input class="finp" type="date" value="${date}" style="width:160px" onchange="window.__plannerDate=this.value;deliveryPlanner()">
+          <select class="finp" style="width:180px" onchange="window.__plannerDm=this.value;deliveryPlanner()"><option value="">All drivers</option><option value="_none"${dmFilter === '_none' ? ' selected' : ''}>Unassigned</option>${dmOpts}</select>
+          <input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'plTbl')">
+        </div></div>
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--blu)"><div class="kpi-ico">📦</div><div class="kpi-val">${k.due}</div><div class="kpi-lbl">To deliver</div></div>
+        <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">⏰</div><div class="kpi-val">${k.overdue}</div><div class="kpi-lbl">Overdue</div></div>
+        <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">👤</div><div class="kpi-val">${k.unassigned}</div><div class="kpi-lbl">No driver</div></div>
+        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">🚚</div><div class="kpi-val">${k.out}</div><div class="kpi-lbl">Out for delivery</div></div>
+        <div class="kpi" style="--kpi-color:var(--ora)"><div class="kpi-ico">❌</div><div class="kpi-val">${k.failed}</div><div class="kpi-lbl">Failed — reschedule</div></div>
+        <div class="kpi" style="--kpi-color:var(--pur)"><div class="kpi-ico">💵</div><div class="kpi-val">${fmt(k.cod)}</div><div class="kpi-lbl">COD to collect</div></div>
+      </div>
+      <div class="card" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 12px">
+        <span style="font-size:12px;color:var(--tx3);margin-right:4px">Selected orders:</span>
+        <button class="btn btn-ghost" onclick="plannerAction('accept')">✅ Accept</button>
+        <button class="btn btn-blue" onclick="plannerAction('assign')">👤 Assign driver & date</button>
+        <button class="btn btn-primary" onclick="plannerAction('dispatch')">🚚 Dispatch</button>
+        <button class="btn btn-ghost" onclick="plannerAction('reschedule')">📅 Reschedule</button>
+        <button class="btn btn-danger" onclick="plannerAction('cancel')">✕ Cancel</button>
+        <button class="btn btn-ghost" style="margin-left:auto" onclick="goPage('dispatch')">📋 Top sheet</button>
+      </div>
+      <div class="card"><div class="twrap"><table id="plTbl"><thead><tr>
+        <th><input type="checkbox" onchange="document.querySelectorAll('.pl-chk').forEach(c=>{if(c.closest('tr').style.display!=='none')c.checked=this.checked})"></th>
+        <th>Order</th><th>Customer</th><th>Ordered</th><th>Due</th><th>Driver</th><th style="text-align:right">Total</th><th>Terms</th><th>Status</th></tr></thead>
+        <tbody>${html || '<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:30px">Nothing due — all caught up 🎉</td></tr>'}</tbody></table></div></div>`;
+  } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+
+window.plannerAction = async function(action) {
+  const ids = [...document.querySelectorAll('.pl-chk:checked')].map(c => c.value);
+  if (!ids.length) { showToast('Select at least one order', 'warn'); return; }
+  const rows = ids.map(id => window.__plannerRows[id]);
+  const now = new Date().toISOString();
+  let patchFor, skip = () => false;
+  if (action === 'accept') {
+    skip = v => v.status !== 'pending';
+    patchFor = () => ({ status: 'processing', acceptedAt: now, acceptedBy: uid() });
+  } else if (action === 'assign') {
+    const dms = window.__plannerDms || {};
+    const opts = Object.entries(dms);
+    if (!opts.length) { showToast('No delivery staff found (role delivery_man)', 'error'); return; }
+    const pick = prompt('Driver number:\n' + opts.map(([, n], i) => `${i + 1}. ${n}`).join('\n'));
+    if (pick === null) return;
+    const chosen = opts[parseInt(pick, 10) - 1];
+    if (!chosen) { showToast('Invalid choice', 'error'); return; }
+    const day = prompt('Delivery date (YYYY-MM-DD):', window.__plannerDate || _localDate());
+    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) { if (day !== null) showToast('Use the format YYYY-MM-DD', 'error'); return; }
+    skip = v => v.status === 'dispatched';
+    patchFor = v => ({ deliveryManId: chosen[0], deliveryManName: chosen[1], deliveryDate: day, deliveryStatus: 'assigned',
+      status: v.status === 'pending' ? 'processing' : v.status, assignedAt: now, assignedBy: uid() });
+  } else if (action === 'dispatch') {
+    const noDriver = rows.filter(v => !v.deliveryManId).length;
+    if (noDriver) { showToast(`${noDriver} order(s) have no driver — assign first`, 'error'); return; }
+    skip = v => v.status === 'dispatched';
+    patchFor = () => ({ status: 'dispatched', deliveryStatus: 'in_transit', dispatchedAt: now, dispatchedBy: uid() });
+  } else if (action === 'reschedule') {
+    const day = prompt('New delivery date (YYYY-MM-DD):');
+    if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) { if (day !== null) showToast('Use the format YYYY-MM-DD', 'error'); return; }
+    const why = prompt('Reason (optional):') || '';
+    patchFor = () => ({ status: 'processing', deliveryStatus: 'rescheduled', deliveryDate: day, rescheduleReason: why, rescheduledAt: now, failureReason: '' });
+  } else if (action === 'cancel') {
+    const why = prompt(`Cancel ${ids.length} order(s)? Reserved stock is released.\n\nReason (required):`);
+    if (!why) return;
+    patchFor = () => ({ status: 'cancelled', deliveryStatus: 'cancelled', cancelReason: why, cancelledAt: now, cancelledBy: uid() });
+  }
+  const todo = rows.filter(v => !skip(v));
+  if (!todo.length) { showToast('Nothing to change for the selected orders', 'info'); return; }
+  try {
+    const batch = writeBatch(_db);
+    todo.forEach(v => batch.update(doc(_db, C('orders'), v.id), { ...patchFor(v), updatedAt: ts() }));
+    await batch.commit();
+    showToast(`${todo.length} order(s) updated ✓${todo.length < rows.length ? ` (${rows.length - todo.length} skipped)` : ''}`, 'success');
+    deliveryPlanner();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.viewDeliveryProof = async function(appDocId) {
+  const p = (await getDoc(doc(_db, 'deliveryProofs', appDocId))).data();
+  if (!p) { showToast('No proof recorded', 'info'); return; }
+  _stockModal('mProof', `📷 Proof of delivery — ${_esc(p.orderId || '')}`, `
+    ${p.photo ? `<img src="${p.photo}" style="width:100%;border-radius:10px;margin-bottom:10px">` : '<div style="color:var(--tx3);margin-bottom:10px">No photo</div>'}
+    <div style="font-size:13px;line-height:1.8">
+      <div><strong>Outcome:</strong> ${_esc(p.outcome)}</div>
+      <div><strong>Received by:</strong> ${_esc(p.receiverName || '—')}</div>
+      <div><strong>Driver:</strong> ${_esc(p.deliveredByName || p.deliveredBy)}</div>
+      <div><strong>When:</strong> ${_esc(String(p.at || '').replace('T', ' ').slice(0, 16))}</div>
+      ${p.note ? `<div><strong>Note:</strong> ${_esc(p.note)}</div>` : ''}
+      ${p.lat ? `<div><a href="https://maps.google.com/?q=${_n(p.lat)},${_n(p.lng)}" target="_blank" rel="noopener">📍 View location</a></div>` : ''}
+    </div>`, `<button class="btn btn-ghost" onclick="closeModal('mProof')">Close</button>`);
+};
+
+// ═══════════════════════════════════════════
+//  SALES RETURNS & CREDIT NOTES
+// ═══════════════════════════════════════════
+async function returns() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const [rs, cns] = await Promise.all([
+      getDocs(query(collection(_db, C('returns')), orderBy('createdAt', 'desc'), limit(300))),
+      getDocs(query(collection(_db, C('credit_notes')), orderBy('createdAt', 'desc'), limit(300))),
+    ]);
+    const rRows = rs.docs.map(d => {
+      const r = d.data(), own = r.requestedBy === uid();
+      const items = (r.lines || []).map(l => `${_esc(l.name || 'Line ' + (l.line + 1))} × ${_qty(l.qty)}${l.condition === 'damaged' ? ' (damaged)' : ''}`).join('<br>');
+      const act = r.status === 'pending_approval' && r.priced
+        ? (own ? '<span style="font-size:11px;color:var(--tx3)">Needs another admin</span>'
+          : `<button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="decideReturn('${d.id}','approved')">✅ Approve</button>
+             <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="decideReturn('${d.id}','rejected')">✕</button>`)
+        : r.creditNoteNo ? `<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="printCreditNote('${r.creditNoteNo}')">🖨️ ${_esc(r.creditNoteNo)}</button>` : '';
+      return `<tr><td style="font-size:11px">${_esc(String(r.createdAt || '').slice(0, 10))}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(r.orderId)}</td><td>${_esc(r.customer || '')}</td>
+        <td style="font-size:11px">${items}</td><td style="font-family:'DM Mono',monospace;text-align:right">${r.amount != null ? fmt(r.amount) : '…'}</td>
+        <td style="font-size:11px">${_esc(r.reason || '')}</td><td>${badgeStatus(r.status)}${r.error ? `<div style="font-size:10px;color:var(--red)">${_esc(r.error)}</div>` : ''}</td>
+        <td style="font-size:11px">${_esc(r.requestedByName || '')}</td><td style="white-space:nowrap">${act}</td></tr>`;
+    }).join('');
+    let cnTotal = 0;
+    const cRows = cns.docs.map(d => {
+      const c = d.data(); cnTotal += _n(c.amount);
+      return `<tr><td style="font-family:'DM Mono',monospace">${_esc(c.number)}</td><td style="font-size:11px">${_esc(String(c.createdAt || '').slice(0, 10))}</td>
+        <td>${_esc(c.customer || '')}</td><td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(c.orderId)}</td>
+        <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(c.amount)}</td>
+        <td><button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="printCreditNote('${_esc(c.number)}')">🖨️ Print</button></td></tr>`;
+    }).join('');
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Returns & Credit Notes</div><div class="page-sub">Returns need a second admin's approval; approval issues a credit note and restocks resellable goods</div></div>
+        <button class="btn btn-primary" onclick="openReturn()">+ New Return</button></div>
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⏳</div><div class="kpi-val">${rs.docs.filter(d => d.data().status === 'pending_approval').length}</div><div class="kpi-lbl">Waiting for approval</div></div>
+        <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">🧾</div><div class="kpi-val">${fmt(cnTotal)}</div><div class="kpi-lbl">Credit notes (latest ${cns.size})</div></div>
+      </div>
+      <div class="card" style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:8px">Returns</div><div class="twrap"><table><thead><tr><th>Date</th><th>Order</th><th>Customer</th><th>Items</th><th style="text-align:right">Credit</th><th>Reason</th><th>Status</th><th>By</th><th></th></tr></thead>
+        <tbody>${rRows || '<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:24px">No returns yet</td></tr>'}</tbody></table></div></div>
+      <div class="card"><div style="font-weight:700;margin-bottom:8px">Credit notes</div><div class="twrap"><table><thead><tr><th>No.</th><th>Date</th><th>Customer</th><th>Order</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+        <tbody>${cRows || '<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:24px">No credit notes yet</td></tr>'}</tbody></table></div></div>`;
+  } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+
+window.openReturn = async function(orderId) {
+  orderId = orderId || prompt('Order number to return against (e.g. ORD-ABC123):');
+  if (!orderId) return;
+  const snap = await getDoc(doc(_db, C('orders'), orderId.trim()));
+  if (!snap.exists()) { showToast('Order not found', 'error'); return; }
+  const o = snap.data();
+  if (o.status !== 'delivered') { showToast('Only delivered orders can be returned', 'error'); return; }
+  const delivered = (o.items || []).map((it, i) => Array.isArray(o.deliveredItems) && o.deliveredItems[i] ? _n(o.deliveredItems[i].qty) : _n(it.qty));
+  const rows = (o.items || []).map((it, i) => {
+    const left = delivered[i] - _n((o.returnedQty || {})[i]);
+    return `<tr><td style="font-size:12px">${_esc(it.name)}</td><td style="text-align:right">${_qty(delivered[i])}</td><td style="text-align:right">${_qty(left)}</td>
+      <td><input class="finp rt-qty" data-i="${i}" type="number" min="0" max="${left}" step="any" value="0" style="width:80px;padding:6px 8px"${left <= 0 ? ' disabled' : ''}></td>
+      <td><select class="finp rt-cond" data-i="${i}" style="padding:6px 8px"><option value="resellable">Resellable — restock</option><option value="damaged">Damaged — write off</option></select></td></tr>`;
+  }).join('');
+  _stockModal('mReturn', `↩️ Return — ${_esc(o.orderId || orderId)}`, `
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">${_esc(o.customer || '')} · delivered ${_esc(_localDate(o.deliveredAt))}</div>
+    <div class="twrap"><table><thead><tr><th>Item</th><th style="text-align:right">Delivered</th><th style="text-align:right">Can return</th><th>Return qty</th><th>Condition</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="fgrp" style="margin-top:10px"><label class="flbl">Reason *</label><input class="finp" id="rtReason" placeholder="e.g. Expired on arrival, wrong item, customer returned"></div>
+    <div style="font-size:11px;color:var(--tx3)">The credit is priced from the order (including any discount) and confirmed by a second admin.</div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mReturn')">Cancel</button><button class="btn btn-primary" onclick="saveReturn('${_esc(snap.id)}')">Submit for approval</button>`, true);
+};
+
+window.saveReturn = async function(orderId) {
+  const reason = document.getElementById('rtReason').value.trim();
+  const lines = [...document.querySelectorAll('.rt-qty')].map(i => ({ line: Number(i.dataset.i), qty: Number(i.value) || 0,
+    condition: document.querySelector(`.rt-cond[data-i="${i.dataset.i}"]`).value })).filter(l => l.qty > 0);
+  if (!lines.length) { showToast('Enter a return quantity', 'error'); return; }
+  if (!reason) { showToast('A reason is required', 'error'); return; }
+  try {
+    await addDoc(collection(_db, C('returns')), { orderId, lines, reason, status: 'pending_approval',
+      requestedBy: uid(), requestedByName: _user?.name || _user?.email || '', createdAt: new Date().toISOString() });
+    closeModal('mReturn');
+    showToast('Return submitted — waiting for another admin to approve', 'success');
+    goPage('returns');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.decideReturn = async function(retId, decision) {
+  const note = decision === 'rejected' ? (prompt('Reason for rejecting (optional):') ?? null) : '';
+  if (note === null) return;
+  if (decision === 'approved' && !confirm('Approve this return? A credit note will be issued and resellable goods restocked.')) return;
+  try {
+    await updateDoc(doc(_db, C('returns'), retId), { status: decision, approvedBy: uid(), approvedByName: _user?.name || _user?.email || '',
+      decidedAt: new Date().toISOString(), decisionNote: note });
+    showToast(decision === 'approved' ? 'Approved — issuing credit note…' : 'Rejected', decision === 'approved' ? 'success' : 'warn');
+    setTimeout(returns, 2000);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.printCreditNote = async function(cnNo) {
+  const c = (await getDoc(doc(_db, C('credit_notes'), cnNo))).data();
+  if (!c) { showToast('Credit note not found', 'error'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Allow pop-ups to print', 'warn'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${_esc(c.number)}</title>
+    <style>body{font-family:Arial,sans-serif;color:#111;padding:28px;max-width:720px;margin:auto}h1{font-size:22px;margin:0}
+    table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border-bottom:1px solid #ddd;padding:7px;text-align:left;font-size:13px}
+    .r{text-align:right}.muted{color:#666;font-size:12px}</style></head><body>
+    <div style="display:flex;justify-content:space-between"><div><h1>CREDIT NOTE</h1><div class="muted">SAIRAH TRADING SDN BHD</div></div>
+    <div class="r"><strong>${_esc(c.number)}</strong><div class="muted">${_esc(String(c.createdAt || '').slice(0, 10))}</div></div></div>
+    <p><strong>Customer:</strong> ${_esc(c.customer || '')}<br><strong>Original order:</strong> ${_esc(c.orderId)}<br><strong>Reason:</strong> ${_esc(c.reason || '')}</p>
+    <table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead><tbody>
+    ${(c.lines || []).map(l => `<tr><td>${_esc(l.name)}${l.condition === 'damaged' ? ' <span class="muted">(damaged)</span>' : ''}</td><td class="r">${_qty(l.qty)}</td><td class="r">${fmt(l.unitPrice)}</td><td class="r">${fmt(l.amount)}</td></tr>`).join('')}
+    <tr><td colspan="3" class="r"><strong>Total credit</strong></td><td class="r"><strong>${fmt(c.amount)}</strong></td></tr></tbody></table>
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+};
+
 window.editInventory = async function(id) {
   const d = await getDoc(doc(_db, C('inventory'), id));
   if (!d.exists()) return;
@@ -1988,6 +2266,8 @@ async function salesOrders() {
         <td style="white-space:nowrap">
           ${needsDisc?`<button class="btn btn-yellow" style="padding:4px 9px;font-size:11px" onclick="openDiscountApproval('${d.id}')">🏷️ Approve</button>`:''}
           ${v.status==='processing'||v.status==='approved'?`<button class="btn btn-blue" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="openDeliveryConfirm('${d.id}')">🚚 Delivery</button>`:''}
+          ${v.hasProof&&v.appDocId?`<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;margin-left:4px" title="Proof of delivery" onclick="viewDeliveryProof('${v.appDocId}')">📷</button>`:''}
+          ${v.status==='delivered'?`<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;margin-left:4px" title="Return goods" onclick="openReturn('${d.id}')">↩️</button>`:''}
         </td>
       </tr>`;
     });
@@ -2171,15 +2451,12 @@ async function renderTopSheet() {
       <div id="tsBody"><div style="text-align:center;padding:30px;color:var(--tx3)">Loading…</div></div>`;
 
     // Load delivery men (role=delivery_man) from users collection
-    const usersSnap = await getDocs(query(collection(_db, C('users')), where('role','==','delivery_man'))).catch(()=>({forEach:()=>{},size:0}));
-    const dmMap = {};  // uid → name
+    const dmMap = await _deliveryMen();  // uid → name (Sales App users + stsb_users)
     const dmSel = document.getElementById('tsRepFilter');
-    usersSnap.forEach(d => {
-      const v = d.data();
-      dmMap[d.id] = v.name || v.email || d.id;
+    Object.entries(dmMap).forEach(([id, name]) => {
       const opt = document.createElement('option');
-      opt.value = d.id;
-      opt.textContent = v.name || v.email || d.id;
+      opt.value = id;
+      opt.textContent = name;
       dmSel?.appendChild(opt);
     });
 

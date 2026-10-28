@@ -91,23 +91,25 @@ function stockDeltas(current, desired) {
 // ── CREDIT LIMIT ──────────────────────────────────────────────
 
 /**
- * Outstanding balance of an outlet, as the Sales App collection screen
- * computes it: non-cancelled orders − collections + approved opening
- * balance.
+ * Outstanding balance of an outlet: non-cancelled orders (at their
+ * delivered value after a partial delivery) − collections − credit notes
+ * + approved opening balance.
  * @param {object} p
  * @param {Array<object>} p.orders Orders for the outlet.
  * @param {Array<object>} p.collections Collections for the outlet.
  * @param {object} p.outlet
  * @param {string} [p.excludeOrderId] Order being evaluated.
+ * @param {Array<object>} [p.creditNotes] Credit notes issued to the outlet.
  * @return {number}
  */
-function outletOutstanding({orders, collections, outlet, excludeOrderId}) {
+function outletOutstanding({orders, collections, outlet, excludeOrderId, creditNotes}) {
   const ordered = (orders || [])
       .filter((o) => o.status !== 'Cancelled' && o.id !== excludeOrderId)
-      .reduce((s, o) => s + num(o.total), 0);
+      .reduce((s, o) => s + num(o.deliveredTotal != null ? o.deliveredTotal : o.total), 0);
   const paid = (collections || []).reduce((s, c) => s + num(c.amount), 0);
+  const credited = (creditNotes || []).reduce((s, c) => s + num(c.amount), 0);
   const opening = outlet && outlet.balanceStatus === 'approved' ? num(outlet.openingBalance) : 0;
-  return Math.max(0, ordered - paid + opening);
+  return Math.max(0, ordered - paid - credited + opening);
 }
 
 /**

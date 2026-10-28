@@ -43,6 +43,13 @@ async function openNewCollection() {
   openM('mCol');
 }
 
+// What an order still counts for in the outlet balance: its delivered value
+// (after a partial delivery) less goods returned on credit notes.
+function _orderAmountDue(o){
+  const base=o.deliveredTotal!=null?Number(o.deliveredTotal):Number(o.total);
+  return Math.max(0,(base||0)-(Number(o.returnedTotal)||0));
+}
+
 // Pending balance state
 let _pendingAmt = 0;
 
@@ -52,7 +59,7 @@ async function loadOutletPendingBalance(outletId) {
   // Calculate outstanding: total orders - total collections + approved opening balance
   const [ordD,colD]=await Promise.all([sfGet('orders'),sfGet('collections')]);
   const outlet=allOutlets.find(o=>o.id===outletId)||{};
-  const oOrders=ordD.map(d=>d.data()).filter(x=>x.outletId===outletId&&x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
+  const oOrders=ordD.map(d=>d.data()).filter(x=>x.outletId===outletId&&x.status!=='Cancelled').reduce((s,x)=>s+_orderAmountDue(x),0);
   const oCols=colD.map(d=>d.data()).filter(x=>x.outletId===outletId).reduce((s,x)=>s+x.amount,0);
   const approvedBal=outlet.balanceStatus==='approved'?outlet.openingBalance:0;
   const outstanding=Math.max(0,oOrders-oCols+approvedBal);
