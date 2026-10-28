@@ -31,7 +31,7 @@ async function loadCollections() {
   </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--tx3)">No collections found</td></tr>';
 }
 
-async function openNewCollection() {
+async function openNewCollection(outletId='') {
   // Outlets: admin sees all, rep sees only own
   const myOutlets = isAdmin() ? allOutlets : allOutlets.filter(o=>o.createdBy===CU.uid);
   document.getElementById('cOutlet').innerHTML='<option value="">Select outlet...</option>'+
@@ -40,6 +40,10 @@ async function openNewCollection() {
   document.getElementById('cAmt').value='';
   document.getElementById('cNotes').value='';
   document.getElementById('pendingBalanceInfo').style.display='none';
+  if(outletId&&myOutlets.some(o=>o.id===outletId)){
+    document.getElementById('cOutlet').value=outletId;
+    loadOutletPendingBalance(outletId);
+  }
   openM('mCol');
 }
 

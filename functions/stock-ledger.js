@@ -72,6 +72,8 @@ const unitCostOf = (inv) => num(inv.avgCost) || num(inv.costPrice);
 function needsApproval(r, inv, config = DEFAULT_CONFIG) {
   const t = MOVEMENT_TYPES[r.type];
   if (!t || !t.approval) return false;
+  // A storeman's adjustment, damage, expiry or count always needs an admin.
+  if (r.requestedByRole === 'storeman') return true;
   const value = Math.abs(movementDelta(r, inv)) * unitCostOf(inv);
   return value >= num(config.approvalValue);
 }

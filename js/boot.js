@@ -17,6 +17,13 @@ async function bootApp() {
       return;
     }
 
+    // ★ Storemen work in the ERP portal (picking, stock), not the Sales App
+    if (CU.role === 'storeman') {
+      showStoremanScreen();
+      await window.__SF.signOut(window.__SF.auth).catch(() => {});
+      return;
+    }
+
     // ★ DEVICE APPROVAL GATE — enforce inside bootApp for sales_rep
     if (CU.role === 'sales_rep') {
       const allowed = await _enforceDeviceGate(CU);
@@ -533,6 +540,23 @@ window.addEventListener('load', () => { startOtaUpdates(); });
 // they are signed out with instructions. Admins can still use the web.
 function _fieldStaffBlockedOnWeb(user) {
   return !isNativeApp() && !!user && (user.role === 'sales_rep' || user.role === 'delivery_man');
+}
+
+function showStoremanScreen() {
+  document.getElementById('loader')?.classList.add('hidden');
+  const app = document.getElementById('app');
+  if (app) app.style.display = 'none';
+  const login = document.getElementById('loginPage');
+  if (login) login.style.display = 'none';
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)';
+  el.innerHTML = '<div style="max-width:340px;text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:20px;padding:28px 24px">' +
+    '<div style="font-size:44px;margin-bottom:12px">🏬</div>' +
+    '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:800;margin-bottom:8px;color:var(--tx)">Storeman account</div>' +
+    '<div style="font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:18px">Picking, packing and stock are in the ERP. Sign in there with the same email and password.</div>' +
+    '<a class="btn btn-primary" style="width:100%;display:block;margin-bottom:8px" href="https://stfm-sales.web.app/portal" target="_system">Open the ERP</a>' +
+    '<button class="btn btn-ghost" style="width:100%" onclick="location.reload()">Back to sign in</button></div>';
+  document.body.appendChild(el);
 }
 
 function showNativeAppOnlyScreen() {

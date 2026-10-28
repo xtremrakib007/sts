@@ -130,6 +130,8 @@ service cloud.firestore {
             && request.resource.data.get('zoneId','') == resource.data.get('zoneId','')
             && request.resource.data.get('isOwner', false) == resource.data.get('isOwner', false)
             && (_isAdmin(ud()) || request.resource.data.get('role','') == resource.data.get('role',''))
+            // Storemen see ERP-wide orders and stock: only the owner grants it.
+            && (request.resource.data.get('role','') != 'storeman' || resource.data.get('role','') == 'storeman')
           )
           || (
             request.auth.uid == uid
@@ -663,22 +665,38 @@ service cloud.firestore {
       );
     }
 
+    // Warehouse storeman: reads orders and stock, packs orders and raises
+    // stock requests. Cannot see finance, approve or change prices.
+    function isStsbStoreman() {
+      return isSignedIn()
+        && stsbProfile().get('role', '') == 'storeman'
+        && stsbProfile().get('status', 'active') == 'active';
+    }
+
+    function isStsbStaff() { return isStsbERPAdmin() || isStsbStoreman(); }
+
     match /stsb_users/{uid} {
       allow read: if isStsbERPAdmin() || (isSignedIn() && request.auth.uid == uid);
       allow create, update, delete: if isStsbERPAdmin();
     }
 
     match /stsb_products/{productId} {
-      allow read, create, update, delete: if isStsbERPAdmin();
+      allow read: if isStsbStaff();
+      allow create, update, delete: if isStsbERPAdmin();
     }
 
     match /stsb_orders/{orderId} {
-      allow read: if isStsbERPAdmin()
+      allow read: if isStsbStaff()
         || (isSignedIn() && stsbProfile().get('role', '') == 'sales_rep' && resource.data.repId == request.auth.uid);
       allow create: if isSignedIn()
         && stsbProfile().get('role', '') == 'sales_rep'
         && request.resource.data.repId == request.auth.uid;
-      allow update, delete: if isStsbERPAdmin();
+      allow update: if isStsbERPAdmin()
+        || (isStsbStoreman()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['pickStatus', 'pickedBy', 'pickedByName', 'pickStartedAt', 'packedAt', 'pickNote', 'updatedAt'])
+            && request.resource.data.get('pickStatus', '') in ['', 'picking', 'packed']);
+      allow delete: if isStsbERPAdmin();
     }
 
     // Stock quantities, average cost and reservations change only through
@@ -687,7 +705,8 @@ service cloud.firestore {
     // editable by ERP admins; new items start at zero and get opening stock
     // through a stock request.
     match /stsb_inventory/{itemId} {
-      allow read, delete: if isStsbERPAdmin();
+      allow read: if isStsbStaff();
+      allow delete: if isStsbERPAdmin();
       allow create: if isStsbERPAdmin()
         && request.resource.data.get('qty', 0) == 0
         && request.resource.data.get('reservedQty', 0) == 0
@@ -702,10 +721,17 @@ service cloud.firestore {
     // posted by the erpStockRequest function. The only client change after
     // that is a different admin approving or rejecting a held request.
     match /stsb_stock_requests/{reqId} {
-      allow read: if isStsbERPAdmin();
+      allow read: if isStsbERPAdmin()
+        || (isStsbStoreman() && resource.data.requestedBy == request.auth.uid);
       allow create: if isStsbERPAdmin()
         && request.resource.data.status == 'requested'
         && request.resource.data.requestedBy == request.auth.uid;
+      // Storeman requests are tagged so adjustments always wait for an admin.
+      allow create: if isStsbStoreman()
+        && request.resource.data.status == 'requested'
+        && request.resource.data.requestedBy == request.auth.uid
+        && request.resource.data.requestedByRole == 'storeman'
+        && request.resource.data.type in ['receipt', 'adjust_in', 'adjust_out', 'damage', 'expiry', 'count', 'transfer_in', 'transfer_out', 'return_in'];
       allow update: if isStsbERPAdmin()
         && resource.data.status == 'pending_approval'
         && request.resource.data.status in ['approved', 'rejected']
@@ -718,7 +744,7 @@ service cloud.firestore {
 
     // Immutable movement history and per-order stock state: server-written.
     match /stsb_stock_ledger/{entryId} {
-      allow read: if isStsbERPAdmin();
+      allow read: if isStsbStaff();
       allow write: if false;
     }
 
@@ -754,6 +780,55 @@ service cloud.firestore {
 
     match /stsb_invoices/{invoiceId} {
       allow read, create, update, delete: if isStsbERPAdmin();
+    }
+
+    // LHDN e-Invoice requests from buyers scanning the invoice QR code (no
+    // sign-in). One request per invoice (doc id = invoice no.), accepted only
+    // with the random token printed in that invoice's QR code. The buyer can
+    // correct it while it is still pending; ERP admins process it.
+    function einvBuyerFields() {
+      return ['invoiceNo', 'token', 'buyerType', 'buyerName', 'tin', 'idType', 'idNo', 'sstNo',
+              'email', 'phone', 'addressLine', 'postcode', 'city', 'state', 'country', 'notes',
+              'status', 'createdAt'];
+    }
+
+    function validEinvRequest(invNo) {
+      let d = request.resource.data;
+      let inv = /databases/$(database)/documents/stsb_invoices/$(invNo);
+      return d.keys().hasOnly(einvBuyerFields())
+        && d.keys().hasAll(['invoiceNo', 'token', 'buyerType', 'buyerName', 'tin', 'idType', 'idNo',
+                            'email', 'phone', 'addressLine', 'postcode', 'city', 'state', 'status', 'createdAt'])
+        && d.invoiceNo == invNo
+        && d.status == 'pending'
+        && d.createdAt == request.time
+        && d.token is string && d.token.size() == 32
+        && exists(inv) && get(inv).data.get('einvoiceToken', '') == d.token
+        && get(inv).data.get('status', '') != 'void'
+        && d.buyerType in ['company', 'individual']
+        && d.idType in ['BRN', 'NRIC', 'PASSPORT', 'ARMY']
+        && d.buyerName is string && d.buyerName.size() > 0 && d.buyerName.size() <= 200
+        && d.tin is string && d.tin.size() >= 9 && d.tin.size() <= 20
+        && d.idNo is string && d.idNo.size() > 0 && d.idNo.size() <= 30
+        && d.email is string && d.email.size() <= 120
+        && d.phone is string && d.phone.size() <= 20
+        && d.addressLine is string && d.addressLine.size() <= 200
+        && d.postcode is string && d.postcode.size() <= 10
+        && d.city is string && d.city.size() <= 60
+        && d.state is string && d.state.size() <= 40
+        && d.get('sstNo', '') is string && d.get('sstNo', '').size() <= 40
+        && d.get('notes', '') is string && d.get('notes', '').size() <= 300
+        && d.get('country', 'MYS') == 'MYS';
+    }
+
+    match /stsb_einvoice_requests/{invNo} {
+      allow read, delete: if isStsbERPAdmin();
+      allow create: if validEinvRequest(invNo);
+      allow update: if (resource.data.status == 'pending' && validEinvRequest(invNo))
+        || (isStsbERPAdmin()
+            && request.resource.data.status in ['pending', 'processing', 'issued', 'rejected']
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'lhdnUuid', 'lhdnLongId', 'validationUrl', 'adminNote',
+                           'processedBy', 'processedByName', 'processedAt']));
     }
 
     match /stsb_suppliers/{supplierId} {

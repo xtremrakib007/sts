@@ -281,7 +281,7 @@ function ocSearchProducts() {
   );
   const list = document.getElementById('ocProductList');
   list.innerHTML = matches.length
-    ? `<div class="oc-prod-grid" style="padding-top:4px">${matches.map(p => ocProductCard(p)).join('')}</div>`
+    ? `<div class="oc-prod-list" style="padding-top:4px">${matches.map(p => ocProductCard(p)).join('')}</div>`
     : `<div style="text-align:center;padding:40px;color:var(--tx3)">No products found for "<strong>${q}</strong>"</div>`;
   const bar = document.getElementById('ocCatBar');
   if (bar) bar.style.display = q ? 'none' : 'flex';
@@ -308,7 +308,7 @@ function ocRenderCatalog(){
   list.innerHTML=cats.map(cat=>`
     <div class="oc-cat-section" data-cat="${cat}" id="ocSec-${cat.replace(/\s+/g,'_')}">
       <div class="oc-cat-heading">${getCatEmoji(cat)} ${cat}</div>
-      <div class="oc-prod-grid">
+      <div class="oc-prod-list">
         ${grouped[cat].map(p=>ocProductCard(p)).join('')}
       </div>
     </div>`).join('');
@@ -333,53 +333,195 @@ function ocRenderCatalog(){
   sections.forEach(s=>window._ocObserver.observe(s));
 }
 
+// ── Product card: photo · name · price · category · + button. Once the
+// product is in the cart the card opens inline CTN/PCS steppers and an
+// item discount, so the whole order is built without leaving the list.
 function ocProductCard(p){
-  const inCart = ordItems.find(x=>x.pid===p.id);
-  const cartBadge = inCart ? `<div class="oc-cart-badge">${inCart.qtyDisplay||inCart.qty}</div>` : '';
-  const photo = p.photo ? `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:10px 10px 0 0">` : '📦';
-
-  // ── Stock display: ERP inventory first, fall back to product's own stockQty ──
+  const item = ordItems.find(x=>x.pid===p.id);
+  const photo = p.photo
+    ? `<img src="${escH(p.photo)}" alt="" loading="lazy"><button class="oc-zoom" onclick="event.stopPropagation();ocZoomPhoto('${p.id}')" aria-label="View photo">🔍</button>`
+    : '<span class="oc-noimg">📦</span>';
+  const ctnSz = p.ctnSize ?? p.ctn_size ?? 0;
+  const ctnPr = p.ctnPrice ?? p.ctn_price ?? null;
   const stock = _getStock(p);
   const avail = _availableQty(stock);
-  // App-level stock (pcs & ctn) — from product record
-  const appQty  = p.stockQty ?? p.stock_qty ?? null;
-  const ctnSz   = p.ctnSize  ?? p.ctn_size  ?? 0;
-  const appCtns = (appQty !== null && ctnSz > 0) ? Math.floor(appQty / ctnSz) : null;
-  const ctnPr   = p.ctnPrice ?? p.ctn_price ?? null;
-
-  let stockBadge = '';
-  if (stock !== null && avail !== null) {
-    // ERP stock takes precedence for badge colour/number
-    if (avail <= 0) {
-      stockBadge = `<div style="position:absolute;top:6px;left:6px;background:rgba(239,68,68,.9);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">OUT</div>`;
-    } else if (avail <= (stock.minStock || 5)) {
-      stockBadge = `<div style="position:absolute;top:6px;left:6px;background:rgba(245,158,11,.9);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">LOW ${avail}</div>`;
-    } else {
-      stockBadge = `<div style="position:absolute;top:6px;left:6px;background:rgba(34,197,94,.85);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">${avail} ${stock.unit||p.unit||'pcs'}</div>`;
-    }
-  } else if (appQty !== null) {
-    // No ERP record — use app-level stockQty
-    const color = appQty <= 0 ? 'rgba(239,68,68,.9)' : appQty <= (ctnSz || 5) ? 'rgba(245,158,11,.9)' : 'rgba(34,197,94,.85)';
-    const label = appQty <= 0 ? 'OUT' : `${appQty}pcs${appCtns !== null ? ' / '+appCtns+'ctn' : ''}`;
-    stockBadge = `<div style="position:absolute;top:6px;left:6px;background:${color};color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">${label}</div>`;
+  let stockTag = '';
+  if (avail !== null) {
+    const cls = avail <= 0 ? 'out' : avail <= (stock.minStock || 5) ? 'low' : 'ok';
+    stockTag = `<span class="oc-stock ${cls}">${avail <= 0 ? 'Out of stock' : avail + ' ' + escH(stock.unit || p.unit || 'pcs') + ' left'}</span>`;
   }
-
-  // Price line: show pcs price + ctn price if available
-  const priceHtml = ctnPr && ctnSz
-    ? `<div class="oc-prod-price">${fmt(p.price)}<span style="font-size:9px;color:var(--tx3);margin-left:4px">/ pcs</span></div>
-       <div style="font-size:10px;color:var(--tx2);margin-top:1px">Ctn ${ctnSz}pcs: <strong>${fmt(ctnPr)}</strong></div>`
-    : `<div class="oc-prod-price">${fmt(p.price)}</div>`;
-
-  return`<div class="oc-prod-card" onclick="openQtyPicker('${p.id}')" id="ocProd-${p.id}" style="position:relative">
-    ${cartBadge}
-    ${stockBadge}
-    <div class="oc-prod-photo">${photo}</div>
-    <div class="oc-prod-info">
-      <div class="oc-prod-name">${p.name}</div>
-      ${p.unit?`<div class="oc-prod-unit">${p.unit}</div>`:''}
-      ${priceHtml}
+  const mainPrice = ctnSz > 0 && ctnPr ? ctnPr : p.price;
+  const subPrice = ctnSz > 0 && ctnPr
+    ? `<div class="oc-sub">${fmt(p.price)} / pcs · ${ctnSz} pcs per ctn</div>` : '';
+  return `<div class="oc-row${item ? ' oc-in-cart' : ''}" id="ocProd-${p.id}">
+    <div class="oc-row-main">
+      <div class="oc-row-photo">${photo}</div>
+      <div class="oc-row-info">
+        <div class="oc-row-name">${escH(p.name)}</div>
+        <div class="oc-row-price">${fmt(mainPrice)}${ctnSz > 0 && ctnPr ? '<span>/ctn</span>' : ''}</div>
+        ${subPrice}
+        <div class="oc-row-cat">${escH(p.category || '')} ${stockTag}</div>
+      </div>
+      ${item ? '' : `<button class="oc-plus" onclick="ocQuickAdd('${p.id}')" aria-label="Add ${escH(p.name)}">+</button>`}
     </div>
+    ${item ? _ocCardEditor(p, item) : ''}
   </div>`;
+}
+
+function _ocStepper(pid, unit, val, label) {
+  return `<div class="oc-step">
+    <span class="oc-step-lbl">${label}</span>
+    <button onclick="ocStepQty('${pid}','${unit}',-1)" aria-label="Less ${label}">−</button>
+    <input type="number" inputmode="numeric" min="0" value="${val || 0}" onchange="ocSetQty('${pid}','${unit}',this.value)" onfocus="this.select()">
+    <button onclick="ocStepQty('${pid}','${unit}',1)" aria-label="More ${label}">+</button>
+  </div>`;
+}
+
+function _ocCardEditor(p, item) {
+  const hasCtn = (p.ctnSize || 0) > 0;
+  const d = item.discount || { type: '', value: 0, amount: 0 };
+  const stock = _getStock(p);
+  const avail = _availableQty(stock);
+  const short = avail !== null && item.qty > avail
+    ? `⚠️ Only ${avail} pcs in stock — the shortfall goes to back-order` : '';
+  return `<div class="oc-edit">
+    <div class="oc-edit-qty">
+      ${hasCtn ? _ocStepper(p.id, 'ctn', item.ctnQty, 'CTN') : ''}
+      ${_ocStepper(p.id, 'pcs', item.pcsQty, 'PCS')}
+    </div>
+    <div class="oc-edit-disc">
+      <select onchange="ocCardDiscType('${p.id}',this.value)" aria-label="Discount type">
+        <option value="" ${!d.type ? 'selected' : ''}>No discount</option>
+        <option value="percent" ${d.type === 'percent' ? 'selected' : ''}>Discount %</option>
+        <option value="fixed" ${d.type === 'fixed' ? 'selected' : ''}>Discount RM</option>
+      </select>
+      <input type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="${d.value || ''}" ${d.type ? '' : 'disabled'}
+        oninput="ocCardDiscVal('${p.id}',this.value)" aria-label="Discount value">
+      <button class="oc-del" onclick="ocRemovePid('${p.id}')" aria-label="Remove">🗑</button>
+    </div>
+    <div class="oc-warn" id="ocWarn-${p.id}"${short ? '' : ' hidden'}>${short}</div>
+    <div class="oc-edit-total"><span id="ocSum-${p.id}">${escH(item.qtyDisplay)} = ${item.qty} pcs</span><strong id="ocLine-${p.id}">${_ocLineText(item)}</strong></div>
+  </div>`;
+}
+
+function _ocLineText(item) {
+  const gross = item._lineTotal ?? item.price * item.qty;
+  const disc = item.discount?.amount || 0;
+  return disc > 0 ? `<s>${fmt(gross)}</s> ${fmt(gross - disc)}` : fmt(gross);
+}
+
+// Builds or updates the cart line for a product, keeping its discount.
+function _ocSetItem(p, ctnQty, pcsQty) {
+  const hasCtn = (p.ctnSize || 0) > 0;
+  ctnQty = hasCtn ? Math.max(0, Math.floor(ctnQty || 0)) : 0;
+  pcsQty = Math.max(0, Math.floor(pcsQty || 0));
+  const totalPcs = ctnQty * (p.ctnSize || 1) + pcsQty;
+  const idx = ordItems.findIndex(x => x.pid === p.id);
+  if (totalPcs <= 0) { if (idx >= 0) ordItems.splice(idx, 1); return null; }
+  const ctnPr = p.ctnPrice ?? p.ctn_price ?? (p.price * (p.ctnSize || 1));
+  const ctnTotal = ctnQty * ctnPr;
+  const pcsTotal = pcsQty * p.price;
+  const qtyDisplay = ctnQty > 0 ? (pcsQty > 0 ? `${ctnQty}ctn+${pcsQty}pcs` : `${ctnQty}ctn`) : `${totalPcs}pcs`;
+  const prev = idx >= 0 ? ordItems[idx] : null;
+  const item = {
+    pid: p.id, name: p.name, sku: p.sku || '',
+    price: p.price, ctnPrice: ctnPr,
+    qty: totalPcs, ctnQty, pcsQty,
+    ctnSize: p.ctnSize || 0, unit: p.unit || 'pcs', qtyDisplay,
+    _ctnTotal: ctnTotal, _pcsTotal: pcsTotal, _lineTotal: ctnTotal + pcsTotal,
+  };
+  if (prev?.discount) item.discount = _ocDiscAmount(prev.discount, item._lineTotal);
+  if (idx >= 0) ordItems[idx] = item; else ordItems.push(item);
+  return item;
+}
+
+function _ocDiscAmount(disc, lineTotal) {
+  const value = Math.max(0, parseFloat(disc.value) || 0);
+  let amount = 0;
+  if (disc.type === 'percent') amount = Math.min(lineTotal, Math.min(value, 100) / 100 * lineTotal);
+  else if (disc.type === 'fixed') amount = Math.min(lineTotal, value);
+  return { type: disc.type || '', value, amount: Math.round(amount * 100) / 100 };
+}
+
+function _ocRedrawCard(pid) {
+  const p = allProducts.find(x => x.id === pid);
+  const el = document.getElementById('ocProd-' + pid);
+  if (p && el && el.isConnected) el.outerHTML = ocProductCard(p);
+  ocUpdateCartBtn();
+}
+
+// Updates totals in place, without rebuilding the card, so a tap on another
+// control right after typing (which first fires change/blur) still lands.
+function _ocRefreshCard(pid) {
+  const it = ordItems.find(x => x.pid === pid);
+  const editing = document.querySelector('#ocProd-' + pid + ' .oc-edit');
+  if (!it || !editing) { setTimeout(() => _ocRedrawCard(pid), 0); return; }
+  const set = (id, html) => { const e = document.getElementById(id + pid); if (e) e.innerHTML = html; };
+  set('ocLine-', _ocLineText(it));
+  set('ocSum-', `${escH(it.qtyDisplay)} = ${it.qty} pcs`);
+  const p = allProducts.find(x => x.id === pid);
+  const avail = p ? _availableQty(_getStock(p)) : null;
+  const w = document.getElementById('ocWarn-' + pid);
+  if (w) {
+    w.hidden = !(avail !== null && it.qty > avail);
+    w.textContent = w.hidden ? '' : `⚠️ Only ${avail} pcs in stock — the shortfall goes to back-order`;
+  }
+  ocUpdateCartBtn();
+}
+
+function ocQuickAdd(pid) {
+  const p = allProducts.find(x => x.id === pid); if (!p) return;
+  if ((p.ctnSize || 0) > 0) _ocSetItem(p, 1, 0); else _ocSetItem(p, 0, 1);
+  _ocRedrawCard(pid);
+}
+
+function ocStepQty(pid, unit, delta) {
+  const p = allProducts.find(x => x.id === pid); if (!p) return;
+  const it = ordItems.find(x => x.pid === pid) || { ctnQty: 0, pcsQty: 0 };
+  const ctn = (it.ctnQty || 0) + (unit === 'ctn' ? delta : 0);
+  const pcs = (it.pcsQty || 0) + (unit === 'pcs' ? delta : 0);
+  _ocSetItem(p, Math.max(0, ctn), Math.max(0, pcs));
+  _ocRedrawCard(pid);
+}
+
+function ocSetQty(pid, unit, val) {
+  const p = allProducts.find(x => x.id === pid); if (!p) return;
+  const it = ordItems.find(x => x.pid === pid) || { ctnQty: 0, pcsQty: 0 };
+  const n = Math.max(0, parseInt(val, 10) || 0);
+  _ocSetItem(p, unit === 'ctn' ? n : it.ctnQty, unit === 'pcs' ? n : it.pcsQty);
+  _ocRefreshCard(pid);
+}
+
+function ocCardDiscType(pid, type) {
+  const it = ordItems.find(x => x.pid === pid); if (!it) return;
+  it.discount = _ocDiscAmount({ type, value: 0 }, it._lineTotal ?? it.price * it.qty);
+  const inp = document.querySelector('#ocProd-' + pid + ' .oc-edit-disc input');
+  if (inp) { inp.disabled = !type; inp.value = ''; if (type) inp.focus(); }
+  _ocRefreshCard(pid);
+}
+
+// Typing keeps focus: only the line total and the cart bar are refreshed.
+function ocCardDiscVal(pid, val) {
+  const it = ordItems.find(x => x.pid === pid); if (!it || !it.discount?.type) return;
+  it.discount = _ocDiscAmount({ type: it.discount.type, value: val }, it._lineTotal ?? it.price * it.qty);
+  const el = document.getElementById('ocLine-' + pid);
+  if (el) el.innerHTML = _ocLineText(it);
+  ocUpdateCartBtn();
+}
+
+function ocRemovePid(pid) {
+  const i = ordItems.findIndex(x => x.pid === pid);
+  if (i >= 0) ordItems.splice(i, 1);
+  _ocRedrawCard(pid);
+}
+
+function ocZoomPhoto(pid) {
+  const p = allProducts.find(x => x.id === pid); if (!p?.photo) return;
+  const ov = document.createElement('div');
+  ov.className = 'oc-zoom-ov';
+  ov.innerHTML = `<img src="${escH(p.photo)}" alt=""><div>${escH(p.name)}</div>`;
+  ov.onclick = () => ov.remove();
+  document.body.appendChild(ov);
 }
 
 function getCatEmoji(cat){
@@ -401,9 +543,16 @@ function ocScrollToAll(){
 
 function ocUpdateCartBtn(){
   const btn=document.getElementById('ocCartBtn');
-  const cnt=ordItems.reduce((s,x)=>s+x.qty,0);
-  document.getElementById('ocCartCount').textContent=cnt;
-  btn.style.display=cnt?'inline-flex':'none';
+  const lines=ordItems.length;
+  const total=ordItems.reduce((s,x)=>s+(x._lineTotal??x.price*x.qty)-(x.discount?.amount||0),0);
+  document.getElementById('ocCartCount').textContent=lines;
+  btn.style.display=lines?'inline-flex':'none';
+  const bar=document.getElementById('ocBottomBar');
+  if(bar){
+    bar.style.display=lines?'flex':'none';
+    const t=document.getElementById('ocBarText');
+    if(t)t.textContent=`${lines} item${lines===1?'':'s'} · ${fmt(total)}`;
+  }
 }
 
 // ── Quantity Picker ──────────────────────────────────────────────────────────
@@ -610,7 +759,7 @@ function ocRenderCart(){
   list.innerHTML=ordItems.map((item,i)=>{
     const p=allProducts.find(x=>x.id===item.pid)||{};
     const photo=p.photo?`<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:8px">`:'📦';
-    const lineTotal=item.price*item.qty;
+    const lineTotal=item._lineTotal??item.price*item.qty;
     const disc=item.discount||{type:'',value:0,amount:0};
     const discAmt=disc.amount||0;
     const finalLine=Math.max(0,lineTotal-discAmt);
@@ -662,13 +811,7 @@ function ocItemDiscountType(idx,type){
 function ocItemDiscountValue(idx,val){
   if(!ordItems[idx])return;
   const disc=ordItems[idx].discount||{type:'',value:0,amount:0};
-  const lineTotal=ordItems[idx].price*ordItems[idx].qty;
-  const rawVal=parseFloat(val)||0;
-  disc.value=rawVal;
-  if(disc.type==='percent'){disc.amount=Math.min(lineTotal,(rawVal/100)*lineTotal);}
-  else if(disc.type==='fixed'){disc.amount=Math.min(lineTotal,rawVal);}
-  else{disc.amount=0;}
-  ordItems[idx].discount=disc;
+  ordItems[idx].discount=_ocDiscAmount({type:disc.type,value:val},ordItems[idx]._lineTotal??ordItems[idx].price*ordItems[idx].qty);
   ocUpdateCartTotals();
 }
 
@@ -694,10 +837,8 @@ function ocUpdateCartTotals(){
 function ocEditItem(i){
   const item=ordItems[i];
   if(!item)return;
-  qpCtnQty = item.ctnQty || 0;
-  qpPcsQty = item.pcsQty || item.qty || 0;
   ocBackToProducts();
-  setTimeout(()=>openQtyPicker(item.pid),100);
+  setTimeout(()=>document.getElementById('ocProd-'+item.pid)?.scrollIntoView({behavior:'smooth',block:'center'}),100);
 }
 
 function ocRemoveItem(i){
@@ -1073,6 +1214,17 @@ async function cancelOrder(id) {
   }
 }
 
+// LHDN e-Invoice request QR for an invoiced order (token set by the ERP).
+function _einvoiceQrBlock(o) {
+  if (!o.invoiceNo || !o.einvoiceToken || typeof qrcode !== 'function') return '';
+  const url = `https://stfm-sales.web.app/einvoice.html?i=${encodeURIComponent(o.invoiceNo)}&t=${encodeURIComponent(o.einvoiceToken)}`;
+  const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+  return `<div style="display:flex;gap:12px;align-items:center;border:1px solid #e5e5e5;border-radius:8px;padding:10px;margin-bottom:14px">
+    <div style="width:96px;flex-shrink:0">${qr.createSvgTag({ cellSize: 3, margin: 2, scalable: true })}</div>
+    <div style="font-size:11px;color:#444;line-height:1.5"><strong style="color:#111">Need an LHDN e-Invoice?</strong><br>Scan to enter your tax details (TIN, ID, address). We will issue a validated e-Invoice for ${escH(o.invoiceNo)}.</div>
+  </div>`;
+}
+
 async function viewOrder(docId) {
   const _od=await window.__SF.getDoc(docRef('orders',docId));
   const o=_od.exists()?{_docId:_od.id,..._od.data()}:null;
@@ -1155,6 +1307,7 @@ async function viewOrder(docId) {
       </div>
     </div>
     ${o.notes?`<div style="background:#fff9f0;border:1px solid #fed7aa;border-radius:8px;padding:11px 14px;font-size:12px;color:#7c3c00;margin-bottom:14px">📝 Notes: ${o.notes}</div>`:''}
+    ${_einvoiceQrBlock(o)}
     <div style="border-top:1px solid #f0f0f0;padding-top:14px;text-align:center;font-size:11px;color:#999">
       <div>Thank you for your business · Sairah Trading Sdn Bhd</div>
     </div>

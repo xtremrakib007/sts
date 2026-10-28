@@ -154,7 +154,10 @@ async function loadMyDeliveries() {
           <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700">${o.id||o._docId}</div>
           <div style="font-size:12px;color:var(--tx2);margin-top:2px">📅 ${o.deliveryDate||o.date||'—'}</div>
         </div>
-        <span class="bdg ${sBadge[o.status]||'bdg-gry'}">${o.status}</span>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+          <span class="bdg ${sBadge[o.status]||'bdg-gry'}">${o.status}</span>
+          ${o.pickStatus==='packed'?'<span class="bdg bdg-grn" style="font-size:10px">📦 Packed</span>':o.pickStatus==='picking'?'<span class="bdg bdg-ylw" style="font-size:10px">🧺 Picking</span>':''}
+        </div>
       </div>
       <div style="background:var(--s2);border-radius:var(--r2);padding:11px;margin-bottom:10px">
         <div style="font-weight:700;font-size:13px;margin-bottom:2px">🏪 ${outlet.name}</div>

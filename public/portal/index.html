@@ -206,6 +206,7 @@ tr:hover td{background:var(--s2);}
   .kpi-grid{grid-template-columns:1fr 1fr;}
   .topbar-sync{display:none;}
 }
+body.store-mode .adm-only{display:none!important}
 </style>
 </head>
 <body>
@@ -549,6 +550,7 @@ tr:hover td{background:var(--s2);}
 <!-- ══════════════════════════════════════
      FIREBASE + APP LOGIC
 ══════════════════════════════════════ -->
+<script src="/vendor/qrcode.js"></script>
 <script type="module">
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -592,6 +594,16 @@ const DB = () => _db;
 const E = { collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit };
 const ts = () => serverTimestamp();
 const uid = () => _user?.uid || 'system';
+// LHDN e-Invoice requests: each invoice carries a random token that its QR
+// code includes, so only someone holding the invoice can submit a request.
+const EINV_BASE = 'https://stfm-sales.web.app';
+const _einvToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+const _einvUrl = (no, token) => `${EINV_BASE}/einvoice.html?i=${encodeURIComponent(no)}&t=${encodeURIComponent(token)}`;
+function _qrSvg(text, cell = 3) {
+  if (typeof window.qrcode !== 'function') return '';
+  const qr = window.qrcode(0, 'M'); qr.addData(text); qr.make();
+  return qr.createSvgTag({ cellSize: cell, margin: 2, scalable: true });
+}
 const tenantPrefix = () => 'stsb'; // STSB: hardcoded
 // Tenant-scoped collection names
 const C = (name) => `${tenantPrefix()}_${name}`;
@@ -671,7 +683,7 @@ window.selectTenant = function(tenantId) {
             if (u2.exists()) uData = u2.data();
           }
           const role = uData.role || '';
-          const allowedERP = ['admin','sub_admin','erp_user','super_admin'];
+          const allowedERP = ['admin','sub_admin','erp_user','super_admin','storeman'];
           const allowedSales = ['sales_rep','delivery_man','admin','sub_admin','super_admin'];
           const allowed = _selectedLoginRole === 'erp' ? allowedERP : allowedSales;
           if (!allowed.includes(role) && role !== '') {
@@ -756,7 +768,24 @@ window.doLogout = async () => {
   if (_auth) await signOut(_auth);
 };
 
-function showApp() {
+// Storemen are created in the Sales App (users/{uid}); the rules read that
+// profile when there is no stsb_users one, so the portal does the same.
+async function _resolveStoreman() {
+  if (!_user || !_db || _user._profileChecked) return;
+  _user._profileChecked = true;
+  try {
+    const erpDoc = await getDoc(doc(_db, C('users'), _user.uid));
+    const prof = erpDoc.exists() ? erpDoc.data() : (await getDoc(doc(_db, 'users', _user.uid))).data();
+    if (prof && prof.role === 'storeman') _user = { ..._user, ...prof, uid: _user.uid, _profileChecked: true };
+  } catch (e) { /* not a storeman */ }
+}
+
+async function showApp() {
+  await _resolveStoreman();
+  if (_user?.role === 'storeman') {
+    if (_user.status && _user.status !== 'active') { showToast('This account is disabled', 'error'); doLogout(); return; }
+    _appRole = 'store';
+  }
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('app').classList.add('visible');
   const u = _user || {};
@@ -767,7 +796,7 @@ function showApp() {
   document.getElementById('sbLogoTag').textContent = 'ERP Operations';
   document.getElementById('sbTenantName').textContent = 'STSB Trading';
   buildSidebar();
-  goPage(_appRole === 'erp' ? 'dashboard' : 'salesDashboard');
+  goPage(_appRole === 'store' ? 'picking' : _appRole === 'erp' ? 'dashboard' : 'salesDashboard');
   updateBadges();
   startRealtimeSync();
 }
@@ -777,6 +806,17 @@ function showApp() {
 // ═══════════════════════════════════════════
 function buildSidebar() {
   const nav = document.getElementById('sbNav');
+  document.body.classList.toggle('store-mode', _appRole === 'store');
+  if (_appRole === 'store') {
+    nav.innerHTML = `
+      <div class="sb-section">Warehouse</div>
+      <div class="sb-item" data-page="picking" onclick="goPage('picking')"><span class="ico">📦</span> Picking &amp; Packing</div>
+      <div class="sb-item" data-page="inventory" onclick="goPage('inventory')"><span class="ico">🏬</span> Stock Levels</div>
+      <div class="sb-item" data-page="storeRequests" onclick="goPage('storeRequests')"><span class="ico">📥</span> Stock In / Out</div>
+      <div class="sb-item" data-page="stockLedger" onclick="goPage('stockLedger')"><span class="ico">📜</span> Stock Movements</div>
+    `;
+    return;
+  }
   if (_appRole === 'erp') {
     nav.innerHTML = `
       <div class="sb-section">Main</div>
@@ -789,6 +829,7 @@ function buildSidebar() {
       <div class="sb-section">Finance</div>
       <div class="sb-item" data-page="discounts" onclick="goPage('discounts')"><span class="ico">🏷️</span> Discount Approvals <span class="sb-badge" id="badgeDiscount" style="display:none">0</span></div>
       <div class="sb-item" data-page="invoices" onclick="goPage('invoices')"><span class="ico">🧾</span> Invoices</div>
+      <div class="sb-item" data-page="einvoiceRequests" onclick="goPage('einvoiceRequests')"><span class="ico">🏛️</span> e-Invoice Requests <span class="sb-badge" id="badgeEinv" style="display:none">0</span></div>
       <div class="sb-item" data-page="collections" onclick="goPage('collections')"><span class="ico">💰</span> Collections <span class="sb-badge sb-badge-ylw" id="badgeColl" style="display:none">0</span></div>
       <div class="sb-section">Operations</div>
       <div class="sb-item" data-page="deliveryPlanner" onclick="goPage('deliveryPlanner')"><span class="ico">🗓️</span> Delivery Planner</div>
@@ -841,9 +882,16 @@ const pageConfig = {
   myCollections:  {title:'My Collections',  icon:'💰', action:'+ Submit Collection',modal:'mCollection', prep:'collection'},
   myDeliveries:   {title:'My Deliveries',   icon:'🚚', action:null},
   products:       {title:'Product Catalogue',icon:'🛍️',action:null},
+  picking:        {title:'Picking & Packing', icon:'📦', action:null},
+  einvoiceRequests:{title:'e-Invoice Requests', icon:'🏛️', action:null},
+  storeRequests:  {title:'Stock In / Out',    icon:'📥', action:null},
 };
 
+// Pages a storeman may open; anything else falls back to picking.
+const STORE_PAGES = ['picking', 'inventory', 'storeRequests', 'stockLedger'];
+
 window.goPage = function(page) {
+  if (_appRole === 'store' && !STORE_PAGES.includes(page)) page = 'picking';
   window.__curPage = page;
   const cfg = pageConfig[page] || {};
   document.getElementById('topbarTitle').textContent = cfg.icon + ' ' + cfg.title;
@@ -870,7 +918,8 @@ window.goPage = function(page) {
     deliveryPlanner, returns,
     dispatch, suppliers, reports, settings, salesmanOrdersReport,
     hqOrders, transfers,
-    salesDashboard, myOrders, myCollections, myDeliveries, products
+    salesDashboard, myOrders, myCollections, myDeliveries, products,
+    picking, storeRequests, einvoiceRequests
   };
   if (renders[page]) renders[page]();
 };
@@ -883,7 +932,7 @@ window.goPage = function(page) {
 const REALTIME_COLLECTIONS = [
   'users', 'products', 'orders', 'inventory', 'invoices',
   'suppliers', 'transfers', 'hq_orders', 'collections', 'config',
-  'stock_requests', 'stock_ledger', 'returns', 'credit_notes'
+  'stock_requests', 'stock_ledger', 'returns', 'credit_notes', 'einvoice_requests'
 ];
 
 function setRealtimeStatus(message, color) {
@@ -985,14 +1034,17 @@ function startRealtimeSync() {
 async function updateBadges() {
   if (!_db) return;
   try {
-    const [discSnap, collSnap, soSnap] = await Promise.all([
+    if (_appRole === 'store') return;
+    const [discSnap, collSnap, soSnap, einvSnap] = await Promise.all([
       getDocs(query(collection(_db, C('orders')), where('discountStatus','==','pending'))).catch(()=>({size:0})),
       getDocs(query(collection(_db, C('collections')), where('status','==','pending_erp'))).catch(()=>({size:0})),
       getDocs(query(collection(_db, C('orders')), where('status','==','pending'))).catch(()=>({size:0})),
+      getDocs(query(collection(_db, C('einvoice_requests')), where('status','==','pending'))).catch(()=>({size:0})),
     ]);
     setBadge('badgeDiscount', discSnap.size);
     setBadge('badgeColl', collSnap.size);
     setBadge('badgeSO', soSnap.size);
+    setBadge('badgeEinv', einvSnap.size);
   } catch(e) {}
 }
 function setBadge(id, n) {
@@ -1455,8 +1507,9 @@ window.saveInvoice = async function() {
       if (os && os.exists() && os.data().invoiceId) throw new Error(`Order already invoiced (${os.data().invoiceNo})`);
       const n = _n(cs.exists() ? cs.data().invoice : 0) + 1, invNo = _invoiceNo(n);
       tx.set(ctrRef, { invoice: n }, { merge: true });
-      tx.set(doc(_db, C('invoices'), invNo), { ...data, invoiceNo: invNo });
-      if (os && os.exists()) tx.update(ordRef, { invoiceId: invNo, invoiceNo: invNo, invoicedAt: new Date().toISOString(), updatedAt: ts(),
+      const einvoiceToken = _einvToken();
+      tx.set(doc(_db, C('invoices'), invNo), { ...data, invoiceNo: invNo, einvoiceToken });
+      if (os && os.exists()) tx.update(ordRef, { invoiceId: invNo, invoiceNo: invNo, einvoiceToken, invoicedAt: new Date().toISOString(), updatedAt: ts(),
         ...(os.data().status === 'pending' ? { status: 'processing', acceptedAt: new Date().toISOString(), acceptedBy: uid() } : {}) });
       return invNo;
     });
@@ -1724,6 +1777,7 @@ let _invCache = [];
 async function requestStockMovement(r) {
   return addDoc(collection(_db, C('stock_requests')), {
     ...r, status:'requested', requestedBy: uid(), requestedByName: _user?.name || _user?.email || '',
+    ...(_appRole === 'store' ? { requestedByRole: 'storeman' } : {}),
     createdAt: new Date().toISOString(),
   });
 }
@@ -1757,15 +1811,15 @@ async function inventory() {
         <td style="font-family:'DM Mono',monospace;text-align:right;color:var(--tx3)">${_qty(reserved)}</td>
         <td style="font-family:'DM Mono',monospace;text-align:right"><strong>${_qty(onHand-reserved)}</strong></td>
         <td style="font-family:'DM Mono',monospace;text-align:right;color:var(--tx3)">${_qty(v.minStock)}</td>
-        <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(cost)}</td>
-        <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(Math.max(0,onHand)*cost)}</td>
+        <td class="adm-only" style="font-family:'DM Mono',monospace;text-align:right">${fmt(cost)}</td>
+        <td class="adm-only" style="font-family:'DM Mono',monospace;text-align:right">${fmt(Math.max(0,onHand)*cost)}</td>
         <td>${_invStatus(v)}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-primary" style="padding:4px 8px;font-size:11px" title="Receive stock" onclick="openStockMove('${v.id}','receipt')">📥</button>
           <button class="btn btn-blue" style="padding:4px 8px;font-size:11px" title="Adjust / damage / expiry" onclick="openStockMove('${v.id}','adjust_out')">⚖️</button>
           <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" title="Movement history" onclick="openStockHistory('${v.id}')">📜</button>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" title="Edit details" onclick="editInventory('${v.id}')">✏️</button>
-          ${onHand===0&&reserved===0?`<button class="btn btn-danger" style="padding:4px 8px;font-size:11px" title="Delete (only empty items)" onclick="deleteRecord('inventory','${v.id}','inventory')">🗑</button>`:''}
+          <button class="btn btn-ghost adm-only" style="padding:4px 8px;font-size:11px" title="Edit details" onclick="editInventory('${v.id}')">✏️</button>
+          ${onHand===0&&reserved===0?`<button class="btn btn-danger adm-only" style="padding:4px 8px;font-size:11px" title="Delete (only empty items)" onclick="deleteRecord('inventory','${v.id}','inventory')">🗑</button>`:''}
         </td>
       </tr>`;
     }).join('');
@@ -1777,16 +1831,16 @@ async function inventory() {
           <button class="btn btn-ghost" onclick="openStockCount()">🔢 Stock Count</button>
           <button class="btn btn-ghost" onclick="goPage('stockLedger')">📜 Movements</button>
           <button class="btn btn-ghost" onclick="exportInventoryCsv()">⬇️ CSV</button>
-          <button class="btn btn-ghost" title="Approval threshold" onclick="editStockSettings()">⚙️</button>
-          <button class="btn btn-primary" onclick="prepModal('inventory');openModal('mInventory')">+ Add Item</button>
+          <button class="btn btn-ghost adm-only" title="Approval threshold" onclick="editStockSettings()">⚙️</button>
+          <button class="btn btn-primary adm-only" onclick="prepModal('inventory');openModal('mInventory')">+ Add Item</button>
         </div></div>
       <div class="kpi-grid">
-        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">💰</div><div class="kpi-val">${fmt(value)}</div><div class="kpi-lbl">Stock value (avg cost)</div></div>
+        <div class="kpi adm-only" style="--kpi-color:var(--acc)"><div class="kpi-ico">💰</div><div class="kpi-val">${fmt(value)}</div><div class="kpi-lbl">Stock value (avg cost)</div></div>
         <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⚠️</div><div class="kpi-val">${low}</div><div class="kpi-lbl">At / below reorder level</div></div>
         <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">⛔</div><div class="kpi-val">${out}</div><div class="kpi-lbl">Out of stock</div></div>
-        <div class="kpi" style="--kpi-color:var(--blu);cursor:pointer" onclick="goPage('stockApprovals')"><div class="kpi-ico">✅</div><div class="kpi-val">${pending}</div><div class="kpi-lbl">Waiting for approval</div></div>
+        <div class="kpi adm-only" style="--kpi-color:var(--blu);cursor:pointer" onclick="goPage('stockApprovals')"><div class="kpi-ico">✅</div><div class="kpi-val">${pending}</div><div class="kpi-lbl">Waiting for approval</div></div>
       </div>
-      <div class="card"><div class="twrap"><table id="invTbl"><thead><tr><th>Item</th><th>Category</th><th style="text-align:right">On hand</th><th style="text-align:right">Reserved</th><th style="text-align:right">Available</th><th style="text-align:right">Reorder</th><th style="text-align:right">Avg cost</th><th style="text-align:right">Value</th><th>Status</th><th></th></tr></thead>
+      <div class="card"><div class="twrap"><table id="invTbl"><thead><tr><th>Item</th><th>Category</th><th style="text-align:right">On hand</th><th style="text-align:right">Reserved</th><th style="text-align:right">Available</th><th style="text-align:right">Reorder</th><th class="adm-only" style="text-align:right">Avg cost</th><th class="adm-only" style="text-align:right">Value</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows||'<tr><td colspan="10" style="text-align:center;color:var(--tx3);padding:30px">No inventory items yet</td></tr>'}</tbody></table></div></div>`;
   } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
 }
@@ -1815,7 +1869,7 @@ window.openStockMove = async function(invId, type) {
       <div class="fgrp"><label class="flbl">Quantity (${_esc(v.unit||'pcs')})</label><input class="finp" id="smQty" type="number" min="0" step="any"></div>
     </div>
     <div class="frow">
-      <div class="fgrp" id="smCostGrp"><label class="flbl">Unit cost (RM)</label><input class="finp" id="smCost" type="number" min="0" step="any" value="${_n(v.costPrice)||''}"></div>
+      <div class="fgrp adm-only" id="smCostGrp"><label class="flbl">Unit cost (RM)</label><input class="finp" id="smCost" type="number" min="0" step="any" value="${_n(v.costPrice)||''}"></div>
       <div class="fgrp"><label class="flbl">Reference</label><input class="finp" id="smRef" placeholder="GRN / DO / invoice no."></div>
     </div>
     <div class="fgrp"><label class="flbl" id="smReasonLbl">Reason</label><input class="finp" id="smReason" placeholder="Why is stock changing?"></div>
@@ -1837,7 +1891,9 @@ window.saveStockMove = async function(invId) {
   if (!(qty > 0)) { showToast('Enter a quantity above zero','error'); return; }
   if (STOCK_TYPES[type].reason && !reason) { showToast('A reason is required','error'); return; }
   const r = { type, invId, qty, reason, ref: document.getElementById('smRef').value.trim() };
-  if (STOCK_TYPES[type].cost) r.unitCost = parseFloat(document.getElementById('smCost').value) || 0;
+  // A blank cost (or a storeman's receipt) keeps the current average cost.
+  const costIn = document.getElementById('smCost').value;
+  if (STOCK_TYPES[type].cost && costIn !== '' && _appRole !== 'store') r.unitCost = parseFloat(costIn) || 0;
   try {
     const ref = await requestStockMovement(r);
     closeModal('mStockMove');
@@ -1867,7 +1923,7 @@ function _ledgerRows(entries, showItem) {
     <td>${_esc(e.label||STOCK_TYPES[e.type]?.label||e.type)}</td>
     <td style="font-family:'DM Mono',monospace;text-align:right;color:${_n(e.qty)<0?'var(--red)':'var(--acc)'}">${_n(e.qty)>0?'+':''}${_qty(e.qty)}</td>
     <td style="font-family:'DM Mono',monospace;text-align:right">${_qty(e.qtyAfter)}</td>
-    <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(e.value)}</td>
+    <td class="adm-only" style="font-family:'DM Mono',monospace;text-align:right">${fmt(e.value)}</td>
     <td style="font-size:11px">${_esc(e.ref||'')}${e.reason?`<div style="color:var(--tx3)">${_esc(e.reason)}</div>`:''}</td>
     <td style="font-size:11px;color:var(--tx3)">${_esc(e.requestedByName||e.requestedBy||'')}${e.approvedBy?' ✓':''}</td>
   </tr>`).join('');
@@ -1881,7 +1937,7 @@ window.openStockHistory = async function(invId) {
   const v = d.data() || {};
   const rows = _ledgerRows(snap.docs.map(x => x.data()), false);
   _stockModal('mStockHistory', `📜 ${_esc(v.name||'Item')} — movements`,
-    `<div class="twrap"><table><thead><tr><th>When</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th><th style="text-align:right">Value</th><th>Ref / reason</th><th>By</th></tr></thead>
+    `<div class="twrap"><table><thead><tr><th>When</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th><th class="adm-only" style="text-align:right">Value</th><th>Ref / reason</th><th>By</th></tr></thead>
      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:24px">No movements yet</td></tr>'}</tbody></table></div>`,
     `<button class="btn btn-ghost" onclick="closeModal('mStockHistory')">Close</button>`, true);
 };
@@ -1896,7 +1952,7 @@ window.stockLedger = async function() {
       <div class="pbar"><div><div class="page-title">Stock Movements</div><div class="page-sub">Latest ${snap.size} ledger entries — entries are never edited or deleted</div></div>
         <div class="srch-bar"><input class="srch-inp" placeholder="Search item, ref, reason…" oninput="filterTable(this,'ledgerTbl')">
         <button class="btn btn-ghost" onclick="exportLedgerCsv()">⬇️ CSV</button><button class="btn btn-ghost" onclick="goPage('inventory')">← Inventory</button></div></div>
-      <div class="card"><div class="twrap"><table id="ledgerTbl"><thead><tr><th>When</th><th>Item</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th><th style="text-align:right">Value</th><th>Ref / reason</th><th>By</th></tr></thead>
+      <div class="card"><div class="twrap"><table id="ledgerTbl"><thead><tr><th>When</th><th>Item</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th><th class="adm-only" style="text-align:right">Value</th><th>Ref / reason</th><th>By</th></tr></thead>
       <tbody>${_ledgerRows(window.__ledgerRows, true)||'<tr><td colspan="8" style="text-align:center;color:var(--tx3);padding:30px">No movements yet</td></tr>'}</tbody></table></div></div>`;
   } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
 };
@@ -2076,7 +2132,7 @@ async function deliveryPlanner() {
         <td style="font-size:12px">${v.deliveryManId ? _esc(v.deliveryManName || dms[v.deliveryManId] || v.deliveryManId) : '<span style="color:var(--tx3)">—</span>'}</td>
         <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(v.total)}</td>
         <td><span class="badge badge-gray">${_esc(v.payTerms || 'COD')}</span></td>
-        <td>${badgeStatus(v.status)} ${v.deliveryStatus && v.deliveryStatus !== 'pending' ? badgeStatus(v.deliveryStatus) : ''}${v.failureReason ? `<div style="font-size:10px;color:var(--red)">${_esc(v.failureReason)}</div>` : ''}</td>
+        <td>${badgeStatus(v.status)} ${v.deliveryStatus && v.deliveryStatus !== 'pending' ? badgeStatus(v.deliveryStatus) : ''}${v.pickStatus ? ' ' + _pickBadge(v) : ''}${v.failureReason ? `<div style="font-size:10px;color:var(--red)">${_esc(v.failureReason)}</div>` : ''}</td>
       </tr>`;
     }).join('');
     const dmOpts = Object.entries(dms).map(([id, n]) => `<option value="${id}"${dmFilter === id ? ' selected' : ''}>${_esc(n)}</option>`).join('');
@@ -2414,8 +2470,9 @@ window.createInvoiceFromOrder = async function(orderId) {
       const n = _n(cs.exists() ? cs.data().invoice : 0) + 1, no = o.isInvoice ? (o.orderId || orderId) : _invoiceNo(n);
       const invRef = doc(_db, C('invoices'), no);
       if (!o.isInvoice) tx.set(ctrRef, { invoice: n }, { merge: true });
-      tx.set(invRef, _invoiceFromOrder(orderId, o, no));
-      tx.update(ordRef, { invoiceId: no, invoiceNo: no, invoicedAt: new Date().toISOString(), updatedAt: ts(),
+      const einvoiceToken = _einvToken();
+      tx.set(invRef, { ..._invoiceFromOrder(orderId, o, no), einvoiceToken });
+      tx.update(ordRef, { invoiceId: no, invoiceNo: no, einvoiceToken, invoicedAt: new Date().toISOString(), updatedAt: ts(),
         ...(o.status === 'pending' ? { status: 'processing', acceptedAt: new Date().toISOString(), acceptedBy: uid() } : {}) });
       return { id: no, no };
     });
@@ -2430,6 +2487,14 @@ window.printInvoice = async function(invoiceId) {
   const [inv, co] = await Promise.all([getDoc(doc(_db, C('invoices'), invoiceId)), getDoc(doc(_db, C('config'), 'company'))]);
   if (!inv.exists()) { showToast('Invoice not found', 'error'); return; }
   const v = inv.data(), c = co.exists() ? co.data() : {};
+  // Invoices issued before e-Invoice requests existed get their token now.
+  if (!v.einvoiceToken && v.status !== 'void') {
+    v.einvoiceToken = _einvToken();
+    await updateDoc(inv.ref, { einvoiceToken: v.einvoiceToken }).catch(() => {});
+    const oid = v.linkedOrderId || v.orderId;
+    if (oid) await updateDoc(doc(_db, C('orders'), oid), { einvoiceToken: v.einvoiceToken }).catch(() => {});
+  }
+  const einvQr = v.einvoiceToken && v.status !== 'void' ? _qrSvg(_einvUrl(v.invoiceNo || invoiceId, v.einvoiceToken), 3) : '';
   const w = window.open('', '_blank');
   if (!w) { showToast('Allow pop-ups to print', 'warn'); return; }
   const addr = [c.addr1, c.addr2, [c.postcode, c.city].filter(Boolean).join(' '), c.state].filter(Boolean).map(_esc).join(', ');
@@ -2440,7 +2505,7 @@ window.printInvoice = async function(invoiceId) {
     .sig{margin-top:50px;display:flex;justify-content:space-between}.sig div{border-top:1px solid #999;width:220px;padding-top:4px;font-size:11px;color:#555;text-align:center}</style></head><body>
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div><strong style="font-size:16px">${_esc(c.name || 'SAIRAH TRADING SDN BHD')}</strong>${c.regNo ? ` <span class="muted">(${_esc(c.regNo)})</span>` : ''}
-        <div class="muted">${addr}${c.phone ? '<br>Tel: ' + _esc(c.phone) : ''}${c.email ? ' · ' + _esc(c.email) : ''}</div></div>
+        <div class="muted">${addr}${c.phone ? '<br>Tel: ' + _esc(c.phone) : ''}${c.email ? ' · ' + _esc(c.email) : ''}${c.tin ? '<br>TIN: ' + _esc(c.tin) : ''}${c.sstNo ? ' · SST: ' + _esc(c.sstNo) : ''}</div></div>
       <div class="r"><h1>INVOICE</h1><div><strong>${_esc(v.invoiceNo)}</strong></div><div class="muted">Date: ${_esc(v.date)}<br>Due: ${_esc(v.dueDate)}<br>Order: ${_esc(v.orderId || v.linkedOrderId || '—')}</div></div>
     </div>
     <div class="box"><div><div class="muted">BILL TO</div><strong>${_esc(v.customer)}</strong><div class="muted">${_esc(v.customerAddress || '')}${v.customerPhone ? '<br>' + _esc(v.customerPhone) : ''}</div></div>
@@ -2452,6 +2517,9 @@ window.printInvoice = async function(invoiceId) {
     <tr><td colspan="5" class="r"><strong>TOTAL (MYR)</strong></td><td class="r"><strong>${fmt(v.total)}</strong></td></tr></tbody></table>
     ${c.bankName || c.bankAcc ? `<p class="muted">Payment to: ${_esc(c.bankName || '')} ${_esc(c.bankAcc || '')}</p>` : ''}
     ${v.notes ? `<p class="muted">Notes: ${_esc(v.notes)}</p>` : ''}
+    ${einvQr ? `<div style="display:flex;gap:14px;align-items:center;margin-top:18px;padding:10px;border:1px solid #ddd;border-radius:6px">
+      <div style="flex-shrink:0;width:110px">${einvQr}</div>
+      <div style="font-size:12px"><strong>Need an LHDN e-Invoice?</strong><br>Scan this QR code and enter your company or personal tax details (TIN, ID and address). We will issue a validated e-Invoice for <strong>${_esc(v.invoiceNo)}</strong> through MyInvois.</div></div>` : ''}
     <div class="sig"><div>Issued by</div><div>Received by (name, signature, chop)</div></div>
     <script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close();
@@ -3622,9 +3690,251 @@ window._repPrint = function() {
   w.document.close();
 };
 
+// ═══════════════════════════════════════════
+//  WAREHOUSE: PICKING & PACKING (storeman + admins)
+//  Open orders (pending / processing) are picked and packed before
+//  dispatch. Packing progress lives on the order (pickStatus) and syncs to
+//  the Sales App so drivers see which orders are ready.
+// ═══════════════════════════════════════════
+let _pickUnsub = null;
+window.__pickTab = window.__pickTab || 'todo';
+
+function _pickQtyText(it) {
+  const parts = [];
+  if (_n(it.ctnQty) > 0) parts.push(`${_qty(it.ctnQty)} ctn`);
+  if (_n(it.pcsQty) > 0) parts.push(`${_qty(it.pcsQty)} pcs`);
+  return parts.length ? parts.join(' + ') : `${_qty(it.qty)} ${_esc(it.unit || 'pcs')}`;
+}
+
+function _pickBadge(o) {
+  if (o.pickStatus === 'packed') return '<span class="badge badge-green">📦 Packed</span>';
+  if (o.pickStatus === 'picking') return '<span class="badge badge-yellow">🧺 Picking</span>';
+  return '<span class="badge badge-gray">To pick</span>';
+}
+
+async function picking() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  if (_pickUnsub) { _pickUnsub(); _pickUnsub = null; }
+  let first = true;
+  _pickUnsub = onSnapshot(query(collection(_db, C('orders')), where('status', 'in', ['pending', 'processing'])), snap => {
+    if (window.__curPage !== 'picking') { _pickUnsub?.(); _pickUnsub = null; return; }
+    window.__pickOrders = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    if (first || !document.activeElement || !mc.contains(document.activeElement)) _pickRender();
+    first = false;
+  }, e => { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; });
+}
+
+function _pickFiltered() {
+  const day = window.__pickDay || '';
+  return (window.__pickOrders || [])
+    .filter(o => !day || o.deliveryDate === day)
+    .filter(o => window.__pickTab === 'packed' ? o.pickStatus === 'packed' : o.pickStatus !== 'packed')
+    .sort((a, b) => String(a.deliveryDate || '9999').localeCompare(String(b.deliveryDate || '9999')) || String(a.orderId).localeCompare(String(b.orderId)));
+}
+
+function _pickRender() {
+  const mc = document.getElementById('mainContent');
+  const all = window.__pickOrders || [];
+  const rows = _pickFiltered();
+  const todo = all.filter(o => o.pickStatus !== 'packed').length;
+  const cards = rows.map(o => `
+    <div class="card" style="margin-bottom:12px;padding:16px">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+        <div>
+          <div style="font-weight:700;font-size:14px">${_esc(o.orderId || o._id)} · ${_esc(o.customer || '')}</div>
+          <div style="font-size:11px;color:var(--tx3);margin-top:2px">
+            ${o.outletRoute ? '🗺️ ' + _esc(o.outletRoute) + ' · ' : ''}🚚 ${_esc(o.deliveryManName || 'No driver yet')} · 📅 ${_esc(o.deliveryDate || 'Not scheduled')}${o.invoiceNo ? ' · 🧾 ' + _esc(o.invoiceNo) : ''}
+          </div>
+          ${o.notes ? `<div style="font-size:11px;color:var(--ylw);margin-top:3px">📝 ${_esc(o.notes)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${_pickBadge(o)}
+          ${o.pickedByName ? `<span style="font-size:10px;color:var(--tx3)">${_esc(o.pickedByName)}</span>` : ''}</div>
+      </div>
+      <div class="twrap" style="margin-top:10px"><table><thead><tr><th>Item</th><th>SKU</th><th style="text-align:right">Quantity</th><th style="text-align:right">Total pcs</th></tr></thead><tbody>
+        ${(o.items || []).map(it => `<tr><td><strong>${_esc(it.name)}</strong></td><td style="font-size:11px;color:var(--tx3)">${_esc(it.sku || '—')}</td>
+          <td style="text-align:right;font-family:'DM Mono',monospace">${_pickQtyText(it)}</td><td style="text-align:right;font-family:'DM Mono',monospace">${_qty(it.qty)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="printPickSlip(['${o._id}'])">🖨 Picking slip</button>
+        ${o.pickStatus === 'packed'
+          ? `<button class="btn btn-ghost" onclick="setPickStatus('${o._id}','picking')">↩ Re-open</button>`
+          : `${o.pickStatus !== 'picking' ? `<button class="btn btn-blue" onclick="setPickStatus('${o._id}','picking')">🧺 Start picking</button>` : ''}
+             <button class="btn btn-primary" onclick="setPickStatus('${o._id}','packed')">✅ Mark packed</button>`}
+      </div>
+    </div>`).join('');
+  mc.innerHTML = `
+    <div class="pbar"><div><div class="page-title">Picking &amp; Packing</div>
+      <div class="page-sub">${todo} order${todo === 1 ? '' : 's'} to pick · live</div></div>
+      <div class="srch-bar" style="flex-wrap:wrap">
+        <input type="date" class="srch-inp" style="max-width:170px" value="${_esc(window.__pickDay || '')}" onchange="window.__pickDay=this.value;_pickRender()" title="Delivery date">
+        <button class="btn btn-ghost" onclick="window.__pickDay='';_pickRender()">All dates</button>
+        <button class="btn btn-ghost" onclick="printPickSlip(null)">🧾 Total pick list</button>
+      </div></div>
+    <div class="rtabs">
+      <div class="rtab ${window.__pickTab === 'todo' ? 'active' : ''}" onclick="window.__pickTab='todo';_pickRender()">To pick</div>
+      <div class="rtab ${window.__pickTab === 'packed' ? 'active' : ''}" onclick="window.__pickTab='packed';_pickRender()">Packed, waiting dispatch</div>
+    </div>
+    ${cards || '<div class="card" style="text-align:center;color:var(--tx3);padding:30px">Nothing here 🎉</div>'}`;
+}
+
+window.setPickStatus = async function(id, status) {
+  const now = new Date().toISOString();
+  const patch = { pickStatus: status, pickedBy: uid(), pickedByName: _user?.name || _user?.email || '', updatedAt: ts() };
+  if (status === 'picking') patch.pickStartedAt = now;
+  if (status === 'packed') patch.packedAt = now;
+  try {
+    await updateDoc(doc(_db, C('orders'), id), patch);
+    showToast(status === 'packed' ? 'Marked packed ✓ — ready for dispatch' : 'Picking started', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+// Picking slip for one order, or the total quantities of every order on
+// the current tab and date (one walk through the warehouse).
+window.printPickSlip = function(ids) {
+  const list = ids ? (window.__pickOrders || []).filter(o => ids.includes(o._id)) : _pickFiltered();
+  if (!list.length) { showToast('No orders to print', 'warn'); return; }
+  const totals = {};
+  list.forEach(o => (o.items || []).forEach(it => {
+    const k = it.productId || it.sku || it.name;
+    const t = totals[k] || (totals[k] = { name: it.name, sku: it.sku || '', ctnSize: _n(it.ctnSize), pcs: 0 });
+    t.pcs += _n(it.qty);
+  }));
+  const totalRows = Object.values(totals).sort((a, b) => String(a.name).localeCompare(String(b.name))).map(t => {
+    const ctn = t.ctnSize > 0 ? Math.floor(t.pcs / t.ctnSize) : 0, loose = t.ctnSize > 0 ? t.pcs - ctn * t.ctnSize : t.pcs;
+    return `<tr><td>☐</td><td>${_esc(t.name)}</td><td>${_esc(t.sku)}</td><td class="r">${ctn ? ctn + ' ctn' : ''}${ctn && loose ? ' + ' : ''}${loose || !ctn ? loose + ' pcs' : ''}</td><td class="r">${t.pcs}</td></tr>`;
+  }).join('');
+  const orderBlocks = ids ? list.map(o => `<h2>${_esc(o.orderId || o._id)} — ${_esc(o.customer || '')}</h2>
+    <div class="muted">${_esc(o.outletAddress || '')} · Delivery ${_esc(o.deliveryDate || '—')} · Driver ${_esc(o.deliveryManName || '—')}</div>`).join('') : '';
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Allow pop-ups to print', 'warn'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Picking slip</title><style>
+    body{font-family:Arial,sans-serif;color:#111;background:#fff;margin:24px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:14px 0 2px}
+    table{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}th,td{border:1px solid #999;padding:6px;text-align:left}.r{text-align:right}.muted{color:#555;font-size:12px}
+    .sign{margin-top:30px;display:flex;gap:40px;font-size:12px}.sign div{flex:1;border-top:1px solid #333;padding-top:4px}</style></head><body>
+    <h1>${ids ? 'Picking slip' : 'Total pick list'}</h1>
+    <div class="muted">${list.length} order${list.length === 1 ? '' : 's'}${window.__pickDay && !ids ? ' · delivery ' + _esc(window.__pickDay) : ''} · printed ${new Date().toLocaleString()}</div>
+    ${orderBlocks}
+    <table><thead><tr><th style="width:24px"></th><th>Item</th><th>SKU</th><th class="r">Pick</th><th class="r">Total pcs</th></tr></thead><tbody>${totalRows}</tbody></table>
+    ${ids ? '' : `<div class="muted" style="margin-top:10px">Orders: ${list.map(o => _esc(o.orderId || o._id)).join(', ')}</div>`}
+    <div class="sign"><div>Picked by</div><div>Checked by</div></div>
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+};
+
+// Storeman: own stock in/out requests and their status.
+async function storeRequests() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('stock_requests')), where('requestedBy', '==', uid())));
+    const reqs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const st = { requested: ['badge-gray', 'Posting…'], posted: ['badge-green', 'Posted'], pending_approval: ['badge-yellow', 'Waiting for admin'],
+      approved: ['badge-blue', 'Approved'], rejected: ['badge-red', 'Rejected'], failed: ['badge-red', 'Failed'] };
+    const rows = reqs.map(r => `<tr>
+      <td style="font-size:11px;white-space:nowrap">${_esc(String(r.createdAt || '').replace('T', ' ').slice(0, 16))}</td>
+      <td><strong>${_esc(r.itemName || r.name || r.invId)}</strong></td>
+      <td>${_esc(STOCK_TYPES[r.type]?.label || r.type)}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${r.type === 'count' ? _qty(r.countedQty) : _qty(r.qty)}</td>
+      <td style="font-size:11px">${_esc(r.ref || '')}${r.reason ? `<div style="color:var(--tx3)">${_esc(r.reason)}</div>` : ''}</td>
+      <td><span class="badge ${(st[r.status] || st.requested)[0]}">${(st[r.status] || [0, r.status])[1]}</span>${r.error ? `<div style="font-size:10px;color:var(--red)">${_esc(r.error)}</div>` : ''}${r.decisionNote ? `<div style="font-size:10px;color:var(--tx3)">${_esc(r.decisionNote)}</div>` : ''}</td>
+    </tr>`).join('');
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Stock In / Out</div><div class="page-sub">Receive goods or report damage, expiry and count differences from <strong>Stock Levels</strong> (📥 / ⚖️ / 🔢). Adjustments wait for an admin's approval.</div></div>
+        <div class="srch-bar"><button class="btn btn-primary" onclick="goPage('inventory')">🏬 Stock Levels</button></div></div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>When</th><th>Item</th><th>Movement</th><th style="text-align:right">Qty</th><th>Ref / reason</th><th>Status</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">No requests yet</td></tr>'}</tbody></table></div></div>`;
+  } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+
+// ═══════════════════════════════════════════
+//  LHDN e-INVOICE REQUESTS
+//  Buyers scan the QR code on an invoice and submit their tax details
+//  (public einvoice.html). Admins issue the e-Invoice in MyInvois and
+//  record its UUID here; the buyer's details are ready to copy.
+// ═══════════════════════════════════════════
+const EINV_STATUS = { pending: ['badge-yellow', 'New'], processing: ['badge-blue', 'In progress'], issued: ['badge-green', 'Issued'], rejected: ['badge-red', 'Rejected'] };
+window.__einvTab = window.__einvTab || 'open';
+
+async function einvoiceRequests() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(collection(_db, C('einvoice_requests')));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    window.__einvRows = all;
+    const open = all.filter(r => ['pending', 'processing'].includes(r.status));
+    const rows = (window.__einvTab === 'open' ? open : all).map(r => {
+      const when = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString() : '';
+      const [cls, label] = EINV_STATUS[r.status] || ['badge-gray', r.status];
+      return `<tr>
+        <td style="font-size:11px;white-space:nowrap">${_esc(when)}</td>
+        <td style="font-family:'DM Mono',monospace;font-size:12px"><a href="#" onclick="event.preventDefault();printInvoice('${_esc(r.id)}')" style="color:var(--acc)">${_esc(r.id)}</a></td>
+        <td><strong>${_esc(r.buyerName)}</strong><div style="font-size:10px;color:var(--tx3)">${r.buyerType === 'individual' ? '👤 Individual' : '🏢 Company'} · ${_esc(r.email)}</div></td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(r.tin)}<div style="color:var(--tx3)">${_esc(r.idType)} ${_esc(r.idNo)}</div></td>
+        <td><span class="badge ${cls}">${_esc(label)}</span>${r.lhdnUuid ? `<div style="font-size:10px;color:var(--tx3);font-family:'DM Mono',monospace">${_esc(r.lhdnUuid)}</div>` : ''}</td>
+        <td><button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="openEinvRequest('${_esc(r.id)}')">Open</button></td>
+      </tr>`;
+    }).join('');
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">e-Invoice Requests</div>
+        <div class="page-sub">${open.length} open · buyers request an LHDN e-Invoice by scanning the QR code on their invoice</div></div>
+        <div class="srch-bar"><input class="srch-inp" placeholder="Search invoice, buyer, TIN…" oninput="filterTable(this,'einvTbl')"></div></div>
+      <div class="rtabs">
+        <div class="rtab ${window.__einvTab === 'open' ? 'active' : ''}" onclick="window.__einvTab='open';einvoiceRequests()">Open (${open.length})</div>
+        <div class="rtab ${window.__einvTab === 'all' ? 'active' : ''}" onclick="window.__einvTab='all';einvoiceRequests()">All (${all.length})</div>
+      </div>
+      <div class="card"><div class="twrap"><table id="einvTbl"><thead><tr><th>Received</th><th>Invoice</th><th>Buyer</th><th>TIN / ID</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">No requests</td></tr>'}</tbody></table></div></div>`;
+  } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+
+window.openEinvRequest = function(id) {
+  const r = (window.__einvRows || []).find(x => x.id === id); if (!r) return;
+  const line = (k, v) => v ? `<tr><td style="color:var(--tx3);width:150px">${k}</td><td><strong>${_esc(v)}</strong></td></tr>` : '';
+  const copyText = [`Buyer: ${r.buyerName}`, `TIN: ${r.tin}`, `${r.idType}: ${r.idNo}`, r.sstNo ? `SST: ${r.sstNo}` : '',
+    `Email: ${r.email}`, `Phone: ${r.phone}`, `Address: ${r.addressLine}, ${r.postcode} ${r.city}, ${r.state}, Malaysia`, `Invoice: ${r.id}`].filter(Boolean).join('\n');
+  window.__einvCopy = copyText;
+  _stockModal('mEinv', `🧾 e-Invoice request — ${_esc(r.id)}`, `
+    <table style="width:100%;font-size:13px;margin-bottom:12px"><tbody>
+      ${line('Buying as', r.buyerType === 'individual' ? 'Individual' : 'Company / business')}
+      ${line('Name', r.buyerName)}${line('TIN', r.tin)}${line(r.idType, r.idNo)}${line('SST no.', r.sstNo)}
+      ${line('Email', r.email)}${line('Phone', r.phone)}
+      ${line('Address', `${r.addressLine}, ${r.postcode} ${r.city}, ${r.state}`)}${line('Buyer notes', r.notes)}
+    </tbody></table>
+    <button class="btn btn-ghost" style="margin-bottom:14px" onclick="navigator.clipboard.writeText(window.__einvCopy).then(()=>showToast('Copied','success'))">📋 Copy details</button>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Status</label><select class="finp" id="einvStatus">
+        ${Object.entries(EINV_STATUS).map(([k, [, l]]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="fgrp"><label class="flbl">MyInvois UUID</label><input class="finp" id="einvUuid" value="${_esc(r.lhdnUuid || '')}" placeholder="from MyInvois after validation"></div>
+    </div>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Long ID</label><input class="finp" id="einvLong" value="${_esc(r.lhdnLongId || '')}"></div>
+      <div class="fgrp"><label class="flbl">Validation link</label><input class="finp" id="einvUrl" value="${_esc(r.validationUrl || '')}" placeholder="https://myinvois.hasil.gov.my/…"></div>
+    </div>
+    <div class="fgrp"><label class="flbl">Note (e.g. reason for rejection)</label><input class="finp" id="einvNote" value="${_esc(r.adminNote || '')}"></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mEinv')">Close</button><button class="btn btn-primary" onclick="saveEinvRequest('${_esc(r.id)}')">Save</button>`, true);
+};
+
+window.saveEinvRequest = async function(id) {
+  const status = document.getElementById('einvStatus').value;
+  const patch = {
+    status, lhdnUuid: document.getElementById('einvUuid').value.trim(), lhdnLongId: document.getElementById('einvLong').value.trim(),
+    validationUrl: document.getElementById('einvUrl').value.trim(), adminNote: document.getElementById('einvNote').value.trim(),
+    processedBy: uid(), processedByName: _user?.name || _user?.email || '', processedAt: new Date().toISOString(),
+  };
+  if (status === 'issued' && !patch.lhdnUuid) { showToast('Enter the MyInvois UUID before marking it issued', 'error'); return; }
+  if (status === 'rejected' && !patch.adminNote) { showToast('Add a note saying why it was rejected', 'error'); return; }
+  try {
+    await updateDoc(doc(_db, C('einvoice_requests'), id), patch);
+    closeModal('mEinv'); showToast('Saved ✓', 'success'); einvoiceRequests(); updateBadges();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
 // This page script is an ES module, so its functions are not global. Expose
 // the ones called from inline onclick/onchange handlers.
-Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports });
+Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests });
 // Keep the import status line live on Sales Orders and Settings.
 const _origGoPageForBackfill = window.goPage;
 window.goPage = function(page) {
@@ -3668,6 +3978,8 @@ async function settings() {
           <div>
             <div class="fgrp"><label class="flbl">Company Name *</label><input class="finp" id="setCo" value="${coData.name||''}" placeholder="Company Name Sdn Bhd"></div>
             <div class="fgrp"><label class="flbl">Registration No.</label><input class="finp" id="setCoReg" value="${coData.regNo||''}" placeholder="123456-A"></div>
+            <div class="frow"><div class="fgrp"><label class="flbl">Tax ID (TIN)</label><input class="finp" id="setCoTin" value="${coData.tin||''}" placeholder="C1234567890"></div>
+              <div class="fgrp"><label class="flbl">SST Reg. No.</label><input class="finp" id="setCoSst" value="${coData.sstNo||''}" placeholder="optional"></div></div>
             <div class="fgrp"><label class="flbl">Phone</label><input class="finp" id="setCoPhone" value="${coData.phone||''}" placeholder="+60 3-xxxx xxxx"></div>
             <div class="fgrp"><label class="flbl">Email</label><input class="finp" id="setCoEmail" value="${coData.email||''}" placeholder="info@company.com"></div>
             <div class="fgrp"><label class="flbl">Website</label><input class="finp" id="setCoWeb" value="${coData.website||''}" placeholder="https://"></div>
@@ -3734,6 +4046,8 @@ window.saveCompanyProfile = async function() {
   if (!name) { showToast('Company name required','error'); return; }
   const data = {
     name, regNo: document.getElementById('setCoReg')?.value?.trim(),
+    tin: document.getElementById('setCoTin')?.value?.trim() || '',
+    sstNo: document.getElementById('setCoSst')?.value?.trim() || '',
     phone: document.getElementById('setCoPhone')?.value?.trim(),
     email: document.getElementById('setCoEmail')?.value?.trim(),
     website: document.getElementById('setCoWeb')?.value?.trim(),
@@ -4251,7 +4565,7 @@ function getGreeting() {
 const _erpExtraPages = { hqOrders, transfers };
 const _origGoPageFn = window.goPage;
 window.goPage = function(page) {
-  if (_erpExtraPages[page]) {
+  if (_erpExtraPages[page] && _appRole !== 'store') {
     window.__curPage = page;
     const titles = { hqOrders:'🛒 HQ Orders', transfers:'↔️ Transfers' };
     document.getElementById('topbarTitle').textContent = titles[page] || page;
