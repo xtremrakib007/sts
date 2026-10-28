@@ -2,6 +2,32 @@
 // State: which rep-node and route-node are open
 const _outletOpen={rep:null, route:null};
 
+// Outlets view: 'near' (all roles, nearest first) or 'group' (by rep/route).
+let _outletView=(()=>{try{return localStorage.getItem('stsb-outlet-view')||'near';}catch(e){return 'near';}})();
+let _outletNearLimit=60, _outletLocAt=0, _outletLocBusy=false, _outletLocErr=false;
+
+function setOutletView(v){
+  _outletView=v; _outletNearLimit=60;
+  try{localStorage.setItem('stsb-outlet-view',v);}catch(e){}
+  loadOutlets();
+}
+
+// Current position for the Nearby list (any role, also admins), at most
+// every 2 minutes unless asked; redraws the page when it arrives.
+function _outletLocate(force){
+  if(_outletLocBusy)return;
+  if(!force&&_userLat&&_userLng&&Date.now()-_outletLocAt<120000)return;
+  _outletLocBusy=true;
+  _getPositionNative().then(pos=>{
+    _userLat=pos.coords.latitude; _userLng=pos.coords.longitude; _gpsGranted=true;
+    _outletLocAt=Date.now(); _outletLocErr=false;
+  }).catch(()=>{ _outletLocErr=!_userLat; }).finally(()=>{
+    _outletLocBusy=false;
+    if(document.getElementById('pageOutlets')?.classList.contains('active'))loadOutlets();
+  });
+}
+function outletRelocate(){ _outletLocErr=false; _outletLocate(true); loadOutlets(); }
+
 async function loadOutlets() {
   await loadCachedData();
   const addBtn=document.getElementById('addOutletBtn');
@@ -77,6 +103,32 @@ async function loadOutlets() {
     </div>`;
   }
 
+  // ── View switch (every role): Nearby = all outlets you can see, nearest
+  // first from your current location; or the grouped view below.
+  const fresh=_userLat&&_userLng;
+  const ago=_outletLocAt?Math.max(0,Math.round((Date.now()-_outletLocAt)/60000)):null;
+  const locLine=_outletView!=='near'?''
+    :fresh?`<span class="ol-loc ok">📍 Nearest first${ago!==null?` · location ${ago?ago+' min ago':'just now'}`:''}</span><button class="ol-loc-btn" onclick="outletRelocate()">↻ Update</button>`
+    :_outletLocErr?`<span class="ol-loc err">📍 Location is off — turn on GPS to sort by distance</span><button class="ol-loc-btn" onclick="outletRelocate()">Retry</button>`
+    :'<span class="ol-loc">📍 Finding your location…</span>';
+  const viewBar=`<div class="ol-viewbar"><div class="ol-seg">
+      <button class="${_outletView==='near'?'on':''}" onclick="setOutletView('near')">📍 Nearby</button>
+      <button class="${_outletView==='group'?'on':''}" onclick="setOutletView('group')">🗂️ ${isAdmin()?'By rep & route':isDeliveryMan()?'My deliveries':'By route'}</button>
+    </div><div class="ol-locrow">${locLine}</div></div>`;
+
+  if(_outletView==='near'){
+    const q=srch.trim();
+    const list=allOutlets.filter(o=>!q||[o.name,o.area,o.route,o.address,o.phone,o.type].some(v=>String(v||'').toLowerCase().includes(q)));
+    const withKm=list.map(o=>({o,km:distKm(o)})).sort((x,y)=>(x.km-y.km)||String(x.o.name||'').localeCompare(String(y.o.name||'')));
+    const shown=withKm.slice(0,_outletNearLimit);
+    tree.innerHTML=viewBar+(shown.length
+      ?`<div class="ol-count">${list.length} outlet${list.length!==1?'s':''}${q?` matching “${escH(q)}”`:''}</div><div class="ol-grid">${shown.map((x,i)=>buildOutletCard(x.o,i)).join('')}</div>`+
+        (withKm.length>shown.length?`<button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="_outletNearLimit+=60;loadOutlets()">Show more (${withKm.length-shown.length} further away)</button>`:'')
+      :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>');
+    _outletLocate(false);
+    return;
+  }
+
   // Sort helper: by distance (pinned outlets first, then by km)
   function sortByDist(arr){
     return [...arr].sort((a,b)=>{
@@ -91,7 +143,7 @@ async function loadOutlets() {
     let allowedIds=new Set();
     try{const myO=await sfGet('orders',[wdm('deliveryManId','==',CU.uid)]);allowedIds=new Set(myO.map(d=>d.data().outletId));}catch(e){}
     const myOutlets=sortByDist(allOutlets.filter(o=>allowedIds.has(o.id)));
-    tree.innerHTML=myOutlets.length
+    tree.innerHTML=viewBar+myOutlets.length
       ?`<div class="ol-grid">${myOutlets.map((o,i)=>buildOutletCard(o,i)).join('')}</div>`
       :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets assigned to your deliveries</div>';
     return;
@@ -103,7 +155,7 @@ async function loadOutlets() {
     const myRouteIds=[...new Set(myOutlets.map(o=>o.routeId).filter(Boolean))];
     const myRoutes=allRoutes.filter(r=>myRouteIds.includes(r.id)||r.repId===CU.uid);
     if(!myRoutes.length&&!myOutlets.length){
-      tree.innerHTML='<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets or routes assigned yet</div>';return;
+      tree.innerHTML=viewBar+'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets or routes assigned yet</div>';return;
     }
     // Build route folders
     const html=myRoutes.map((r,ri)=>{
@@ -126,7 +178,7 @@ async function loadOutlets() {
     }).join('');
     // Unrouted outlets sorted by distance
     const unrouted=sortByDist(myOutlets.filter(o=>!o.routeId).filter(o=>!srch||o.name.toLowerCase().includes(srch)));
-    tree.innerHTML=html+(unrouted.length?`<div class="tree-l2"><div class="tree-hdr2" onclick="toggleOutletRoute('__unrouted__')"><span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span><div style="flex:1"><div style="font-size:13px;font-weight:700">Unassigned to Route</div><div style="font-size:10px;color:var(--tx3)">${unrouted.length} outlet${unrouted.length!==1?'s':''}</div></div></div><div class="tree-body2" id="otbody2-__unrouted__">${unrouted.map((o,i)=>buildOutletCard(o,i)).join('')}</div></div>`:'');
+    tree.innerHTML=viewBar+html+(unrouted.length?`<div class="tree-l2"><div class="tree-hdr2" onclick="toggleOutletRoute('__unrouted__')"><span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span><div style="flex:1"><div style="font-size:13px;font-weight:700">Unassigned to Route</div><div style="font-size:10px;color:var(--tx3)">${unrouted.length} outlet${unrouted.length!==1?'s':''}</div></div></div><div class="tree-body2" id="otbody2-__unrouted__">${unrouted.map((o,i)=>buildOutletCard(o,i)).join('')}</div></div>`:'');
     return;
   }
 
@@ -206,7 +258,7 @@ async function loadOutlets() {
     </div>`;
   }
 
-  tree.innerHTML=html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
+  tree.innerHTML=viewBar+html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
 }
 
 // ⋮ menu on an outlet card. Everyone gets view/edit/QR/call; admins also
