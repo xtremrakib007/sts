@@ -115,3 +115,13 @@ test('picker: cartons and pieces price correctly and keep the discount when qty 
   api._ocSetItem(p, 0, 0);
   assert.equal(api.items.length, 0, 'zero quantity removes the line');
 });
+
+// ── Owner account named super_admin ────────────────────────────────────────
+
+test('super_admin is the owner in the rules and the Sales App, and only the owner can grant it', () => {
+  const rules = read('firestore.rules');
+  assert.match(rules, /function _isOwner\(u\)\s*\{ return \(u\.get\('role',''\) == 'admin' && u\.get\('isOwner', false\) == true\) \|\| u\.get\('role',''\) == 'super_admin'; \}/);
+  assert.match(rules, /function _isAdminOrSub\(u\)\s*\{ return u\.get\('role',''\) in \['admin', 'sub_admin', 'super_admin'\]; \}/);
+  assert.match(rules, /request\.resource\.data\.get\('role',''\) != 'super_admin'\s*&& resource\.data\.get\('role',''\) != 'super_admin'/);
+  assert.match(read('js/boot.js'), /if \(CU\.role === 'super_admin'\) CU = \{ \.\.\.CU, role: 'admin', isOwner: true, erpRole: 'super_admin' \};/);
+});

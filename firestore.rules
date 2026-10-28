@@ -46,10 +46,12 @@ service cloud.firestore {
     }
 
     // STFM role predicates
-    function _isOwner(u)       { return u.get('role','') == 'admin' && u.get('isOwner', false) == true; }
-    function _isAdmin(u)       { return u.get('role','') == 'admin'; }
+    // The owner account is either role 'admin' with isOwner: true, or role
+    // 'super_admin' (the ERP's name for the same account).
+    function _isOwner(u)       { return (u.get('role','') == 'admin' && u.get('isOwner', false) == true) || u.get('role','') == 'super_admin'; }
+    function _isAdmin(u)       { return u.get('role','') == 'admin' || u.get('role','') == 'super_admin'; }
     function _isSubAdmin(u)    { return u.get('role','') == 'sub_admin'; }
-    function _isAdminOrSub(u)  { return u.get('role','') == 'admin' || u.get('role','') == 'sub_admin'; }
+    function _isAdminOrSub(u)  { return u.get('role','') in ['admin', 'sub_admin', 'super_admin']; }
     function _isSalesRep(u)    { return u.get('role','') == 'sales_rep'; }
     function _isDeliveryMan(u) { return u.get('role','') == 'delivery_man'; }
     function _isFieldUser(u)   { return u.get('role','') == 'sales_rep' || u.get('role','') == 'delivery_man'; }
@@ -130,8 +132,11 @@ service cloud.firestore {
             && request.resource.data.get('zoneId','') == resource.data.get('zoneId','')
             && request.resource.data.get('isOwner', false) == resource.data.get('isOwner', false)
             && (_isAdmin(ud()) || request.resource.data.get('role','') == resource.data.get('role',''))
-            // Storemen see ERP-wide orders and stock: only the owner grants it.
+            // Storemen see ERP-wide orders and stock, super_admin is the
+            // owner: only the owner grants either.
             && (request.resource.data.get('role','') != 'storeman' || resource.data.get('role','') == 'storeman')
+            && request.resource.data.get('role','') != 'super_admin'
+            && resource.data.get('role','') != 'super_admin'
           )
           || (
             request.auth.uid == uid

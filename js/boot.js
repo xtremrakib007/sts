@@ -9,6 +9,8 @@ async function bootApp() {
   try {
     CU = window.__currentUser;
     if(!CU || !CU.uid) { showLoginPage(); return; }
+    // super_admin is the ERP's name for the owner account: same access here.
+    if (CU.role === 'super_admin') CU = { ...CU, role: 'admin', isOwner: true, erpRole: 'super_admin' };
 
     // ★ Field staff work only in the Android app
     if (_fieldStaffBlockedOnWeb(CU)) {
