@@ -59,3 +59,24 @@ test('ERP edits are not overwritten by older or in-flight app events', () => {
   assert.equal(erp.isStaleEvent(applied, '2026-10-28T10:03:00.000Z'), true, 'app event older than the edit');
   assert.equal(erp.isStaleEvent(applied, '2026-10-28T10:06:00.000Z'), false, 'later app changes still sync');
 });
+
+test('ERP products reach the Sales App catalogue and stock; new ERP orders use the app pipeline', () => {
+  const portal = read('public/portal/index.html');
+  const save = portal.slice(portal.indexOf('window.saveProduct'), portal.indexOf('window.editProduct'));
+  assert.match(save, /setDoc\(doc\(_db, 'products', id\)/, 'Sales App catalogue');
+  assert.match(save, /doc\(_db, C\('inventory'\), id\)/, 'stock item with the same id');
+  assert.doesNotMatch(save.slice(save.indexOf('const invFields')), /\bqty:/, 'never writes stock quantities');
+  const neu = portal.slice(portal.indexOf('window.saveNewErpOrder'), portal.indexOf('window.voidInvoice'));
+  assert.match(neu, /doc\(collection\(_db, 'orders'\)\)/);
+  assert.match(neu, /zones\/\$\{zone\}\/orders/);
+});
+
+test('top sheet: COD detection is case-insensitive and printing uses its own light document', () => {
+  const portal = read('public/portal/index.html');
+  assert.doesNotMatch(portal, /payTerms === 'cod'|payTerms !== 'cod'/);
+  assert.doesNotMatch(portal, /#tsBody > div:first-child \{ display:none/, 'old print CSS hid the whole sheet');
+  const pr = portal.slice(portal.indexOf('window.printTopSheet'), portal.indexOf('window.reloadTopSheet = async function() {\n  const date'));
+  assert.match(pr, /@page\{size:A4 landscape/);
+  assert.match(pr, /background:#fff/);
+  assert.match(pr, /Loading list/);
+});
