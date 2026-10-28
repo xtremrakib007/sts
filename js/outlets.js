@@ -75,30 +75,36 @@ async function loadOutlets() {
   // Outlet card: signboard photo, name, area, due and distance, with the
   // four field actions (Order, Direction, WhatsApp, NP Visit) and a ⋮ menu.
   function buildOutletCard(o,i){
-    const oOrders=orders.filter(x=>x.outletId===o.id&&x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
-    const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+x.amount,0);
-    const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?o.openingBalance:0));
-    const clr=o.color||COLORS[i%COLORS.length];
+    const oOrders=orders.filter(x=>x.outletId===o.id&&x.status!=='Cancelled').reduce((s,x)=>s+(Number(x.total)||0),0);
+    const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+(Number(x.amount)||0),0);
+    const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?Number(o.openingBalance)||0:0));
     const km=distKm(o);
     const photo=o.signboardPhoto||o.coverPhoto||'';
-    const media=photo
-      ?`<img src="${escH(photo)}" alt="" loading="lazy">`
-      :`<div class="ol-initial" style="background:${clr}">${escH((o.name||'?')[0])}</div>`;
-    return`<div class="ol-card" onclick="viewOutlet('${o.id}')">
-      <div class="ol-media">${media}
-        ${km!==Infinity?`<span class="ol-dist">📍 ${fmtDist(km)}</span>`:''}
-        <button class="ol-more" onclick="event.stopPropagation();openOutletMenu('${o.id}',this)" aria-label="More options">⋮</button>
+    const rep=allUsers.find(u=>u.uid===(o.assignedRepId||o.createdBy));
+    const thumb=photo?`<img src="${escH(photo)}" alt="" loading="lazy">`:`<span>${escH((o.name||'?')[0].toUpperCase())}</span>`;
+    const info=(ico,cls,label,val,valCls='')=>`<div class="olx-info"><div class="olx-ico ${cls}">${ico}</div><div class="olx-iv"><div class="olx-lbl">${label}</div><div class="olx-val ${valCls}">${val}</div></div></div>`;
+    return`<div class="ol-card olx" onclick="viewOutlet('${o.id}')">
+      <div class="olx-head">
+        <div class="olx-thumb">${thumb}</div>
+        <div class="olx-title">
+          <div class="ol-name">${escH(o.name)}</div>
+          <div class="olx-meta"><span class="olx-status ${due>0?'due':'ok'}">${due>0?'Due '+fmt(due):'Settled'}</span>
+            ${km!==Infinity?`<span class="ol-dist">📍 ${fmtDist(km)}</span>`:`<span class="olx-nopin">No location</span>`}</div>
+        </div>
       </div>
-      <div class="ol-body">
-        <div class="ol-name">${escH(o.name)}</div>
-        <div class="ol-sub">${escH(o.type||'')}${o.area?' · '+escH(o.area):''}${o.route?' · 🗺️ '+escH(o.route):''}</div>
-        <div class="ol-due ${due>0?'owed':''}">Due <strong>${fmt(due)}</strong></div>
+      <div class="olx-grid">
+        ${info('▦','gray','Category',escH(o.category||o.type||'—'))}
+        ${info('👤','teal','Rep name',escH(rep?.name||o.createdByName||'—'))}
+        ${info('📍','red','Route',escH(o.route||'—'))}
+        ${info('$','gold','Due',fmt(due),due>0?'neg':'pos')}
       </div>
-      <div class="ol-actions" onclick="event.stopPropagation()">
-        ${isDeliveryMan()?'':`<button class="ol-act ord" onclick="openNewOrder('${o.id}')"><span>📦</span>Order</button>`}
-        <button class="ol-act dir${o.lat&&o.lng?'':' off'}" onclick="${o.lat&&o.lng?`openDirections('${o.id}')`:"showToast('No location pinned for this outlet','warn')"}"><span>🧭</span>Direction</button>
-        <button class="ol-act wa${o.phone?'':' off'}" onclick="${o.phone?`openWhatsApp('${o.id}')`:"showToast('No phone number saved','warn')"}"><span>💬</span>WhatsApp</button>
-        ${isDeliveryMan()?'':`<button class="ol-act np" onclick="openNPVisit('${o.id}')"><span>📝</span>NP Visit</button>`}
+      <div class="olx-actions" onclick="event.stopPropagation()">
+        ${isDeliveryMan()?'':`<button class="olx-btn ord" onclick="openNewOrder('${o.id}')">Order</button>`}
+        <button class="olx-btn wa${o.phone?'':' off'}" onclick="${o.phone?`openWhatsApp('${o.id}')`:"showToast('No phone number saved','warn')"}">WhatsApp</button>
+        <button class="olx-btn dir${o.lat&&o.lng?'':' off'}" onclick="${o.lat&&o.lng?`openDirections('${o.id}')`:"showToast('No location pinned for this outlet','warn')"}">Direction</button>
+        ${isDeliveryMan()?'':`<button class="olx-btn np" onclick="openNPVisit('${o.id}')" title="NP Visit">📄 NP</button>`}
+        ${isAdmin()?`<button class="olx-btn del" onclick="delOutlet('${o.id}')" title="Delete outlet" aria-label="Delete outlet">🗑️</button>`:''}
+        <button class="olx-btn more" onclick="openOutletMenu('${o.id}',this)" aria-label="More options">⋮</button>
       </div>
     </div>`;
   }
