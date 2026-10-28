@@ -16,8 +16,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing for CI (.github/workflows/android-apk.yml): used only
+    // when the keystore secrets are provided, so local builds are unchanged.
+    signingConfigs {
+        release {
+            if (System.getenv('STFM_KEYSTORE_FILE')) {
+                storeFile file(System.getenv('STFM_KEYSTORE_FILE'))
+                storePassword System.getenv('STFM_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('STFM_KEY_ALIAS')
+                keyPassword System.getenv('STFM_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (System.getenv('STFM_KEYSTORE_FILE')) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -47,3 +47,14 @@ test('field staff are blocked from the web Sales App, admins are not', () => {
   assert.match(boot, /user\.role === 'sales_rep' \|\| user\.role === 'delivery_man'/);
   assert.match(boot, /_fieldStaffBlockedOnWeb\(CU\)/);
 });
+
+test('GitHub builds the APK: debug without secrets, signed release with them', () => {
+  const wf = read('.github/workflows/android-apk.yml');
+  assert.match(wf, /npm run build[\s\S]*npx cap sync android[\s\S]*gradlew --no-daemon assembleRelease[\s\S]*assembleDebug/);
+  assert.match(wf, /java-version: 17/);
+  assert.match(wf, /upload-artifact@v4/);
+  assert.match(wf, /github\.ref == 'refs\/heads\/main' && env\.STFM_KEYSTORE_FILE != ''/, 'releases only for signed main builds');
+  const gradle = read('android/app/build.gradle');
+  assert.match(gradle, /if \(System\.getenv\('STFM_KEYSTORE_FILE'\)\) \{\s*signingConfig signingConfigs\.release/);
+  assert.doesNotMatch(gradle, /storePassword\s+['"]/, 'no passwords in the repo');
+});
