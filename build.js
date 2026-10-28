@@ -102,7 +102,15 @@ async function build() {
   const css = fs.readFileSync('app.css', 'utf8');
   const version = crypto.createHash('sha256').update(jsResult.code).update(css).digest('hex').slice(0, 12);
   html = html.replace(/href=(["'])app\.css\1/, `href="app.css?v=${version}"`);
-  const versionTag = `<script>window.__APP_VERSION='${version}';</script>`;
+  // Android app ids registered in google-services.json. Native push needs
+  // Firebase initialised for the APK's own id — registering without it
+  // kills the app — so js/fcm.js only registers when its id is listed.
+  let pushAppIds = [];
+  try {
+    const gs = JSON.parse(fs.readFileSync('android/app/google-services.json', 'utf8'));
+    pushAppIds = (gs.client || []).map(c => c.client_info?.android_client_info?.package_name).filter(Boolean);
+  } catch (e) { /* no Firebase config: native push stays off */ }
+  const versionTag = `<script>window.__APP_VERSION='${version}';window.__PUSH_APP_IDS=${JSON.stringify(pushAppIds)};</script>`;
   const bundleTag = `<script src="js/app.min.js?v=${version}"></script>`;
 
   // Inject bundle before closing body or right before custom scripts
