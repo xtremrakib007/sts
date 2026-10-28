@@ -25,7 +25,10 @@ function erpApp() {
   if (!_erpApp) {
     const existing = getApps().find((a) => a.name === "erp");
     _erpApp = existing || initializeApp(
-        {credential: admin.credential.applicationDefault(), projectId: "stsb-erp"},
+        {
+          credential: admin.credential.applicationDefault(),
+          projectId: "stsb-erp",
+        },
         "erp",
     );
   }
@@ -90,7 +93,8 @@ async function syncToERP(col, docId, data, zoneId) {
   const ts = FieldValue.serverTimestamp();
   const edb = erpDb();
   // Strip the incoming ERP sync flag before writing
-  const {_syncedFromERP: _removed, ...cleanData} = data;
+  const cleanData = {...data};
+  delete cleanData._syncedFromERP;
   const payload = {...cleanData, _syncedFromSales: true, _syncedAt: ts};
   await edb.doc(`${col}/${docId}`).set(payload, {merge: true});
   if (zoneId) {
@@ -129,7 +133,9 @@ exports.salesOrderUpdated = functions.firestore
       const after = change.after.data();
       if (isERPWrite(before, after)) return;
       if (onlyMetaChanged(before, after)) return;
-      await syncToERP("orders", ctx.params.orderId, after, after.zoneId || after._zoneId);
+      await syncToERP(
+          "orders", ctx.params.orderId, after, after.zoneId || after._zoneId,
+      );
     });
 
 // ═══════════════════════════════════════════════════════════════
@@ -145,7 +151,9 @@ exports.salesCollectionCreated = functions.firestore
     .onCreate(async (snap, ctx) => {
       const d = snap.data();
       if (d._syncedFromERP) return;
-      await syncToERP("collections", ctx.params.docId, d, d.zoneId || d._zoneId);
+      await syncToERP(
+          "collections", ctx.params.docId, d, d.zoneId || d._zoneId,
+      );
     });
 
 /**
@@ -169,7 +177,10 @@ exports.salesCollectionUpdated = functions.firestore
       );
       if (!changed) return;
 
-      await syncToERP("collections", ctx.params.docId, after, after.zoneId || after._zoneId);
+      await syncToERP(
+          "collections", ctx.params.docId, after,
+          after.zoneId || after._zoneId,
+      );
     });
 
 // ═══════════════════════════════════════════════════════════════
@@ -188,14 +199,14 @@ exports.salesCollectionUpdated = functions.firestore
 function buildUserPayload(uid, data) {
   return {
     uid,
-    name:        data.name        || "",
-    email:       data.email       || "",
-    role:        data.role        || "",
-    zone:        data.zone        || "",
-    phone:       data.phone       || "",
+    name: data.name || "",
+    email: data.email || "",
+    role: data.role || "",
+    zone: data.zone || "",
+    phone: data.phone || "",
     displayName: data.displayName || data.name || "",
-    syncedAt:    FieldValue.serverTimestamp(),
-    _source:     "stfm-sales",
+    syncedAt: FieldValue.serverTimestamp(),
+    _source: "stfm-sales",
   };
 }
 
@@ -210,7 +221,9 @@ exports.syncUserToErpOnCreate = functions.firestore
       await erpDb()
           .doc(`salesapp_users/${ctx.params.userId}`)
           .set(payload, {merge: true});
-      console.log(`[→ERP users] created: ${ctx.params.userId} (${payload.role})`);
+      console.log(
+          `[→ERP users] created: ${ctx.params.userId} (${payload.role})`,
+      );
     });
 
 /**
@@ -222,14 +235,17 @@ exports.syncUserToErpOnUpdate = functions.firestore
     .document("users/{userId}")
     .onUpdate(async (change, ctx) => {
       const before = change.before.data();
-      const after  = change.after.data();
+      const after = change.after.data();
       // Skip if nothing meaningful changed
-      if (onlyMetaChanged(before, after, ["_syncedFromERP", "_syncedAt", "_source", "syncedAt"])) return;
+      const meta = ["_syncedFromERP", "_syncedAt", "_source", "syncedAt"];
+      if (onlyMetaChanged(before, after, meta)) return;
       const payload = buildUserPayload(ctx.params.userId, after);
       await erpDb()
           .doc(`salesapp_users/${ctx.params.userId}`)
           .set(payload, {merge: true});
-      console.log(`[→ERP users] updated: ${ctx.params.userId} (${payload.role})`);
+      console.log(
+          `[→ERP users] updated: ${ctx.params.userId} (${payload.role})`,
+      );
     });
 
 /**
@@ -269,5 +285,8 @@ exports.salesDeliveryUpdated = functions.firestore
       );
       if (!changed) return;
 
-      await syncToERP("deliveries", ctx.params.docId, after, after.zoneId || after._zoneId);
+      await syncToERP(
+          "deliveries", ctx.params.docId, after,
+          after.zoneId || after._zoneId,
+      );
     });
