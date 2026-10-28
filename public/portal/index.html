@@ -776,6 +776,7 @@ function buildSidebar() {
       <div class="sb-item" data-page="transfers" onclick="goPage('transfers')"><span class="ico">↔️</span> Transfers</div>
       <div class="sb-item" data-page="suppliers" onclick="goPage('suppliers')"><span class="ico">🏭</span> Suppliers</div>
       <div class="sb-item" data-page="reports" onclick="goPage('reports')"><span class="ico">📈</span> Reports</div>
+      <div class="sb-item" data-page="salesmanOrdersReport" onclick="goPage('salesmanOrdersReport')"><span class="ico">👨‍💼</span> Salesman / Daily Orders</div>
       <div class="sb-section">Admin</div>
       <div class="sb-item" data-page="settings" onclick="goPage('settings')"><span class="ico">⚙️</span> Settings</div>
     `;
@@ -805,6 +806,7 @@ const pageConfig = {
   dispatch:       {title:'Dispatch & Delivery',icon:'🚚',action:null},
   suppliers:      {title:'Suppliers',       icon:'🏭', action:'+ Add Supplier',     modal:'mSupplier', prep:'supplier'},
   reports:        {title:'Reports',         icon:'📈', action:null},
+  salesmanOrdersReport: {title:'Salesman / Daily Orders', icon:'👨‍💼', action:null},
   settings:       {title:'Settings',        icon:'⚙️', action:null},
   hqOrders:       {title:'HQ Orders',         icon:'🛒', action:null},
   transfers:      {title:'HQ Transfers',       icon:'↔️', action:null},
@@ -838,7 +840,7 @@ window.goPage = function(page) {
   }
   const renders = {
     dashboard, inventory, salesOrders, discounts, invoices, collections,
-    dispatch, suppliers, reports, settings,
+    dispatch, suppliers, reports, settings, salesmanOrdersReport,
     hqOrders, transfers,
     salesDashboard, myOrders, myCollections, myDeliveries, products
   };
@@ -1912,6 +1914,14 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
   ordSnap.forEach(d => {
     const v = d.data();
     const dmId = v.deliveryManId || v.repId || 'unassigned';
+    const rawDate = v.deliveryDate || v.scheduledDeliveryDate || v.createdAt;
+    let orderDay = '';
+    if (rawDate) {
+      const dt = typeof rawDate.toDate === 'function' ? rawDate.toDate() : new Date(rawDate);
+      if (!Number.isNaN(dt.getTime())) orderDay = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+      else orderDay = String(rawDate).slice(0,10);
+    }
+    if (orderDay !== dateStr) return;
     if (repFilterUid && dmId !== repFilterUid) return;
     if (!groups[dmId]) groups[dmId] = [];
     groups[dmId].push({ id: d.id, ...v });
@@ -2158,6 +2168,55 @@ async function suppliers() {
       <div class="card"><div class="twrap"><table id="supTbl"><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Terms</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">No suppliers yet</td></tr>'}</tbody></table></div></div>`;
   } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+}
+
+
+async function salesmanOrdersReport() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading orders…</div>';
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    const usersSnap = await getDocs(collection(_db, C('users'))).catch(() => ({forEach:()=>{}}));
+    const userNames = {};
+    usersSnap.forEach(d => { const u=d.data(); userNames[d.id]=u.name||u.email||d.id; });
+    const snap = await getDocs(query(collection(_db, C('orders')), orderBy('createdAt','desc'))).catch(() => ({forEach:()=>{},size:0}));
+    const all = [];
+    snap.forEach(d => all.push({id:d.id,...d.data()}));
+    const salesmen = [...new Set(all.map(o => o.repId || o.salesmanId || o.salesRepId || o.createdBy).filter(Boolean))];
+    const esc = v => String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const options = salesmen.sort().map(id => '<option value="'+esc(id)+'">'+esc(userNames[id]||id)+'</option>').join('');
+    mc.innerHTML = '<div class="pbar"><div><div class="page-title">Salesman-wise / Day-wise Orders</div><div class="page-sub">Daily order count, value and delivery status by salesman</div></div><button class="btn btn-primary" onclick="printSalesmanOrdersReport()">🖨️ Print / PDF</button></div>' +
+      '<div class="card" style="padding:16px;margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:end">' +
+      '<div><label class="flbl">From date</label><input class="finp" type="date" id="sorFrom" value="'+today+'" style="min-width:150px"></div>' +
+      '<div><label class="flbl">To date</label><input class="finp" type="date" id="sorTo" value="'+today+'" style="min-width:150px"></div>' +
+      '<div><label class="flbl">Salesman</label><select class="finp" id="sorRep" style="min-width:190px"><option value="">All salesmen</option>'+options+'</select></div>' +
+      '<button class="btn btn-primary" onclick="applySalesmanOrdersReport()">Apply</button>' +
+      '<button class="btn btn-ghost" onclick="document.getElementById(\'sorFrom\').value=\'\';document.getElementById(\'sorTo\').value=\'\';document.getElementById(\'sorRep\').value=\'\';applySalesmanOrdersReport()">All dates</button></div><div id="sorResults"></div>';
+    window._salesmanOrderReportData = {all,userNames};
+    window.applySalesmanOrdersReport = function() {
+      const from=document.getElementById('sorFrom')?.value||'', to=document.getElementById('sorTo')?.value||'', rep=document.getElementById('sorRep')?.value||'';
+      const dateKey = o => {
+        const d=o.orderDate||o.createdAt;
+        if (!d) return '';
+        const dt = typeof d.toDate==='function' ? d.toDate() : new Date(d);
+        return Number.isNaN(dt.getTime()) ? String(d).slice(0,10) : dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+      };
+      const rows=all.filter(o=>{const rid=o.repId||o.salesmanId||o.salesRepId||o.createdBy||'';const day=dateKey(o);return (!from||day>=from)&&(!to||day<=to)&&(!rep||rid===rep);});
+      const groups={};
+      rows.forEach(o=>{const day=dateKey(o)||'Unknown date',rid=o.repId||o.salesmanId||o.salesRepId||o.createdBy||'unassigned',key=day+'::'+rid;if(!groups[key])groups[key]={day,rid,orders:[],total:0,pendingDelivery:0};groups[key].orders.push(o);groups[key].total+=Number(o.total)||0;if(!['delivered','cancelled'].includes(String(o.deliveryStatus||'pending').toLowerCase()))groups[key].pendingDelivery++;});
+      const sorted=Object.values(groups).sort((a,b)=>b.day.localeCompare(a.day)||String(userNames[a.rid]||a.rid).localeCompare(String(userNames[b.rid]||b.rid)));
+      const sum=rows.reduce((n,o)=>n+(Number(o.total)||0),0);
+      const html=sorted.map(g=>'<tr><td>'+esc(g.day)+'</td><td>'+esc(userNames[g.rid]||(g.rid==='unassigned'?'— Unassigned —':g.rid))+'</td><td>'+g.orders.length+'</td><td>'+g.pendingDelivery+'</td><td>'+fmt(g.total)+'</td><td>'+esc(g.orders.map(o=>o.customer||'—').join(', '))+'</td></tr>').join('');
+      document.getElementById('sorResults').innerHTML='<div class="kpi-grid"><div class="kpi"><div class="kpi-val">'+rows.length+'</div><div class="kpi-lbl">Orders</div></div><div class="kpi"><div class="kpi-val">'+fmt(sum)+'</div><div class="kpi-lbl">Order Value</div></div><div class="kpi"><div class="kpi-val">'+rows.filter(o=>!['delivered','cancelled'].includes(String(o.deliveryStatus||'pending').toLowerCase())).length+'</div><div class="kpi-lbl">Awaiting Delivery</div></div></div><div class="card"><div class="twrap"><table id="sorPrintTable"><thead><tr><th>Order Date</th><th>Salesman</th><th>Orders</th><th>To Deliver</th><th>Total Value</th><th>Customers</th></tr></thead><tbody>'+(html||'<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--tx3)">No orders match these filters.</td></tr>')+'</tbody></table></div></div>';
+    };
+    window.printSalesmanOrdersReport = function() {
+      const table=document.getElementById('sorPrintTable'); if(!table)return;
+      const w=window.open('','_blank'); if(!w){showToast('Allow pop-ups to print the report','error');return;}
+      w.document.write('<!doctype html><html><head><title>Salesman Daily Orders</title><style>body{font:12px Arial;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}th{background:#eee}</style></head><body><h2>Salesman-wise / Day-wise Orders</h2><p>Generated '+new Date().toLocaleString()+'</p>'+table.outerHTML+'</body></html>');
+      w.document.close();w.focus();w.print();
+    };
+    window.applySalesmanOrdersReport();
+  } catch(e) { mc.innerHTML='<div style="color:var(--red);padding:20px">Unable to load salesman orders: '+String(e.message||e)+'</div>'; }
 }
 
 async function reports() {
