@@ -76,7 +76,7 @@ test('rules lock stock quantities and the ledger to the server', () => {
   const req = rules.slice(rules.indexOf('match /stsb_stock_requests/'), rules.indexOf('match /stsb_stock_ledger/'));
   assert.match(req, /resource\.data\.requestedBy != request\.auth\.uid/);
   assert.match(req, /allow delete: if false/);
-  assert.match(rules, /match \/stsb_stock_ledger\/\{entryId\} \{\s*allow read: if isStsbERPAdmin\(\);\s*allow write: if false;/);
+  assert.match(rules, /match \/stsb_stock_ledger\/\{entryId\} \{\s*allow read: if isStsbStaff\(\);\s*allow write: if false;/);
 });
 
 test('portal and Sales App never write stock quantities directly', () => {

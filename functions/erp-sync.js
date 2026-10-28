@@ -311,6 +311,10 @@ function appPatchFromErp(before, after, appStatus, appOrder = {}) {
   }
   if (changed('deliveryDate') && after.deliveryDate) patch.deliveryDate = after.deliveryDate;
   if (changed('invoiceNo')) patch.invoiceNo = after.invoiceNo || '';
+  // Warehouse packing progress (storeman) shows on the delivery screens.
+  if (changed('pickStatus')) patch.pickStatus = after.pickStatus || '';
+  // e-Invoice request token, so the app's invoice shows the same QR code.
+  if (changed('einvoiceToken')) patch.einvoiceToken = after.einvoiceToken || '';
   if (patch.status === appStatus) delete patch.status;
   if (changed('status')) patch.erpStatus = after.status || '';
   if (!Object.keys(patch).length) return null;

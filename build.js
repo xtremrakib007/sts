@@ -17,6 +17,7 @@ const pkg = require('./package.json');
 
 // Exact script loading sequence matching index.html (boot.js MUST be last)
 const JS_FILES = [
+  'node_modules/qrcode-generator/qrcode.js', // global qrcode() for invoice QR codes
   'js/core.js',
   'js/ui.js',
   'js/auth.js',
@@ -48,6 +49,11 @@ const COPY_FILES = [
   'icon-192.png',
   'icon-512.png'
 ];
+
+// Third-party browser files served as-is (the ERP portal loads these).
+const VENDOR_FILES = {
+  'node_modules/qrcode-generator/qrcode.js': 'vendor/qrcode.js',
+};
 
 const TARGET_DIRS = ['public', 'www'];
 
@@ -148,6 +154,14 @@ async function build() {
       }
     } else {
       console.warn(`   ⚠️ Asset not found to copy: ${file}`);
+    }
+  }
+
+  for (const [from, to] of Object.entries(VENDOR_FILES)) {
+    for (const dir of TARGET_DIRS) {
+      fs.mkdirSync(path.join(dir, path.dirname(to)), { recursive: true });
+      fs.copyFileSync(from, path.join(dir, to));
+      console.log(`   📋 ${path.join(dir, to)}`);
     }
   }
 

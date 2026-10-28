@@ -188,6 +188,7 @@ async function sfGetOne(colName, docId) {
     return snap.exists() ? {id:snap.id,...snap.data()} : null;
   } catch(e) { return null; }
 }
+function escH(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function fmt(n) { return 'RM '+Number(n||0).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtD(d) { if(!d) return '—'; const dt=d.toDate?d.toDate():new Date(d); return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtT(d) { if(!d) return '--:--'; const dt=d.toDate?d.toDate():new Date(d); return dt.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false}); }

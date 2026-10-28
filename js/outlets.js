@@ -46,31 +46,33 @@ async function loadOutlets() {
     return `${km.toFixed(1)}km`;
   }
 
-  // Outlet card builder (shared by all views)
-  // Compact grid tile — lives inside .tree-body2 (grid layout)
+  // Outlet card: signboard photo, name, area, due and distance, with the
+  // four field actions (Order, Direction, WhatsApp, NP Visit) and a ⋮ menu.
   function buildOutletCard(o,i){
     const oOrders=orders.filter(x=>x.outletId===o.id&&x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
     const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+x.amount,0);
     const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?o.openingBalance:0));
-    const hasPhone=!!o.phone;
-    const hasPinned=!!(o.lat&&o.lng);
     const clr=o.color||COLORS[i%COLORS.length];
     const km=distKm(o);
-    const distBadge=km!==Infinity?`<span style="font-size:9px;color:var(--blu);font-weight:600">📍${fmtDist(km)}</span>`:'';
-    return`<div class="oc-grid" onclick="viewOutlet('${o.id}')">
-      <div class="oc-grid-top">
-        <div class="oc-grid-ava" style="background:${clr}">${o.name[0]}</div>
-        <div style="flex:1;min-width:0"><div class="oc-grid-name">${o.name}</div>${distBadge}</div>
+    const photo=o.signboardPhoto||o.coverPhoto||'';
+    const media=photo
+      ?`<img src="${escH(photo)}" alt="" loading="lazy">`
+      :`<div class="ol-initial" style="background:${clr}">${escH((o.name||'?')[0])}</div>`;
+    return`<div class="ol-card" onclick="viewOutlet('${o.id}')">
+      <div class="ol-media">${media}
+        ${km!==Infinity?`<span class="ol-dist">📍 ${fmtDist(km)}</span>`:''}
+        <button class="ol-more" onclick="event.stopPropagation();openOutletMenu('${o.id}',this)" aria-label="More options">⋮</button>
       </div>
-      <div class="oc-grid-sub">${o.type}${o.area?' · '+o.area:''}</div>
-      <div class="oc-grid-sub" style="color:${due>0?'var(--red)':'var(--tx3)'}">Due: <strong>${fmt(due)}</strong></div>
-      <div class="oc-grid-btns" onclick="event.stopPropagation()">
-        <button class="btn btn-primary btn-xs" onclick="openNewOrder('${o.id}')" title="Order">📦</button>
-        <button class="btn btn-ylw btn-xs" onclick="openNPVisit('${o.id}')" title="NP Visit">📝</button>
-        ${hasPhone?`<button class="btn btn-grn btn-xs" onclick="openWhatsApp('${o.id}')" title="WhatsApp">💬</button>`:''}
-        ${hasPinned?`<button class="btn btn-blu btn-xs" onclick="openDirections('${o.id}')" title="Directions">🗺️</button>`:''}
-        <button class="btn btn-ghost btn-xs" onclick="editOutlet('${o.id}')" title="Edit">✏️</button>
-        ${isAdmin()?`<button class="btn btn-red btn-xs" onclick="delOutlet('${o.id}')" title="Delete">🗑</button>`:''}
+      <div class="ol-body">
+        <div class="ol-name">${escH(o.name)}</div>
+        <div class="ol-sub">${escH(o.type||'')}${o.area?' · '+escH(o.area):''}${o.route?' · 🗺️ '+escH(o.route):''}</div>
+        <div class="ol-due ${due>0?'owed':''}">Due <strong>${fmt(due)}</strong></div>
+      </div>
+      <div class="ol-actions" onclick="event.stopPropagation()">
+        ${isDeliveryMan()?'':`<button class="ol-act ord" onclick="openNewOrder('${o.id}')"><span>📦</span>Order</button>`}
+        <button class="ol-act dir${o.lat&&o.lng?'':' off'}" onclick="${o.lat&&o.lng?`openDirections('${o.id}')`:"showToast('No location pinned for this outlet','warn')"}"><span>🧭</span>Direction</button>
+        <button class="ol-act wa${o.phone?'':' off'}" onclick="${o.phone?`openWhatsApp('${o.id}')`:"showToast('No phone number saved','warn')"}"><span>💬</span>WhatsApp</button>
+        ${isDeliveryMan()?'':`<button class="ol-act np" onclick="openNPVisit('${o.id}')"><span>📝</span>NP Visit</button>`}
       </div>
     </div>`;
   }
@@ -90,7 +92,7 @@ async function loadOutlets() {
     try{const myO=await sfGet('orders',[wdm('deliveryManId','==',CU.uid)]);allowedIds=new Set(myO.map(d=>d.data().outletId));}catch(e){}
     const myOutlets=sortByDist(allOutlets.filter(o=>allowedIds.has(o.id)));
     tree.innerHTML=myOutlets.length
-      ?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">${myOutlets.map((o,i)=>buildOutletCard(o,i)).join('')}</div>`
+      ?`<div class="ol-grid">${myOutlets.map((o,i)=>buildOutletCard(o,i)).join('')}</div>`
       :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets assigned to your deliveries</div>';
     return;
   }
@@ -205,6 +207,45 @@ async function loadOutlets() {
   }
 
   tree.innerHTML=html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
+}
+
+// ⋮ menu on an outlet card. Everyone gets view/edit/QR/call; admins also
+// get assign rep, opening balance decisions, order history and delete.
+function openOutletMenu(id,btn){
+  document.getElementById('olMenu')?.remove();
+  const o=allOutlets.find(x=>x.id===id); if(!o)return;
+  const items=[
+    ['👁️','View details',`viewOutlet('${id}')`],
+    ['✏️','Edit outlet',`editOutlet('${id}')`],
+    ['🔳','Outlet QR code',`viewOutletQR('${id}')`],
+  ];
+  if(o.phone)items.push(['📞','Call',`location.href='tel:${String(o.phone).replace(/[^0-9+]/g,'')}'`]);
+  if(isAdmin()){
+    items.push(['👤','Assign sales rep',`adminAssignRep('${id}')`]);
+    items.push(['🧾','Orders & invoices',`outletOrderHistory('${id}')`]);
+    items.push(['💰','Collect payment',`openNewCollection('${id}')`]);
+    if(o.balanceStatus==='pending'&&o.openingBalance>0){
+      items.push(['✅','Approve opening balance',`approveBalance('${id}')`]);
+      items.push(['✕','Reject opening balance',`rejectBalance('${id}')`]);
+    }
+    items.push(['🗑','Delete outlet',`delOutlet('${id}')`,'danger']);
+  }
+  const m=document.createElement('div');
+  m.id='olMenu';m.className='ol-menu';
+  m.innerHTML=`<div class="ol-menu-sheet" onclick="event.stopPropagation()">
+    <div class="ol-menu-title">${escH(o.name)}</div>
+    ${items.map(([ic,l,fn,cls])=>`<button class="${cls||''}" onclick="document.getElementById('olMenu').remove();${fn}">${ic}<span>${l}</span></button>`).join('')}
+    <button class="ol-menu-cancel" onclick="document.getElementById('olMenu').remove()">Cancel</button>
+  </div>`;
+  m.onclick=()=>m.remove();
+  document.body.appendChild(m);
+}
+
+// Admin shortcut: the orders page filtered to one outlet.
+function outletOrderHistory(id){
+  const o=allOutlets.find(x=>x.id===id);
+  goPage('orders');
+  setTimeout(()=>{const s=document.getElementById('ordSrch');if(s&&o){s.value=o.name;s.dispatchEvent(new Event('input'));}},300);
 }
 
 function toggleOutletRep(repUid){

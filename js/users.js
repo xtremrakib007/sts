@@ -7,8 +7,8 @@ async function loadUsers() {
   const users = isOwner()
     ? allFetched
     : allFetched.filter(u=>u.isOwner||u.zoneId===CU.zoneId||u.uid===CU.uid);
-  const roleLabel={admin:'Admin',sub_admin:'Sub Admin',sales_rep:'Sales Rep',delivery_man:'Delivery Man'};
-  const roleBadge={admin:'bdg-acc',sub_admin:'bdg-pur',sales_rep:'bdg-blu',delivery_man:'bdg-grn'};
+  const roleLabel={admin:'Admin',sub_admin:'Sub Admin',sales_rep:'Sales Rep',delivery_man:'Delivery Man',storeman:'Storeman'};
+  const roleBadge={admin:'bdg-acc',sub_admin:'bdg-pur',sales_rep:'bdg-blu',delivery_man:'bdg-grn',storeman:'bdg-ylw'};
   document.getElementById('usersTbody').innerHTML=users.map(u=>{
     const isMe=u.uid===CU.uid;
     const isOwnerUser=u.isOwner===true;
@@ -44,6 +44,9 @@ async function loadUsers() {
 function openNewUser() {
   ['uName','uEmail','uPwd','uPhone'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('uRole').value='sales_rep';
+  // Storemen get ERP-wide order and stock access: only the owner creates them.
+  const stOpt=document.getElementById('uRoleStoreman');
+  if(stOpt)stOpt.hidden=stOpt.disabled=!isOwner();
   document.getElementById('uEditId').value='';
   // Zone dropdown — owner sees all zones; zone-users auto-assign their zone
   const uZoneSel=document.getElementById('uZone');
@@ -186,8 +189,8 @@ async function deleteNPVisit(docId, label) {
 
 function showUserId(uid, name, role) {
   if(!isAdmin()){showToast('Admin only','error');return;}
-  const roleLabel={admin:'Admin',sub_admin:'Sub Admin',sales_rep:'Sales Rep',delivery_man:'Delivery Man'};
-  const roleBadge={admin:'var(--acc)',sub_admin:'var(--pur)',sales_rep:'var(--blu)',delivery_man:'var(--grn)'};
+  const roleLabel={admin:'Admin',sub_admin:'Sub Admin',sales_rep:'Sales Rep',delivery_man:'Delivery Man',storeman:'Storeman'};
+  const roleBadge={admin:'var(--acc)',sub_admin:'var(--pur)',sales_rep:'var(--blu)',delivery_man:'var(--grn)',storeman:'var(--ylw)'};
   // Build inline popup over the page
   const existing=document.getElementById('uidPopup');
   if(existing)existing.remove();
