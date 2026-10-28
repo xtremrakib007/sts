@@ -341,7 +341,7 @@ function _showInAppNotif(title, body, data={}) {
     <div style="display:flex;align-items:flex-start;gap:10px">
       <div style="font-size:22px;flex-shrink:0">🔔</div>
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:13px;color:var(--tx);margin-bottom:3px">${title||'STFM'}</div>
+        <div style="font-weight:700;font-size:13px;color:var(--tx);margin-bottom:3px">${title||'STSB'}</div>
         <div style="font-size:12px;color:var(--tx2);line-height:1.4">${body||''}</div>
       </div>
       <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:var(--tx3);cursor:pointer;font-size:16px;padding:0;flex-shrink:0">✕</button>
@@ -397,7 +397,7 @@ async function sendPushToUsers(uids, title, body, data={}) {
       {
         tokens,
         uids:       uids.filter(id => id !== CU.uid),
-        title:      title || 'STFM',
+        title:      title || 'STSB',
         body:       body || '',
         data:       data || {},
         icon:       '/icon-192.png',

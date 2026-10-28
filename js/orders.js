@@ -1328,7 +1328,7 @@ function _invDocHtml() {
     <body>${window.__currentInvoiceSheet || ''}</body></html>`;
 }
 function _invNeedsUpdate(what) {
-  showToast(`${what} needs the latest STFM app — install the new APK from your admin`, 'warn');
+  showToast(`${what} needs the latest STSB app — install the new APK from your admin`, 'warn');
 }
 
 const _scriptLoads = {};
@@ -1397,8 +1397,8 @@ async function downloadInvoicePDF() {
     if (!_invNative()) { pdf.save(name); return; }
     if (!_invPlugin('Filesystem')) { _invNeedsUpdate('Saving PDFs'); return; }
     try {
-      await _invWriteFile('DOCUMENTS', 'STFM/' + name, pdf);
-      showToast(`PDF saved: Documents/STFM/${name}`, 'success');
+      await _invWriteFile('DOCUMENTS', 'STSB/' + name, pdf);
+      showToast(`PDF saved: Documents/STSB/${name}`, 'success');
     } catch (e) {
       // Some Android versions block shared Documents: offer it to save instead.
       const uri = await _invWriteFile('CACHE', name, pdf);

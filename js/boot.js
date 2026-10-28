@@ -70,7 +70,7 @@ async function bootApp() {
         <div style="text-align:center;padding:24px;max-width:320px">
           <div style="font-size:48px;margin-bottom:12px">📍</div>
           <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--tx);margin-bottom:8px">Location Required</div>
-          <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;line-height:1.5">STFM needs your GPS location for outlet sorting and field tracking. Please allow location access.</div>
+          <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;line-height:1.5">STSB needs your GPS location for outlet sorting and field tracking. Please allow location access.</div>
           <button onclick="location.reload()" style="background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;width:100%">📍 Allow Location & Retry</button>
           <button onclick="doLogout()" style="background:var(--s2);color:var(--tx2);border:1px solid var(--bdr);padding:10px 22px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:10px;width:100%">Sign Out</button>
         </div>`;
@@ -92,7 +92,7 @@ async function bootApp() {
     // ★ Exit confirmation — warn before leaving the app
     window.addEventListener('beforeunload', e=>{
       e.preventDefault();
-      e.returnValue='Are you sure you want to leave STFM?';
+      e.returnValue='Are you sure you want to leave STSB?';
       return e.returnValue;
     });
 
@@ -548,7 +548,7 @@ function _showApkUpdateBanner(apkUrl) {
   bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:9998;' +
     'display:flex;align-items:center;gap:10px;background:var(--s1);border:1px solid var(--ylw);border-radius:12px;' +
     'padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:13px;color:var(--tx)';
-  bar.innerHTML = '<span style="flex:1">📲 A new version of the STFM app must be installed. ' +
+  bar.innerHTML = '<span style="flex:1">📲 A new version of the STSB app must be installed. ' +
     (apkUrl ? '' : 'Ask your admin for the latest app.') + '</span>' +
     (apkUrl ? '<button class="btn btn-primary btn-sm" id="apkUpdateBtn">Download</button>' : '') +
     '<button class="btn btn-ghost btn-sm" onclick="this.parentNode.remove()">Later</button>';
@@ -598,8 +598,8 @@ function showNativeAppOnlyScreen() {
     el.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)';
     el.innerHTML = '<div style="max-width:340px;text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:20px;padding:28px 24px">' +
       '<div style="font-size:44px;margin-bottom:12px">📱</div>' +
-      '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:800;margin-bottom:8px;color:var(--tx)">Use the STFM Sales app</div>' +
-      '<div style="font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:18px">Sales and delivery work is done in the STFM Sales Android app. The web version is for admins only.</div>' +
+      '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:800;margin-bottom:8px;color:var(--tx)">Use the STSB app</div>' +
+      '<div style="font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:18px">Sales and delivery work is done in the STSB Android app. The web version is for admins only.</div>' +
       '<button class="btn btn-primary" style="width:100%" onclick="location.reload()">Back to sign in</button></div>';
     document.body.appendChild(el);
   }

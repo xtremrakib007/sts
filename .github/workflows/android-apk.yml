@@ -1,4 +1,4 @@
-# Builds the STFM Sales Android APK on GitHub — no Android Studio needed.
+# Builds the STSB Android APK on GitHub — no Android Studio needed.
 #
 # - Every PR that touches the app, and every merge to main, builds an APK
 #   and attaches it to the run (Actions → this run → Artifacts).
@@ -103,6 +103,6 @@ jobs:
           version=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
           code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
           gh release create "apk-v${version}-${{ github.run_number }}" stfm-sales.apk \
-            --title "STFM Sales ${version} (build ${code}, run ${{ github.run_number }})" \
+            --title "STSB ${version} (build ${code}, run ${{ github.run_number }})" \
             --notes "Android app built from ${GITHUB_SHA::7}. Install over the existing app; later code updates arrive over the air." \
             --latest
