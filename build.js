@@ -53,6 +53,8 @@ const COPY_FILES = [
 // Third-party browser files served as-is (the ERP portal loads these).
 const VENDOR_FILES = {
   'node_modules/qrcode-generator/qrcode.js': 'vendor/qrcode.js',
+  'node_modules/read-excel-file/bundle/read-excel-file.min.js': 'vendor/read-excel-file.js',
+  'node_modules/write-excel-file/bundle/write-excel-file.min.js': 'vendor/write-excel-file.js',
 };
 
 const TARGET_DIRS = ['public', 'www'];

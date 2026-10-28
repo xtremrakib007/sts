@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
+<script>try{if(localStorage.getItem('erp-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -551,6 +552,8 @@ body.store-mode .adm-only{display:none!important}
      FIREBASE + APP LOGIC
 ══════════════════════════════════════ -->
 <script src="/vendor/qrcode.js"></script>
+<script src="/vendor/read-excel-file.js"></script>
+<script src="/vendor/write-excel-file.js"></script>
 <script type="module">
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -643,8 +646,9 @@ window.showToast = (msg, type='success') => {
 window.openModal = (id) => document.getElementById(id).classList.add('open');
 window.closeModal = (id) => document.getElementById(id).classList.remove('open');
 window.toggleTheme = () => {
-  const t = document.documentElement;
-  t.setAttribute('data-theme', t.getAttribute('data-theme')==='dark'?'light':'dark');
+  const t = document.documentElement, next = t.getAttribute('data-theme')==='dark'?'light':'dark';
+  t.setAttribute('data-theme', next);
+  try { localStorage.setItem('erp-theme', next); } catch (e) {}
 };
 
 window.selectTenant = function(tenantId) {
@@ -1587,8 +1591,8 @@ window.saveProduct = async function() {
     notes: document.getElementById('productNotes').value.trim(),
     updatedAt: ts(), updatedBy: uid()
   };
-  const dup = (await getDocs(collection(_db, C('products')))).docs.find(d => data.sku && d.data().sku === data.sku && d.id !== document.getElementById('productDocId').value);
-  if (dup) { showToast(`SKU ${data.sku} is already used by ${dup.data().name}`,'error'); return; }
+  const dup = (await _allProducts()).find(p => data.sku && p.sku === data.sku && p.id !== document.getElementById('productDocId').value);
+  if (dup) { showToast(`SKU ${data.sku} is already used by ${dup.name}`,'error'); return; }
   // One id for the ERP product, the Sales App catalogue and the stock item,
   // so orders, stock and reports all match.
   const id = document.getElementById('productDocId').value || doc(collection(_db, C('products'))).id;
@@ -1613,9 +1617,12 @@ window.saveProduct = async function() {
 };
 
 window.editProduct = async function(id) {
-  const d = await getDoc(doc(_db, C('products'), id));
-  if (!d.exists()) return;
-  const v = d.data();
+  const v = await _oneProduct(id);
+  if (!v) return;
+  const cat = document.getElementById('productCat');
+  if (v.category && ![...cat.options].some(o => o.value === v.category)) cat.add(new Option(v.category, v.category));
+  const unit = document.getElementById('productUnit');
+  if (v.unit && ![...unit.options].some(o => o.value === v.unit)) unit.add(new Option(v.unit, v.unit));
   document.getElementById('productDocId').value = id;
   document.getElementById('productName').value = v.name||'';
   document.getElementById('productSku').value = v.sku||'';
@@ -1641,7 +1648,7 @@ window.newProduct = function() {
 };
 
 window.deleteProduct = async function(id) {
-  const v = (await getDoc(doc(_db, C('products'), id))).data() || {};
+  const v = (await _oneProduct(id)) || {};
   if (!confirm(`Delete "${v.name||'this product'}"?\n\nIt is removed from the ERP and the Sales App catalogue. Past orders keep their lines; the stock item and its history stay in Inventory.\n\nTip: to stop selling it but keep it, edit it and choose "Hidden".`)) return;
   try {
     await deleteDoc(doc(_db, C('products'), id));
@@ -4255,18 +4262,188 @@ function _watchBackfill() {
 }
 
 // ERP product management: catalogue with live stock from inventory.
+// ── Product list = Sales App catalogue (root products, where the real
+// catalogue lives) + ERP-only fields (stsb_products, e.g. cost). Same id.
+async function _allProducts() {
+  const [app, erp] = await Promise.all([
+    getDocs(collection(_db, 'products')).catch(() => ({ docs: [] })),
+    getDocs(collection(_db, C('products'))).catch(() => ({ docs: [] })),
+  ]);
+  const byId = new Map();
+  app.docs.forEach(d => byId.set(d.id, { id: d.id, ...d.data(), _inApp: true }));
+  erp.docs.forEach(d => { const e = d.data(), a = byId.get(d.id) || {}; byId.set(d.id, { ...a, ...e, id: d.id, _inApp: !!a._inApp, _inErp: true,
+    // the Sales App's price / stock switch is what reps see
+    ...(a._inApp ? { price: a.price ?? e.price, stockStatus: a.stockStatus ?? e.stockStatus, ctnSize: a.ctnSize ?? e.ctnSize, ctnPrice: a.ctnPrice ?? e.ctnPrice } : {}) }); });
+  return [...byId.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+}
+async function _oneProduct(id) {
+  const [a, e] = await Promise.all([getDoc(doc(_db, 'products', id)).catch(() => null), getDoc(doc(_db, C('products'), id)).catch(() => null)]);
+  if (!a?.exists() && !e?.exists()) return null;
+  const av = a?.exists() ? a.data() : {}, ev = e?.exists() ? e.data() : {};
+  return { ...ev, ...av, cost: ev.cost ?? av.cost, notes: ev.notes ?? av.description ?? av.notes };
+}
+
+// ── Product import / export (Excel .xlsx or CSV) ──
+const PRODUCT_COLS = [
+  ['name', 'Name'], ['sku', 'SKU'], ['category', 'Category'], ['unit', 'Unit'], ['price', 'Price (RM)'], ['cost', 'Cost (RM)'],
+  ['ctnSize', 'Pcs per carton'], ['ctnPrice', 'Carton price (RM)'], ['maxDiscount', 'Max discount %'], ['stockStatus', 'In stock (yes/no)'], ['notes', 'Notes'],
+];
+const _xlSafe = v => (typeof v === 'string' && /^[=+@\t\r]/.test(v)) ? "'" + v : v; // no formula injection
+function _productRow(p) {
+  return PRODUCT_COLS.map(([k]) => k === 'stockStatus' ? (p.stockStatus === 'out_of_stock' ? 'no' : 'yes')
+    : ['price', 'cost', 'ctnSize', 'ctnPrice', 'maxDiscount'].includes(k) ? (_n(p[k]) || (k === 'price' ? 0 : '')) : _xlSafe(p[k] ?? (k === 'notes' ? p.description : '') ?? ''));
+}
+
+window.exportProducts = async function(fmtType) {
+  const list = await _allProducts();
+  const header = PRODUCT_COLS.map(c => c[1]);
+  const name = `products-${new Date().toISOString().slice(0, 10)}`;
+  if (fmtType === 'csv') { _downloadCsv(name + '.csv', header, list.map(_productRow)); return; }
+  if (typeof window.writeXlsxFile !== 'function') { showToast('Excel library not loaded — use CSV', 'error'); return; }
+  const data = [header.map(h => ({ value: h, fontWeight: 'bold' })), ...list.map(p => _productRow(p).map(v => v === '' ? null : v))];
+  await _saveXlsx(data, name + '.xlsx');
+};
+
+window.downloadProductTemplate = async function() {
+  const header = PRODUCT_COLS.map(c => c[1]);
+  const sample = ['100PLUS 500ML*24', '100P-500', 'BEVERAGE', 'pcs', 1.9, 1.5, 24, 43, 5, 'yes', ''];
+  if (typeof window.writeXlsxFile === 'function') await _saveXlsx([header.map(h => ({ value: h, fontWeight: 'bold' })), sample], 'products-template.xlsx');
+  else _downloadCsv('products-template.csv', header, [sample]);
+};
+
+async function _saveXlsx(data, fileName) {
+  const out = window.writeXlsxFile(data, { fileName, columns: PRODUCT_COLS.map(([k]) => ({ width: k === 'name' ? 34 : k === 'notes' ? 30 : 14 })) });
+  if (out && typeof out.toFile === 'function') await out.toFile(fileName); else await out;
+}
+
+function _parseCsv(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',' || c === ';' && !text.slice(0, 2000).includes(',')) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(v => String(v).trim() !== ''));
+}
+
+// Header text → field. Accepts our export headers and common variations.
+function _productField(h) {
+  const k = String(h || '').toLowerCase().replace(/[^a-z%]/g, '');
+  if (/^(name|product|productname|item|itemname)$/.test(k)) return 'name';
+  if (/^(sku|code|itemcode|productcode|barcode)$/.test(k)) return 'sku';
+  if (/^(category|cat|group)$/.test(k)) return 'category';
+  if (/^(unit|uom)$/.test(k)) return 'unit';
+  if (/^(price|pricerm|sellingprice|unitprice|pcsprice|retailprice)$/.test(k)) return 'price';
+  if (/^(cost|costrm|costprice|purchaseprice)$/.test(k)) return 'cost';
+  if (/^(pcspercarton|ctnsize|cartonsize|pcsperctn|packsize)$/.test(k)) return 'ctnSize';
+  if (/^(cartonprice|cartonpricerm|ctnprice|ctnpricerm)$/.test(k)) return 'ctnPrice';
+  if (/^(maxdiscount%?|maxdiscount|discountlimit|maxdisc%?)$/.test(k)) return 'maxDiscount';
+  if (/^(instockyesno|instock|stock|available|status)$/.test(k)) return 'stockStatus';
+  if (/^(notes|note|remarks|description)$/.test(k)) return 'notes';
+  return null;
+}
+
+window.importProductsFile = async function(input) {
+  const file = input.files && input.files[0]; input.value = '';
+  if (!file) return;
+  let rows;
+  try {
+    if (/\.xlsx$/i.test(file.name)) {
+      if (typeof window.readXlsxFile !== 'function') throw new Error('Excel library not loaded — save the sheet as CSV');
+      const r = await window.readXlsxFile(file);
+      rows = Array.isArray(r) && r.length && r[0] && Array.isArray(r[0].data) ? r[0].data : r;
+    } else if (/\.(csv|txt)$/i.test(file.name)) rows = _parseCsv(await file.text());
+    else throw new Error('Choose an .xlsx or .csv file (old .xls: save it as .xlsx first)');
+  } catch (e) { showToast('Could not read the file: ' + e.message, 'error'); return; }
+  if (!rows || rows.length < 2) { showToast('The file has no product rows', 'error'); return; }
+  const fields = rows[0].map(_productField);
+  if (!fields.includes('name') || !fields.includes('price')) { showToast('The first row must have headers incl. "Name" and "Price" — download the template', 'error'); return; }
+  const existing = await _allProducts();
+  const bySku = new Map(existing.filter(p => p.sku).map(p => [String(p.sku).toLowerCase(), p]));
+  const byName = new Map(existing.map(p => [String(p.name || '').toLowerCase().trim(), p]));
+  const plan = [], errors = [], seen = new Set();
+  rows.slice(1).forEach((r, i) => {
+    const v = {}; fields.forEach((f, j) => { if (f) v[f] = r[j]; });
+    const line = i + 2, name = String(v.name ?? '').trim(), sku = String(v.sku ?? '').trim().replace(/^'/, '');
+    const num = x => { const n = parseFloat(String(x ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
+    if (!name) { errors.push(`Row ${line}: no name`); return; }
+    const price = num(v.price);
+    if (!(price > 0)) { errors.push(`Row ${line} (${name}): price must be above 0`); return; }
+    const key = (sku || name).toLowerCase();
+    if (seen.has(key)) { errors.push(`Row ${line} (${name}): duplicate in the file`); return; }
+    seen.add(key);
+    const match = (sku && bySku.get(sku.toLowerCase())) || byName.get(name.toLowerCase());
+    const ctnSize = num(v.ctnSize);
+    const st = String(v.stockStatus ?? '').trim().toLowerCase();
+    plan.push({ id: match ? match.id : null, before: match || null, data: {
+      name: name.replace(/^'/, ''), sku, category: String(v.category ?? (match?.category || 'General')).trim() || 'General',
+      unit: String(v.unit ?? (match?.unit || 'pcs')).trim() || 'pcs', price, cost: v.cost != null && v.cost !== '' ? num(v.cost) : _n(match?.cost),
+      ctnSize, ctnPrice: num(v.ctnPrice) || (ctnSize ? Math.round(price * ctnSize * 100) / 100 : 0),
+      maxDiscount: v.maxDiscount != null && v.maxDiscount !== '' ? num(v.maxDiscount) : _n(match?.maxDiscount),
+      stockStatus: ['no', 'n', 'false', '0', 'out', 'out_of_stock', 'out of stock'].includes(st) ? 'out_of_stock' : st ? 'in_stock' : (match?.stockStatus || 'in_stock'),
+      notes: String(v.notes ?? (match?.notes || match?.description || '')).trim(),
+    } });
+  });
+  window.__prodImport = plan;
+  const adds = plan.filter(p => !p.id).length, upd = plan.length - adds;
+  _stockModal('mProdImport', '⬆️ Import products', `
+    <div style="font-size:13px;margin-bottom:10px"><strong>${_esc(file.name)}</strong>: <span class="badge badge-green">${adds} new</span> <span class="badge badge-blue">${upd} update${upd === 1 ? '' : 's'}</span> ${errors.length ? `<span class="badge badge-red">${errors.length} skipped</span>` : ''}</div>
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched to existing products by SKU, then by name. Updates change only the columns in the file. New products start with zero stock — receive stock in Inventory.</div>
+    ${errors.length ? `<div style="font-size:12px;color:var(--red);max-height:110px;overflow:auto;margin-bottom:10px">${errors.slice(0, 50).map(_esc).join('<br>')}</div>` : ''}
+    <div class="twrap" style="max-height:300px;overflow:auto"><table><thead><tr><th></th><th>Name</th><th>SKU</th><th>Category</th><th style="text-align:right">Price</th><th style="text-align:right">Ctn</th></tr></thead><tbody>
+      ${plan.slice(0, 300).map(p => `<tr><td>${p.id ? '<span class="badge badge-blue">update</span>' : '<span class="badge badge-green">new</span>'}</td><td>${_esc(p.data.name)}</td><td style="font-size:11px">${_esc(p.data.sku || '—')}</td><td>${_esc(p.data.category)}</td>
+        <td style="text-align:right">${fmt(p.data.price)}${p.before && _n(p.before.price) !== p.data.price ? `<div style="font-size:10px;color:var(--tx3)">was ${fmt(p.before.price)}</div>` : ''}</td><td style="text-align:right;font-size:11px">${p.data.ctnSize ? _qty(p.data.ctnSize) + ' · ' + fmt(p.data.ctnPrice) : '—'}</td></tr>`).join('')}
+    </tbody></table></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mProdImport')">Cancel</button><button class="btn btn-primary" id="prodImportGo" onclick="runProductImport()" ${plan.length ? '' : 'disabled'}>Import ${plan.length} product${plan.length === 1 ? '' : 's'}</button>`, true);
+};
+
+window.runProductImport = async function() {
+  const plan = window.__prodImport || []; if (!plan.length) return;
+  const btn = document.getElementById('prodImportGo'); if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  const now = new Date().toISOString();
+  let done = 0;
+  try {
+    const invIds = new Set((await getDocs(collection(_db, C('inventory')))).docs.map(d => d.id));
+    for (let i = 0; i < plan.length; i += 120) {
+      const batch = writeBatch(_db);
+      plan.slice(i, i + 120).forEach(p => {
+        const id = p.id || doc(collection(_db, C('products'))).id, d = p.data, isNew = !p.id;
+        batch.set(doc(_db, C('products'), id), { ...d, updatedAt: ts(), updatedBy: uid(), ...(isNew ? { createdAt: ts(), source: 'import' } : {}) }, { merge: true });
+        batch.set(doc(_db, 'products', id), { name: d.name, sku: d.sku, category: d.category, unit: d.unit, price: d.price, cost: d.cost, ctnSize: d.ctnSize,
+          ctnPrice: d.ctnPrice, stockStatus: d.stockStatus, description: d.notes, maxDiscount: d.maxDiscount, updatedAt: now, updatedBy: uid(),
+          ...(isNew ? { createdAt: now, source: 'import' } : {}) }, { merge: true });
+        const inv = { name: d.name, sku: d.sku, unit: d.unit, category: d.category, ctnSize: d.ctnSize, ctnPrice: d.ctnPrice, costPrice: d.cost, sellingPrice: d.price, updatedAt: ts() };
+        if (invIds.has(id)) batch.update(doc(_db, C('inventory'), id), inv); else batch.set(doc(_db, C('inventory'), id), { ...inv, minStock: 0, createdAt: ts() });
+      });
+      await batch.commit();
+      done = Math.min(plan.length, i + 120);
+      if (btn) btn.textContent = `Importing… ${done}/${plan.length}`;
+    }
+    closeModal('mProdImport');
+    showToast(`Imported ${plan.length} product(s) ✓ — Sales App catalogue updated`, 'success');
+    if (window.__curPage === 'products') products();
+  } catch (e) {
+    showToast(`Stopped after ${done} product(s): ${e.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+  }
+};
+
 async function erpProducts() {
   const mc = document.getElementById('mainContent');
   try {
-    const [ps, inv] = await Promise.all([getDocs(collection(_db, C('products'))), getDocs(collection(_db, C('inventory')))]);
+    const [prods, inv] = await Promise.all([_allProducts(), getDocs(collection(_db, C('inventory')))]);
     const items = inv.docs.map(d => ({ id: d.id, ...d.data() }));
-    const prods = ps.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     const rows = prods.map(v => {
       const st = items.find(x => x.id === v.id) || _matchInventory(items, v.sku) || _matchInventory(items, v.name);
       const avail = st ? _n(st.qty) - _n(st.reservedQty) : null;
       const margin = _n(v.price) > 0 && _n(v.cost) > 0 ? Math.round((1 - _n(v.cost) / _n(v.price)) * 1000) / 10 : null;
       return `<tr>
-        <td><strong>${_esc(v.name)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.sku || '—')}${v.source === 'sales_app' ? ' · from Sales App' : ''}</div></td>
+        <td><strong>${_esc(v.name)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.sku || '—')}${v._inApp && !v._inErp ? ' · Sales App' : ''}${v._inErp && !v._inApp ? ' · ERP only' : ''}</div></td>
         <td><span class="badge badge-gray">${_esc(v.category || '—')}</span></td>
         <td>${_esc(v.unit || 'pcs')}${v.ctnSize ? `<div style="font-size:10px;color:var(--tx3)">${_qty(v.ctnSize)}/ctn${v.ctnPrice ? ' · ' + fmt(v.ctnPrice) : ''}</div>` : ''}${v.stockStatus === 'out_of_stock' ? '<div><span class="badge badge-gray">Hidden in app</span></div>' : ''}</td>
         <td style="text-align:right;font-family:'DM Mono',monospace">${fmt(v.price)}</td>
@@ -4279,7 +4456,12 @@ async function erpProducts() {
     }).join('');
     mc.innerHTML = `
       <div class="pbar"><div><div class="page-title">Products</div><div class="page-sub">${prods.length} products · price, cost, margin, discount limit and available stock</div></div>
-        <div class="srch-bar"><input class="srch-inp" placeholder="Search name, SKU…" oninput="filterTable(this,'prodTbl')">
+        <div class="srch-bar" style="flex-wrap:wrap"><input class="srch-inp" placeholder="Search name, SKU…" oninput="filterTable(this,'prodTbl')">
+        <button class="btn btn-ghost" onclick="document.getElementById('prodImportFile').click()" title="Import from Excel (.xlsx) or CSV">⬆️ Import</button>
+        <input type="file" id="prodImportFile" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="importProductsFile(this)">
+        <button class="btn btn-ghost" onclick="exportProducts('xlsx')">⬇️ Excel</button>
+        <button class="btn btn-ghost" onclick="exportProducts('csv')">⬇️ CSV</button>
+        <button class="btn btn-ghost" onclick="downloadProductTemplate()" title="Empty sheet with the right columns">📄 Template</button>
         <button class="btn btn-primary" onclick="newProduct()">+ Add Product</button></div></div>
       <div class="card"><div class="twrap"><table id="prodTbl"><thead><tr><th>Product</th><th>Category</th><th>Unit</th><th style="text-align:right">Price</th><th style="text-align:right">Cost</th><th style="text-align:right">Margin</th><th style="text-align:right">Max disc.</th><th style="text-align:right">Available</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:30px">No products yet</td></tr>'}</tbody></table></div></div>`;

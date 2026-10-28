@@ -27,7 +27,9 @@
     "@capacitor/push-notifications": "^6.0.3",
     "@capacitor/splash-screen": "^6.0.4",
     "@capgo/capacitor-updater": "6.53.0",
-    "qrcode-generator": "1.4.4"
+    "qrcode-generator": "1.4.4",
+    "read-excel-file": "9.3.12",
+    "write-excel-file": "4.1.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",
