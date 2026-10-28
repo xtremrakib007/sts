@@ -252,3 +252,18 @@ test('ERP includes salesman-wise/day-wise order reporting and printable delivery
   assert.match(portal, /const rawDate = v\.deliveryDate \|\| v\.scheduledDeliveryDate \|\| v\.createdAt/);
   assert.match(portal, /if \(orderDay !== dateStr\) return;/);
 });
+
+
+test('ERP profile lookup fails closed and never fabricates admin access', () => {
+  const portal = read('public/portal/index.html');
+  const start = portal.indexOf('onAuthStateChanged(_auth, async (user) =>');
+  const end = portal.indexOf('// ═══════════════════════════════════════════', start + 40);
+  assert.ok(start >= 0 && end > start, 'ERP auth-state handler exists');
+  const block = portal.slice(start, end);
+  assert.match(block, /Your account profile was not found/);
+  assert.match(block, /Unable to verify your ERP permissions/);
+  assert.match(block, /Profile lookup failures must fail closed/);
+  assert.match(block, /'superadmin': 'super_admin'/);
+  assert.doesNotMatch(block, /role:\s*'admin',\s*name:\s*user\.email/);
+  assert.doesNotMatch(block, /if \(!allowed\.includes\(role\) && role !== ''\)/);
+});

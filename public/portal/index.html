@@ -644,35 +644,56 @@ window.selectTenant = function(tenantId) {
     onAuthStateChanged(_auth, async (user) => {
       if (user) {
         try {
-          const uDoc = await getDoc(doc(_db, C('users'), user.uid));
-          let uData = {};
-          if (uDoc.exists()) {
-            uData = uDoc.data();
+          // Prefer the tenant-scoped profile; use the legacy profile only when
+          // the scoped document is genuinely absent. Never infer a role from an error.
+          let uData = null;
+          const scopedSnap = await getDoc(doc(_db, C('users'), user.uid));
+          if (scopedSnap.exists()) {
+            uData = scopedSnap.data();
           } else {
-            // Fallback: check shared users collection
-            const u2 = await getDoc(doc(_db, 'users', user.uid));
-            if (u2.exists()) uData = u2.data();
+            const legacySnap = await getDoc(doc(_db, 'users', user.uid));
+            if (legacySnap.exists()) uData = legacySnap.data();
           }
-          const role = uData.role || '';
-          const allowedERP = ['admin','sub_admin','erp_user','super_admin'];
-          const allowedSales = ['sales_rep','delivery_man','admin','sub_admin','super_admin'];
-          const allowed = _selectedLoginRole === 'erp' ? allowedERP : allowedSales;
-          if (!allowed.includes(role) && role !== '') {
-            document.getElementById('authErr').textContent = 'Access denied for this role.';
+
+          if (!uData || typeof uData !== 'object') {
+            stopRealtimeSync();
+            _user = null;
+            document.getElementById('authErr').textContent =
+              'Your account profile was not found. Ask the system owner to verify your ERP user profile.';
             await signOut(_auth);
             return;
           }
-          _user = { uid: user.uid, ...uData };
+
+          const rawRole = String(uData.role || '').trim().toLowerCase().replace(/[\\s-]+/g, '_');
+          const roleAliases = { 'superadmin': 'super_admin', 'owner': 'admin', 'administrator': 'admin' };
+          const role = roleAliases[rawRole] || rawRole;
+          const allowedERP = ['admin','sub_admin','erp_user','super_admin'];
+          const allowedSales = ['sales_rep','delivery_man','admin','sub_admin','super_admin'];
+          const allowed = _selectedLoginRole === 'erp' ? allowedERP : allowedSales;
+          if (!allowed.includes(role)) {
+            stopRealtimeSync();
+            _user = null;
+            document.getElementById('authErr').textContent =
+              role ? 'Access denied for this role.' : 'Your ERP profile has no assigned role. Ask the system owner to configure it.';
+            await signOut(_auth);
+            return;
+          }
+
+          _user = { uid: user.uid, email: user.email || uData.email || '', ...uData, role };
           _appRole = _selectedLoginRole;
           showApp();
         } catch(e) {
-          // If user doc doesn't exist, allow admin to proceed (first time setup)
-          _user = { uid: user.uid, email: user.email, role: 'admin', name: user.email };
-          _appRole = _selectedLoginRole;
-          showApp();
+          // Profile lookup failures must fail closed. Do not turn a read error into admin access.
+          console.error('[ERP auth] Profile lookup failed:', e?.code || e?.message || 'unknown error');
+          stopRealtimeSync();
+          _user = null;
+          document.getElementById('authErr').textContent =
+            'Unable to verify your ERP permissions. Check your connection or contact the system owner.';
+          try { await signOut(_auth); } catch (_) {}
         }
       } else {
         stopRealtimeSync();
+        _user = null;
         document.getElementById('authScreen').style.display = _tenant ? 'flex' : 'none';
         document.getElementById('app').classList.remove('visible');
       }
