@@ -221,10 +221,22 @@ test('STSB ERP tenant collections have explicit role-gated rules before deny-all
   const end = rules.indexOf('// CATCH-ALL — deny everything not matched above', start);
   assert.ok(start >= 0 && end > start, 'STSB ERP rules exist before catch-all');
   const block = rules.slice(start, end);
-  assert.match(block, /function isStsbERPAdmin\(\)[\s\S]*_isOwner\(ud\(\)\)[\s\S]*role', ''\) == 'super_admin'/);
+  assert.match(block, /function stsbProfile\(\)[\s\S]*stsb_users\/[\s\S]*: ud\(\);/);
+  assert.match(block, /function isStsbERPAdmin\(\)[\s\S]*_isOwner\(stsbProfile\(\)\)[\s\S]*stsbProfile\(\)\.get\('role', ''\) == 'super_admin'/);
   for (const collection of ['users','products','orders','inventory','invoices','suppliers','transfers','hq_orders','collections','config']) {
     assert.match(block, new RegExp('match \\/stsb_' + collection + '\\/{'));
   }
   assert.match(block, /match \/stsb_orders\/{orderId} \{[\s\S]*_isSalesRep\(ud\(\)\)[\s\S]*resource\.data\.repId == request\.auth\.uid[\s\S]*request\.resource\.data\.repId == request\.auth\.uid/);
   assert.doesNotMatch(block, /allow read, write: if isSignedIn\(\);/);
+});
+
+test('STSB ERP portal subscribes to Firestore changes and cleans up listeners', () => {
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /const REALTIME_COLLECTIONS = \[[\s\S]*'users',[\s\S]*'products',[\s\S]*'orders',[\s\S]*'inventory',[\s\S]*'invoices'/);
+  assert.match(portal, /onSnapshot\(\s*collection\(_db, C\(name\)\)/);
+  assert.match(portal, /function queueRealtimeRefresh\(\)[\s\S]*window\.goPage\(page\)[\s\S]*updateBadges\(\)/);
+  assert.match(portal, /function stopRealtimeSync\(\)[\s\S]*_realtimeUnsubs\.forEach/);
+  assert.match(portal, /startRealtimeSync\(\);/);
+  assert.match(portal, /stopRealtimeSync\(\);[\s\S]*authScreen/);
+  assert.match(portal, /realtimePageIsBeingEdited\(\)/);
 });
