@@ -9,7 +9,7 @@
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const {initializeApp, getApps} = require("firebase-admin/app");
-const {getFirestore} = require("firebase-admin/firestore");
+const {getFirestore, FieldValue} = require("firebase-admin/firestore");
 
 admin.initializeApp();
 
@@ -59,6 +59,19 @@ function onlyMetaChanged(before, after, metaFields = [
   );
 }
 
+/**
+ * True when this update was written by the ERP → Sales back-sync (it
+ * stamps _syncedFromERP with a fresh _syncedAt). The flag itself stays
+ * on the doc, so checking it alone would block every later field edit.
+ * @param {object} before
+ * @param {object} after
+ * @return {boolean}
+ */
+function isERPWrite(before, after) {
+  return !!after._syncedFromERP &&
+    JSON.stringify(before._syncedAt) !== JSON.stringify(after._syncedAt);
+}
+
 // ─────────────────────────────────────────────────────────────
 // SYNC HELPER — write to ERP project
 // ─────────────────────────────────────────────────────────────
@@ -74,7 +87,7 @@ function onlyMetaChanged(before, after, metaFields = [
  * @return {Promise<void>}
  */
 async function syncToERP(col, docId, data, zoneId) {
-  const ts = admin.firestore.FieldValue.serverTimestamp();
+  const ts = FieldValue.serverTimestamp();
   const edb = erpDb();
   // Strip the incoming ERP sync flag before writing
   const {_syncedFromERP: _removed, ...cleanData} = data;
@@ -102,7 +115,7 @@ exports.salesOrderCreated = functions.firestore
       const d = snap.data();
       // Skip if this was pushed from ERP (loop guard)
       if (d._syncedFromERP) return;
-      await syncToERP("orders", ctx.params.orderId, d, d.zoneId);
+      await syncToERP("orders", ctx.params.orderId, d, d.zoneId || d._zoneId);
     });
 
 /**
@@ -114,9 +127,9 @@ exports.salesOrderUpdated = functions.firestore
     .onUpdate(async (change, ctx) => {
       const before = change.before.data();
       const after = change.after.data();
-      if (after._syncedFromERP) return;
+      if (isERPWrite(before, after)) return;
       if (onlyMetaChanged(before, after)) return;
-      await syncToERP("orders", ctx.params.orderId, after, after.zoneId);
+      await syncToERP("orders", ctx.params.orderId, after, after.zoneId || after._zoneId);
     });
 
 // ═══════════════════════════════════════════════════════════════
@@ -132,7 +145,7 @@ exports.salesCollectionCreated = functions.firestore
     .onCreate(async (snap, ctx) => {
       const d = snap.data();
       if (d._syncedFromERP) return;
-      await syncToERP("collections", ctx.params.docId, d, d.zoneId);
+      await syncToERP("collections", ctx.params.docId, d, d.zoneId || d._zoneId);
     });
 
 /**
@@ -144,16 +157,19 @@ exports.salesCollectionUpdated = functions.firestore
     .onUpdate(async (change, ctx) => {
       const before = change.before.data();
       const after = change.after.data();
-      if (after._syncedFromERP) return;
+      if (isERPWrite(before, after)) return;
       if (onlyMetaChanged(before, after)) return;
 
-      const watched = ["status", "amount", "paymentMethod", "receiptUrl", "notes"];
+      const watched = [
+        "status", "amount", "mode", "paymentMethod", "date", "outletId",
+        "receiptUrl", "notes",
+      ];
       const changed = watched.some(
           (f) => JSON.stringify(before[f]) !== JSON.stringify(after[f]),
       );
       if (!changed) return;
 
-      await syncToERP("collections", ctx.params.docId, after, after.zoneId);
+      await syncToERP("collections", ctx.params.docId, after, after.zoneId || after._zoneId);
     });
 
 // ═══════════════════════════════════════════════════════════════
@@ -178,7 +194,7 @@ function buildUserPayload(uid, data) {
     zone:        data.zone        || "",
     phone:       data.phone       || "",
     displayName: data.displayName || data.name || "",
-    syncedAt:    admin.firestore.FieldValue.serverTimestamp(),
+    syncedAt:    FieldValue.serverTimestamp(),
     _source:     "stfm-sales",
   };
 }
@@ -242,7 +258,7 @@ exports.salesDeliveryUpdated = functions.firestore
     .onUpdate(async (change, ctx) => {
       const before = change.before.data();
       const after = change.after.data();
-      if (after._syncedFromERP) return;
+      if (isERPWrite(before, after)) return;
       if (onlyMetaChanged(before, after)) return;
 
       const watched = [
@@ -253,5 +269,5 @@ exports.salesDeliveryUpdated = functions.firestore
       );
       if (!changed) return;
 
-      await syncToERP("deliveries", ctx.params.docId, after, after.zoneId);
+      await syncToERP("deliveries", ctx.params.docId, after, after.zoneId || after._zoneId);
     });

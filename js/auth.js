@@ -237,6 +237,7 @@ async function doLogout() {
   stopLocationTracking();
   _stopRepLocationsListener();
   if(_broadcastUnsub){_broadcastUnsub();_broadcastUnsub=null;}
+  stopOrdersLiveListener();
   await window.__SF.signOut(window.__SF.auth);
 }
 

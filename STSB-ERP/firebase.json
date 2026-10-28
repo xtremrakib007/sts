@@ -8,7 +8,7 @@
   "functions": [
     {
       "source": "functions",
-      "codebase": "default",
+      "codebase": "erp-bridge",
       "disallowLegacyRuntimeConfig": true,
       "ignore": [
         "node_modules",

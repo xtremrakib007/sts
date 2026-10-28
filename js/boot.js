@@ -102,6 +102,7 @@ async function bootApp() {
 
     // NEW: start real-time broadcast listener + location tracking + sales target
     startBroadcastListener();
+    startOrdersLiveListener();
     startLocationTracking();
     loadSalesTarget();
     if(isStrictAdmin()) updateDeleteRequestBadge();

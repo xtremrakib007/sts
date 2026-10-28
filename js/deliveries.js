@@ -85,10 +85,6 @@ async function markDelivered(ordDocId) {
       await _reserveStock(o.items, o.id || ordDocId, 'deduct');
       // Mark stock as deducted
       await sfUpdate('orders', ordDocId, { stockDeducted: true, stockDeductedAt: new Date().toISOString() });
-      // Sync status to ERP
-      if (typeof _updateERPOrderStatus === 'function') {
-        _updateERPOrderStatus(o.id || ordDocId, 'delivered', { deliveryStatus: 'delivered', stockDeducted: true });
-      }
       showToast('Order marked as Delivered ✅ — stock deducted from ERP', 'success');
     } catch(e) {
       showToast('Delivered but stock deduction failed — check ERP manually', 'warn');

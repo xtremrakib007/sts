@@ -25,8 +25,8 @@ jobs:
         run: npm ci
       - name: Build production assets
         run: npm run build
-      - name: Run security regression tests
-        run: npm run test:security
+      - name: Run regression tests
+        run: npm test
       - name: Verify generated files
         run: |
           test -s public/index.html
