@@ -346,6 +346,7 @@ function _eventTime(change, ctx) {
 
 // ── Stock and credit controls ────────────────────────────────
 const ctl = require('./order-controls');
+const sl = require('./stock-ledger');
 const _num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 let _invIndex = null;
@@ -391,12 +392,26 @@ async function _reconcileStock(status, items, ordId, eventTime, nowIso) {
       const v = snap.data();
       const d = deltas[snap.id];
       const held = desired.reserved[snap.id];
-      tx.update(snap.ref, {
+      const patch = {
         reservedQty: Math.max(0, _num(v.reservedQty) + d.reserved),
         qty: _num(v.qty) + d.qty,
         [`reservations.${ordId}`]: held ? held : FieldValue.delete(),
         updatedAt: nowIso,
-      });
+      };
+      if (d.qty) {
+        // Deliveries leave the warehouse, so they are recorded even if the
+        // book stock was already short (that shows up as negative stock).
+        const cost = _num(v.avgCost) || _num(v.costPrice);
+        patch.lastMovementAt = nowIso;
+        tx.set(db().doc(`${erp.erpCol('stock_ledger')}/${ordId}_${snap.id}_${Date.parse(eventTime)}`), {
+          invId: snap.id, sku: v.sku || '', name: v.name || '',
+          type: 'sale', label: sl.MOVEMENT_TYPES.sale.label,
+          qty: d.qty, qtyBefore: _num(v.qty), qtyAfter: _num(v.qty) + d.qty,
+          unitCost: cost, value: Math.round(d.qty * cost * 100) / 100, avgCostAfter: cost,
+          ref: ordId, reason: '', requestedBy: 'system', at: nowIso,
+        });
+      }
+      tx.update(snap.ref, patch);
     });
     const deducted = Object.keys(desired.deducted).length > 0;
     tx.set(ledgerRef, {
@@ -609,4 +624,85 @@ exports.erpOrderToApp = functions.firestore
     await Promise.all(snaps.map(s => s.ref.update(stamped)));
     if (patch.status) await change.after.ref.update({ appStatus: patch.status });
     console.log(`[ERP→App] ${ctx.params.orderId} ${appStatus} → ${patch.status || '(fields)'}`);
+  });
+
+// ─────────────────────────────────────────────────────────────
+// 12. ERP STOCK MOVEMENTS — receive, adjust, damage/expiry, count, transfer
+//
+// The ERP portal never edits stock quantities directly (rules forbid it).
+// It writes a request to stsb_stock_requests; this function validates it,
+// holds it for a second admin's approval when the value is above the
+// configured threshold, and posts it: inventory qty / average cost and an
+// immutable stsb_stock_ledger entry change together in one transaction.
+// ─────────────────────────────────────────────────────────────
+async function _stockConfig() {
+  const snap = await db().doc(`${erp.erpCol('config')}/stock`).get();
+  return { ...sl.DEFAULT_CONFIG, ...(snap.exists ? snap.data() : {}) };
+}
+
+exports.erpStockRequest = functions.firestore
+  .document(`${erp.erpCol('stock_requests')}/{reqId}`)
+  .onWrite(async (change, ctx) => {
+    if (!change.after.exists) return;
+    const r = change.after.data();
+    if (!['requested', 'approved'].includes(r.status)) return;
+    const reqRef = change.after.ref;
+    const nowIso = new Date().toISOString();
+
+    const invalid = sl.validateRequest(r);
+    if (invalid) {
+      await reqRef.update({ status: 'failed', error: invalid, processedAt: nowIso });
+      return;
+    }
+    if (r.status === 'approved' && !sl.canApprove(r, r.approvedBy)) {
+      await reqRef.update({ status: 'pending_approval', error: 'Approver must be a different admin', approvedBy: FieldValue.delete() });
+      return;
+    }
+
+    const config = await _stockConfig();
+    const invRef = db().doc(`${erp.erpCol('inventory')}/${r.invId}`);
+    const ledgerRef = db().doc(`${erp.erpCol('stock_ledger')}/${ctx.params.reqId}`);
+    const result = await db().runTransaction(async (tx) => {
+      const [req, inv, led] = await Promise.all([tx.get(reqRef), tx.get(invRef), tx.get(ledgerRef)]);
+      const cur = req.data();
+      if (led.exists || !['requested', 'approved'].includes(cur.status)) return null; // already handled
+      if (!inv.exists) {
+        tx.update(reqRef, { status: 'failed', error: 'Stock item not found', processedAt: nowIso });
+        return null;
+      }
+      const item = inv.data();
+      if (cur.status === 'requested' && sl.needsApproval(cur, item, config)) {
+        const est = Math.abs(sl.movementDelta(cur, item)) * (_num(item.avgCost) || _num(item.costPrice));
+        tx.update(reqRef, { status: 'pending_approval', estimatedValue: Math.round(est * 100) / 100, processedAt: nowIso });
+        return { pending: true, item };
+      }
+      const posting = sl.computePosting({ request: cur, inventory: item, config, nowIso });
+      if (posting.error) {
+        tx.update(reqRef, { status: 'failed', error: posting.error, processedAt: nowIso });
+        return null;
+      }
+      tx.update(invRef, { ...posting.inventoryPatch, updatedAt: nowIso });
+      tx.set(ledgerRef, { ...posting.entry, requestId: ctx.params.reqId });
+      tx.update(reqRef, {
+        status: 'posted', postedAt: nowIso, qtyAfter: posting.entry.qtyAfter,
+        error: FieldValue.delete(),
+      });
+      return { posted: posting.entry, item };
+    });
+    if (!result) return;
+
+    if (result.pending) {
+      const tokens = await _getAdminTokens(null);
+      await _sendPush(tokens, '📦 Stock approval needed',
+        `${r.requestedByName || 'An admin'}: ${sl.MOVEMENT_TYPES[r.type].label} — ${result.item.name || r.invId}`,
+        { screen: 'inventory', type: 'stock_approval' });
+      return;
+    }
+    const e = result.posted;
+    console.log(`[stock] ${e.type} ${e.name || e.invId} ${e.qty} → ${e.qtyAfter}`);
+    if (sl.crossedReorderLevel(e.qtyBefore, e.qtyAfter, result.item.minStock)) {
+      const tokens = await _getAdminTokens(null);
+      await _sendPush(tokens, '⚠️ Low stock', `${e.name || e.invId} is down to ${e.qtyAfter} (reorder level ${result.item.minStock})`,
+        { screen: 'inventory', type: 'low_stock' });
+    }
   });

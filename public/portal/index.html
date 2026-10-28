@@ -450,16 +450,21 @@ tr:hover td{background:var(--s2);}
         </div>
       </div>
       <div class="frow3">
-        <div class="fgrp"><label class="flbl">Current Qty</label><input class="finp" id="invQty" type="number" placeholder="0"></div>
-        <div class="fgrp"><label class="flbl">Min Stock</label><input class="finp" id="invMin" type="number" placeholder="0"></div>
+        <div class="fgrp"><label class="flbl" id="invQtyLbl">Opening Stock</label><input class="finp" id="invQty" type="number" min="0" placeholder="0"></div>
+        <div class="fgrp"><label class="flbl">Reorder Level</label><input class="finp" id="invMin" type="number" placeholder="0"></div>
         <div class="fgrp"><label class="flbl">Max Stock</label><input class="finp" id="invMax" type="number" placeholder="0"></div>
       </div>
       <div class="frow">
         <div class="fgrp"><label class="flbl">Cost Price (RM)</label><input class="finp" id="invCost" type="number" placeholder="0.00"></div>
         <div class="fgrp"><label class="flbl">Selling Price (RM)</label><input class="finp" id="invPrice" type="number" placeholder="0.00"></div>
       </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Barcode</label><input class="finp" id="invBarcode" placeholder="Scan or type"></div>
+        <div class="fgrp"><label class="flbl">Pcs per Carton</label><input class="finp" id="invCtnSize" type="number" min="0" placeholder="0"></div>
+      </div>
       <div class="fgrp"><label class="flbl">Supplier</label><input class="finp" id="invSupplier" placeholder="Supplier name"></div>
       <div class="fgrp"><label class="flbl">Notes</label><textarea class="finp" id="invNotes" rows="2"></textarea></div>
+      <div id="invQtyHint" style="display:none;font-size:11px;color:var(--tx3);margin-top:4px">Stock quantity changes only through 📥 Receive, ⚖️ Adjust or 🔢 Stock Count, so every change is recorded in the stock ledger.</div>
     </div>
     <div class="mfoot">
       <button class="btn btn-ghost" onclick="closeModal('mInventory')">Cancel</button>
@@ -591,6 +596,7 @@ const fmtDate = (d) => {
 function badgeStatus(s) {
   const map = {
     draft:'badge-gray', pending:'badge-yellow', pending_erp:'badge-yellow',
+    ordered:'badge-blue', partially_received:'badge-orange', received:'badge-green',
     approved:'badge-green', rejected:'badge-red', processing:'badge-blue',
     dispatched:'badge-blue', delivered:'badge-green', cancelled:'badge-gray',
     paid:'badge-green', unpaid:'badge-yellow', overdue:'badge-red',
@@ -765,6 +771,8 @@ function buildSidebar() {
       <div class="sb-section">Main</div>
       <div class="sb-item" data-page="dashboard" onclick="goPage('dashboard')"><span class="ico">🏠</span> Dashboard</div>
       <div class="sb-item" data-page="inventory" onclick="goPage('inventory')"><span class="ico">📦</span> Inventory</div>
+      <div class="sb-item" data-page="stockLedger" onclick="goPage('stockLedger')"><span class="ico">📜</span> Stock Movements</div>
+      <div class="sb-item" data-page="stockApprovals" onclick="goPage('stockApprovals')"><span class="ico">✅</span> Stock Approvals</div>
       <div class="sb-item" data-page="salesOrders" onclick="goPage('salesOrders')"><span class="ico">📋</span> Sales Orders <span class="sb-badge" id="badgeSO" style="display:none">0</span></div>
       <div class="sb-section">Finance</div>
       <div class="sb-item" data-page="discounts" onclick="goPage('discounts')"><span class="ico">🏷️</span> Discount Approvals <span class="sb-badge" id="badgeDiscount" style="display:none">0</span></div>
@@ -799,6 +807,8 @@ function buildSidebar() {
 const pageConfig = {
   dashboard:      {title:'Dashboard',       icon:'🏠', action:null},
   inventory:      {title:'Inventory',       icon:'📦', action:'+ Add Item',         modal:'mInventory', prep:'inventory'},
+  stockLedger:    {title:'Stock Movements', icon:'📜'},
+  stockApprovals: {title:'Stock Approvals', icon:'✅'},
   salesOrders:    {title:'Sales Orders',    icon:'📋', action:null},
   discounts:      {title:'Discount Queue',  icon:'🏷️', action:null},
   invoices:       {title:'Invoices',        icon:'🧾', action:'+ New Invoice',      modal:'mInvoice', prep:'invoice'},
@@ -840,6 +850,7 @@ window.goPage = function(page) {
   }
   const renders = {
     dashboard, inventory, salesOrders, discounts, invoices, collections,
+    stockLedger: () => window.stockLedger(), stockApprovals: () => window.stockApprovals(),
     dispatch, suppliers, reports, settings, salesmanOrdersReport,
     hqOrders, transfers,
     salesDashboard, myOrders, myCollections, myDeliveries, products
@@ -854,7 +865,8 @@ window.goPage = function(page) {
 // ═══════════════════════════════════════════
 const REALTIME_COLLECTIONS = [
   'users', 'products', 'orders', 'inventory', 'invoices',
-  'suppliers', 'transfers', 'hq_orders', 'collections', 'config'
+  'suppliers', 'transfers', 'hq_orders', 'collections', 'config',
+  'stock_requests', 'stock_ledger'
 ];
 
 function setRealtimeStatus(message, color) {
@@ -1031,9 +1043,12 @@ async function prepModal(type) {
     document.getElementById('supModalTitle').textContent = 'Add Supplier';
   }
   if (type === 'inventory') {
-    ['invDocId','invName','invSku','invQty','invMin','invMax','invCost','invPrice','invSupplier','invNotes'].forEach(i => {
+    ['invDocId','invName','invSku','invQty','invMin','invMax','invCost','invPrice','invSupplier','invNotes','invBarcode','invCtnSize'].forEach(i => {
       const el = document.getElementById(i); if(el) el.value='';
     });
+    document.getElementById('invQty').disabled = false;
+    document.getElementById('invQtyLbl').textContent = 'Opening Stock';
+    document.getElementById('invQtyHint').style.display = 'none';
     document.getElementById('invModalTitle').textContent = 'Add Stock Item';
   }
 }
@@ -1435,11 +1450,14 @@ window.markInvoicePaid = async function(id) {
 window.saveInventory = async function() {
   const name = document.getElementById('invName').value.trim();
   if (!name) { showToast('Name required','error'); return; }
+  // Item details only. Quantities, average cost and reservations are owned by
+  // the stock ledger (server-posted), so they are never written from here.
   const data = {
     name, sku: document.getElementById('invSku').value.trim(),
+    barcode: document.getElementById('invBarcode').value.trim(),
     category: document.getElementById('invCat').value,
     unit: document.getElementById('invUnit').value,
-    qty: parseFloat(document.getElementById('invQty').value)||0,
+    ctnSize: parseFloat(document.getElementById('invCtnSize').value)||0,
     minStock: parseFloat(document.getElementById('invMin').value)||0,
     maxStock: parseFloat(document.getElementById('invMax').value)||0,
     costPrice: parseFloat(document.getElementById('invCost').value)||0,
@@ -1450,8 +1468,19 @@ window.saveInventory = async function() {
   };
   const id = document.getElementById('invDocId').value;
   try {
-    if (id) { await updateDoc(doc(_db, C('inventory'), id), data); showToast('Item updated ✓','success'); }
-    else { data.createdAt=ts(); await addDoc(collection(_db, C('inventory')), data); showToast('Item added ✓','success'); }
+    if (id) {
+      await updateDoc(doc(_db, C('inventory'), id), data);
+      showToast('Item updated ✓','success');
+    } else {
+      const opening = parseFloat(document.getElementById('invQty').value)||0;
+      if (opening < 0) { showToast('Opening stock cannot be negative','error'); return; }
+      data.createdAt = ts();
+      const ref = await addDoc(collection(_db, C('inventory')), data);
+      if (opening > 0) {
+        await requestStockMovement({ type:'opening', invId: ref.id, qty: opening, unitCost: data.costPrice, ref:'Opening stock' });
+      }
+      showToast(opening > 0 ? 'Item added ✓ — opening stock posting…' : 'Item added ✓','success');
+    }
     closeModal('mInventory'); inventory();
   } catch(e) { showToast('Error: '+e.message,'error'); }
 };
@@ -1609,32 +1638,317 @@ async function dashboard() {
   } catch(e) { document.getElementById('mainContent').innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
 }
 
+// ═══════════════════════════════════════════
+//  INVENTORY & STOCK LEDGER
+//  On-hand stock changes only through stock requests that the server posts
+//  (erpStockRequest Cloud Function): every change leaves an immutable
+//  stsb_stock_ledger entry. Large adjustments wait for a second admin.
+// ═══════════════════════════════════════════
+const _esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _n = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+const _qty = v => Number(_n(v).toFixed(2)).toLocaleString('en-MY');
+const STOCK_TYPES = {
+  opening:{label:'Opening stock',sign:1,cost:true}, receipt:{label:'Goods received',sign:1,cost:true},
+  adjust_in:{label:'Adjustment (+)',sign:1,reason:true}, adjust_out:{label:'Adjustment (−)',sign:-1,reason:true},
+  damage:{label:'Damaged',sign:-1,reason:true}, expiry:{label:'Expired',sign:-1,reason:true},
+  count:{label:'Stock count',sign:0,reason:true}, transfer_in:{label:'Transfer in',sign:1},
+  transfer_out:{label:'Transfer out',sign:-1}, return_in:{label:'Customer return',sign:1,reason:true},
+  sale:{label:'Delivered to customer',sign:-1},
+};
+let _invCache = [];
+
+async function requestStockMovement(r) {
+  return addDoc(collection(_db, C('stock_requests')), {
+    ...r, status:'requested', requestedBy: uid(), requestedByName: _user?.name || _user?.email || '',
+    createdAt: new Date().toISOString(),
+  });
+}
+
+function _invStatus(v) {
+  const onHand = _n(v.qty), avail = onHand - _n(v.reservedQty);
+  if (onHand <= 0) return '<span class="badge badge-red">Out of stock</span>';
+  if (avail <= 0) return '<span class="badge badge-orange">All reserved</span>';
+  if (_n(v.minStock) > 0 && onHand <= _n(v.minStock)) return '<span class="badge badge-yellow">Reorder</span>';
+  return '<span class="badge badge-green">OK</span>';
+}
+
 async function inventory() {
   const mc = document.getElementById('mainContent');
   mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
   try {
-    const snap = await getDocs(query(collection(_db, C('inventory')), orderBy('name'))).catch(()=>({forEach:()=>{},size:0,empty:true,docs:[]}));
-    let rows='';
-    snap.forEach(d=>{
-      const v=d.data();
-      const isLow=(v.qty||0)<=(v.minStock||0);
-      rows+=`<tr>
-        <td><strong>${v.name}</strong><div style="font-size:11px;color:var(--tx3)">${v.sku||'—'}</div></td>
-        <td><span class="badge badge-gray">${v.category||'—'}</span></td>
-        <td style="font-family:'DM Mono',monospace"><strong style="color:${isLow?'var(--red)':'var(--tx)'}">${v.qty||0}</strong> ${v.unit||''}</td>
-        <td style="font-size:11px;color:var(--tx3)">${v.minStock||0} / ${v.maxStock||0}</td>
-        <td style="font-family:'DM Mono',monospace">${fmt(v.costPrice||0)}</td>
-        <td>${isLow?'<span class="badge badge-red">Low Stock</span>':'<span class="badge badge-green">OK</span>'}</td>
-        <td><button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="editInventory('${d.id}')">✏️</button>
-            <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('inventory','${d.id}','inventory')">🗑</button></td>
+    const [snap, pendSnap] = await Promise.all([
+      getDocs(collection(_db, C('inventory'))),
+      getDocs(query(collection(_db, C('stock_requests')), where('status','==','pending_approval'))).catch(()=>({size:0})),
+    ]);
+    _invCache = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(a.name||'').localeCompare(String(b.name||'')));
+    let value = 0, low = 0, out = 0;
+    const rows = _invCache.map(v => {
+      const onHand = _n(v.qty), reserved = _n(v.reservedQty), cost = _n(v.avgCost) || _n(v.costPrice);
+      value += Math.max(0, onHand) * cost;
+      if (onHand <= 0) out++; else if (_n(v.minStock) > 0 && onHand <= _n(v.minStock)) low++;
+      return `<tr>
+        <td><strong>${_esc(v.name)}</strong><div style="font-size:11px;color:var(--tx3)">${_esc(v.sku||'—')}${v.barcode?' · '+_esc(v.barcode):''}</div></td>
+        <td><span class="badge badge-gray">${_esc(v.category||'—')}</span></td>
+        <td style="font-family:'DM Mono',monospace;text-align:right"><strong style="color:${onHand<=0?'var(--red)':'var(--tx)'}">${_qty(onHand)}</strong> <span style="font-size:10px;color:var(--tx3)">${_esc(v.unit||'')}</span></td>
+        <td style="font-family:'DM Mono',monospace;text-align:right;color:var(--tx3)">${_qty(reserved)}</td>
+        <td style="font-family:'DM Mono',monospace;text-align:right"><strong>${_qty(onHand-reserved)}</strong></td>
+        <td style="font-family:'DM Mono',monospace;text-align:right;color:var(--tx3)">${_qty(v.minStock)}</td>
+        <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(cost)}</td>
+        <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(Math.max(0,onHand)*cost)}</td>
+        <td>${_invStatus(v)}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-primary" style="padding:4px 8px;font-size:11px" title="Receive stock" onclick="openStockMove('${v.id}','receipt')">📥</button>
+          <button class="btn btn-blue" style="padding:4px 8px;font-size:11px" title="Adjust / damage / expiry" onclick="openStockMove('${v.id}','adjust_out')">⚖️</button>
+          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" title="Movement history" onclick="openStockHistory('${v.id}')">📜</button>
+          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" title="Edit details" onclick="editInventory('${v.id}')">✏️</button>
+          ${onHand===0&&reserved===0?`<button class="btn btn-danger" style="padding:4px 8px;font-size:11px" title="Delete (only empty items)" onclick="deleteRecord('inventory','${v.id}','inventory')">🗑</button>`:''}
+        </td>
       </tr>`;
-    });
+    }).join('');
+    const pending = pendSnap.size || 0;
     mc.innerHTML = `
-      <div class="pbar"><div><div class="page-title">Inventory</div><div class="page-sub">${snap.size} items</div></div>
-      <div class="srch-bar"><input class="srch-inp" placeholder="Search…" oninput="filterTable(this,'invTbl')"><button class="btn btn-primary" onclick="prepModal('inventory');openModal('mInventory')">+ Add Item</button></div></div>
-      <div class="card"><div class="twrap"><table id="invTbl"><thead><tr><th>Name</th><th>Category</th><th>Stock</th><th>Min/Max</th><th>Cost</th><th>Status</th><th></th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No inventory items yet</td></tr>'}</tbody></table></div></div>`;
-  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
+      <div class="pbar"><div><div class="page-title">Inventory</div><div class="page-sub">${_invCache.length} items · stock changes are posted to the ledger</div></div>
+        <div class="srch-bar" style="flex-wrap:wrap">
+          <input class="srch-inp" placeholder="Search name, SKU, barcode…" oninput="filterTable(this,'invTbl')">
+          <button class="btn btn-ghost" onclick="openStockCount()">🔢 Stock Count</button>
+          <button class="btn btn-ghost" onclick="goPage('stockLedger')">📜 Movements</button>
+          <button class="btn btn-ghost" onclick="exportInventoryCsv()">⬇️ CSV</button>
+          <button class="btn btn-ghost" title="Approval threshold" onclick="editStockSettings()">⚙️</button>
+          <button class="btn btn-primary" onclick="prepModal('inventory');openModal('mInventory')">+ Add Item</button>
+        </div></div>
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--acc)"><div class="kpi-ico">💰</div><div class="kpi-val">${fmt(value)}</div><div class="kpi-lbl">Stock value (avg cost)</div></div>
+        <div class="kpi" style="--kpi-color:var(--ylw)"><div class="kpi-ico">⚠️</div><div class="kpi-val">${low}</div><div class="kpi-lbl">At / below reorder level</div></div>
+        <div class="kpi" style="--kpi-color:var(--red)"><div class="kpi-ico">⛔</div><div class="kpi-val">${out}</div><div class="kpi-lbl">Out of stock</div></div>
+        <div class="kpi" style="--kpi-color:var(--blu);cursor:pointer" onclick="goPage('stockApprovals')"><div class="kpi-ico">✅</div><div class="kpi-val">${pending}</div><div class="kpi-lbl">Waiting for approval</div></div>
+      </div>
+      <div class="card"><div class="twrap"><table id="invTbl"><thead><tr><th>Item</th><th>Category</th><th style="text-align:right">On hand</th><th style="text-align:right">Reserved</th><th style="text-align:right">Available</th><th style="text-align:right">Reorder</th><th style="text-align:right">Avg cost</th><th style="text-align:right">Value</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="10" style="text-align:center;color:var(--tx3);padding:30px">No inventory items yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+
+// Modal built on demand in the portal's modal style.
+function _stockModal(id, title, body, footer, wide) {
+  document.getElementById(id)?.remove();
+  const el = document.createElement('div');
+  el.className = 'moverlay'; el.id = id;
+  el.innerHTML = `<div class="modal${wide?' wide':''}"><div class="mhead"><div class="mhead-title">${title}</div><button class="mclose" onclick="closeModal('${id}')">✕</button></div>
+    <div class="mbody">${body}</div><div class="mfoot">${footer}</div></div>`;
+  document.body.appendChild(el);
+  openModal(id);
+  return el;
+}
+
+window.openStockMove = async function(invId, type) {
+  const d = await getDoc(doc(_db, C('inventory'), invId));
+  if (!d.exists()) { showToast('Item not found','error'); return; }
+  const v = d.data();
+  const types = type === 'receipt' ? ['receipt','return_in','transfer_in'] : ['adjust_out','damage','expiry','adjust_in','transfer_out'];
+  _stockModal('mStockMove', `${type==='receipt'?'📥 Receive':'⚖️ Adjust'} — ${_esc(v.name)}`, `
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:12px">On hand <strong style="color:var(--tx)">${_qty(v.qty)} ${_esc(v.unit||'')}</strong> · reserved ${_qty(v.reservedQty)} · avg cost ${fmt(_n(v.avgCost)||_n(v.costPrice))}</div>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Movement</label><select class="finp" id="smType" onchange="_smTypeChanged()">${types.map(t=>`<option value="${t}">${STOCK_TYPES[t].label}</option>`).join('')}</select></div>
+      <div class="fgrp"><label class="flbl">Quantity (${_esc(v.unit||'pcs')})</label><input class="finp" id="smQty" type="number" min="0" step="any"></div>
+    </div>
+    <div class="frow">
+      <div class="fgrp" id="smCostGrp"><label class="flbl">Unit cost (RM)</label><input class="finp" id="smCost" type="number" min="0" step="any" value="${_n(v.costPrice)||''}"></div>
+      <div class="fgrp"><label class="flbl">Reference</label><input class="finp" id="smRef" placeholder="GRN / DO / invoice no."></div>
+    </div>
+    <div class="fgrp"><label class="flbl" id="smReasonLbl">Reason</label><input class="finp" id="smReason" placeholder="Why is stock changing?"></div>
+    <div style="font-size:11px;color:var(--tx3)">Adjustments, damage, expiry and count differences above the approval threshold wait for another admin's approval.</div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mStockMove')">Cancel</button><button class="btn btn-primary" onclick="saveStockMove('${invId}')">Post movement</button>`);
+  _smTypeChanged();
+};
+
+window._smTypeChanged = function() {
+  const t = STOCK_TYPES[document.getElementById('smType').value];
+  document.getElementById('smCostGrp').style.display = t.cost ? '' : 'none';
+  document.getElementById('smReasonLbl').textContent = t.reason ? 'Reason *' : 'Reason';
+};
+
+window.saveStockMove = async function(invId) {
+  const type = document.getElementById('smType').value;
+  const qty = parseFloat(document.getElementById('smQty').value);
+  const reason = document.getElementById('smReason').value.trim();
+  if (!(qty > 0)) { showToast('Enter a quantity above zero','error'); return; }
+  if (STOCK_TYPES[type].reason && !reason) { showToast('A reason is required','error'); return; }
+  const r = { type, invId, qty, reason, ref: document.getElementById('smRef').value.trim() };
+  if (STOCK_TYPES[type].cost) r.unitCost = parseFloat(document.getElementById('smCost').value) || 0;
+  try {
+    const ref = await requestStockMovement(r);
+    closeModal('mStockMove');
+    _watchRequest(ref.id);
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+// Report the server's decision on a request as soon as it lands.
+function _watchRequest(reqId) {
+  showToast('Posting…','info');
+  const unsub = onSnapshot(doc(_db, C('stock_requests'), reqId), snap => {
+    const r = snap.data(); if (!r) return;
+    if (r.status === 'posted') showToast(`Posted ✓ — on hand now ${_qty(r.qtyAfter)}`,'success');
+    else if (r.status === 'pending_approval') showToast(`Waiting for another admin's approval (≈ ${fmt(r.estimatedValue)})`,'warn');
+    else if (r.status === 'failed') showToast('Not posted: '+r.error,'error');
+    else return;
+    unsub();
+    if (window.__curPage === 'inventory') inventory();
+  });
+  setTimeout(() => unsub(), 30000);
+}
+
+function _ledgerRows(entries, showItem) {
+  return entries.map(e => `<tr>
+    <td style="font-size:11px;white-space:nowrap">${_esc(String(e.at||'').replace('T',' ').slice(0,16))}</td>
+    ${showItem?`<td><strong>${_esc(e.name||e.invId)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(e.sku||'')}</div></td>`:''}
+    <td>${_esc(e.label||STOCK_TYPES[e.type]?.label||e.type)}</td>
+    <td style="font-family:'DM Mono',monospace;text-align:right;color:${_n(e.qty)<0?'var(--red)':'var(--acc)'}">${_n(e.qty)>0?'+':''}${_qty(e.qty)}</td>
+    <td style="font-family:'DM Mono',monospace;text-align:right">${_qty(e.qtyAfter)}</td>
+    <td style="font-family:'DM Mono',monospace;text-align:right">${fmt(e.value)}</td>
+    <td style="font-size:11px">${_esc(e.ref||'')}${e.reason?`<div style="color:var(--tx3)">${_esc(e.reason)}</div>`:''}</td>
+    <td style="font-size:11px;color:var(--tx3)">${_esc(e.requestedByName||e.requestedBy||'')}${e.approvedBy?' ✓':''}</td>
+  </tr>`).join('');
+}
+
+window.openStockHistory = async function(invId) {
+  const [d, snap] = await Promise.all([
+    getDoc(doc(_db, C('inventory'), invId)),
+    getDocs(query(collection(_db, C('stock_ledger')), where('invId','==',invId), orderBy('at','desc'), limit(200))),
+  ]);
+  const v = d.data() || {};
+  const rows = _ledgerRows(snap.docs.map(x => x.data()), false);
+  _stockModal('mStockHistory', `📜 ${_esc(v.name||'Item')} — movements`,
+    `<div class="twrap"><table><thead><tr><th>When</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th><th style="text-align:right">Value</th><th>Ref / reason</th><th>By</th></tr></thead>
+     <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:24px">No movements yet</td></tr>'}</tbody></table></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mStockHistory')">Close</button>`, true);
+};
+
+window.stockLedger = async function() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(query(collection(_db, C('stock_ledger')), orderBy('at','desc'), limit(500)));
+    window.__ledgerRows = snap.docs.map(x => x.data());
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Stock Movements</div><div class="page-sub">Latest ${snap.size} ledger entries — entries are never edited or deleted</div></div>
+        <div class="srch-bar"><input class="srch-inp" placeholder="Search item, ref, reason…" oninput="filterTable(this,'ledgerTbl')">
+        <button class="btn btn-ghost" onclick="exportLedgerCsv()">⬇️ CSV</button><button class="btn btn-ghost" onclick="goPage('inventory')">← Inventory</button></div></div>
+      <div class="card"><div class="twrap"><table id="ledgerTbl"><thead><tr><th>When</th><th>Item</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th><th style="text-align:right">Value</th><th>Ref / reason</th><th>By</th></tr></thead>
+      <tbody>${_ledgerRows(window.__ledgerRows, true)||'<tr><td colspan="8" style="text-align:center;color:var(--tx3);padding:30px">No movements yet</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+};
+
+window.stockApprovals = async function() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const [snap, invSnap] = await Promise.all([
+      getDocs(query(collection(_db, C('stock_requests')), where('status','==','pending_approval'))),
+      getDocs(collection(_db, C('inventory'))),
+    ]);
+    const inv = Object.fromEntries(invSnap.docs.map(d => [d.id, d.data()]));
+    const rows = snap.docs.map(d => {
+      const r = d.data(), v = inv[r.invId] || {};
+      const own = r.requestedBy === uid();
+      const change = r.type === 'count' ? `count ${_qty(r.countedQty)} (book ${_qty(v.qty)})` : `${STOCK_TYPES[r.type]?.sign<0?'−':'+'}${_qty(r.qty)}`;
+      return `<tr>
+        <td style="font-size:11px">${_esc(String(r.createdAt||'').replace('T',' ').slice(0,16))}</td>
+        <td><strong>${_esc(v.name||r.invId)}</strong></td>
+        <td>${_esc(STOCK_TYPES[r.type]?.label||r.type)}</td>
+        <td style="font-family:'DM Mono',monospace">${change}</td>
+        <td style="font-family:'DM Mono',monospace">${fmt(r.estimatedValue)}</td>
+        <td style="font-size:12px">${_esc(r.reason||'')}${r.ref?`<div style="font-size:11px;color:var(--tx3)">${_esc(r.ref)}</div>`:''}</td>
+        <td style="font-size:12px">${_esc(r.requestedByName||'')}</td>
+        <td style="white-space:nowrap">${own?'<span style="font-size:11px;color:var(--tx3)">Needs another admin</span>':`
+          <button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="decideStockRequest('${d.id}','approved')">✅ Approve</button>
+          <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="decideStockRequest('${d.id}','rejected')">✕ Reject</button>`}</td>
+      </tr>`;
+    }).join('');
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Stock Approvals</div><div class="page-sub">${snap.size} movement(s) above the approval threshold</div></div>
+        <button class="btn btn-ghost" onclick="goPage('inventory')">← Inventory</button></div>
+      <div class="card"><div class="twrap"><table><thead><tr><th>Requested</th><th>Item</th><th>Movement</th><th>Change</th><th>Value</th><th>Reason</th><th>By</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="8" style="text-align:center;color:var(--tx3);padding:30px">Nothing waiting for approval</td></tr>'}</tbody></table></div></div>`;
+  } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+};
+
+window.decideStockRequest = async function(reqId, decision) {
+  const note = decision === 'rejected' ? (prompt('Reason for rejecting (optional):') ?? null) : '';
+  if (note === null) return;
+  if (decision === 'approved' && !confirm('Approve and post this stock movement?')) return;
+  try {
+    await updateDoc(doc(_db, C('stock_requests'), reqId), {
+      status: decision, approvedBy: uid(), approvedByName: _user?.name || _user?.email || '',
+      decidedAt: new Date().toISOString(), decisionNote: note,
+    });
+    if (decision === 'approved') _watchRequest(reqId); else showToast('Rejected','warn');
+    goPage('stockApprovals');
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.openStockCount = async function() {
+  const snap = await getDocs(collection(_db, C('inventory')));
+  const items = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(a.name||'').localeCompare(String(b.name||'')));
+  const rows = items.map(v => `<tr>
+    <td><strong>${_esc(v.name)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.sku||'')}</div></td>
+    <td style="font-family:'DM Mono',monospace;text-align:right">${_qty(v.qty)}</td>
+    <td><input class="finp sc-inp" data-id="${v.id}" data-book="${_n(v.qty)}" type="number" min="0" step="any" style="width:110px;padding:6px 8px" placeholder="—"></td>
+  </tr>`).join('');
+  _stockModal('mStockCount', '🔢 Stock Count', `
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Enter the physical count only for items you counted. Differences are posted as count adjustments; large ones wait for approval.</div>
+    <div class="fgrp"><label class="flbl">Count reference *</label><input class="finp" id="scRef" value="Stock count ${new Date().toISOString().slice(0,10)}"></div>
+    <div class="twrap" style="max-height:50vh;overflow:auto"><table><thead><tr><th>Item</th><th style="text-align:right">Book qty</th><th>Counted</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mStockCount')">Cancel</button><button class="btn btn-primary" onclick="saveStockCount()">Post count</button>`, true);
+};
+
+window.saveStockCount = async function() {
+  const ref = document.getElementById('scRef').value.trim();
+  if (!ref) { showToast('Count reference required','error'); return; }
+  const lines = [...document.querySelectorAll('.sc-inp')].filter(i => i.value !== '' && Number(i.value) !== Number(i.dataset.book));
+  if (!lines.length) { showToast('No differences to post','info'); return; }
+  if (!confirm(`Post ${lines.length} count difference(s)?`)) return;
+  try {
+    await Promise.all(lines.map(i => requestStockMovement({ type:'count', invId: i.dataset.id, countedQty: Number(i.value), reason: ref, ref })));
+    closeModal('mStockCount');
+    showToast(`${lines.length} count line(s) submitted ✓`,'success');
+    setTimeout(inventory, 2500);
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
+window.editStockSettings = async function() {
+  const ref = doc(_db, C('config'), 'stock');
+  const cur = (await getDoc(ref)).data() || {};
+  const v = prompt('Stock movements worth at least this amount (RM) need a second admin to approve:', cur.approvalValue ?? 200);
+  if (v === null) return;
+  const n = parseFloat(v);
+  if (!(n >= 0)) { showToast('Enter an amount of 0 or more','error'); return; }
+  await setDoc(ref, { approvalValue: n, updatedAt: ts(), updatedBy: uid() }, { merge: true });
+  showToast(`Approval threshold set to ${fmt(n)} ✓`,'success');
+};
+
+function _downloadCsv(name, header, rows) {
+  const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const csv = [header, ...rows].map(r => r.map(cell).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿'+csv], { type:'text/csv' }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+window.exportInventoryCsv = function() {
+  _downloadCsv(`inventory-${new Date().toISOString().slice(0,10)}.csv`,
+    ['Name','SKU','Barcode','Category','Unit','On hand','Reserved','Available','Reorder level','Avg cost','Value'],
+    _invCache.map(v => { const c = _n(v.avgCost)||_n(v.costPrice); return [v.name,v.sku,v.barcode,v.category,v.unit,_n(v.qty),_n(v.reservedQty),_n(v.qty)-_n(v.reservedQty),_n(v.minStock),c.toFixed(4),(Math.max(0,_n(v.qty))*c).toFixed(2)]; }));
+};
+
+window.exportLedgerCsv = function() {
+  _downloadCsv(`stock-movements-${new Date().toISOString().slice(0,10)}.csv`,
+    ['When','Item','SKU','Movement','Qty','Balance','Unit cost','Value','Reference','Reason','By'],
+    (window.__ledgerRows||[]).map(e => [e.at,e.name,e.sku,e.label||e.type,e.qty,e.qtyAfter,e.unitCost,e.value,e.ref,e.reason,e.requestedByName||e.requestedBy]));
+};
+
+// Match a free-text product (HQ orders, transfers) to an inventory item.
+function _matchInventory(items, text) {
+  const k = String(text||'').toLowerCase().trim();
+  return items.find(v => String(v.sku||'').toLowerCase() === k) || items.find(v => String(v.name||'').toLowerCase() === k) || null;
 }
 
 window.editInventory = async function(id) {
@@ -1642,10 +1956,11 @@ window.editInventory = async function(id) {
   if (!d.exists()) return;
   const v = d.data();
   document.getElementById('invDocId').value = id;
-  ['invName','invSku','invQty','invMin','invMax','invCost','invPrice','invSupplier','invNotes'].forEach(i => {
-    const key = {invName:'name',invSku:'sku',invQty:'qty',invMin:'minStock',invMax:'maxStock',invCost:'costPrice',invPrice:'sellingPrice',invSupplier:'supplier',invNotes:'notes'}[i];
-    const el = document.getElementById(i); if(el) el.value = v[key]||'';
-  });
+  const map = {invName:'name',invSku:'sku',invQty:'qty',invMin:'minStock',invMax:'maxStock',invCost:'costPrice',invPrice:'sellingPrice',invSupplier:'supplier',invNotes:'notes',invBarcode:'barcode',invCtnSize:'ctnSize'};
+  Object.entries(map).forEach(([i, key]) => { const el = document.getElementById(i); if (el) el.value = v[key] ?? ''; });
+  document.getElementById('invQty').disabled = true;
+  document.getElementById('invQtyLbl').textContent = 'On Hand';
+  document.getElementById('invQtyHint').style.display = '';
   document.getElementById('invCat').value = v.category||'General';
   document.getElementById('invUnit').value = v.unit||'pcs';
   document.getElementById('invModalTitle').textContent = 'Edit Stock Item';
@@ -2538,7 +2853,7 @@ async function hqOrders() {
         <td>${badgeStatus(v.status||'ordered')}</td>
         <td style="font-size:11px;color:var(--tx3)">${v.expectedDelivery||fmtDate(v.createdAt)}</td>
         <td style="white-space:nowrap">
-          ${v.status==='ordered'?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="setStatus('hq_orders','${d.id}','received','hqOrders')">✅ Mark Received</button>`:''}
+          ${['ordered','partially_received'].includes(v.status||'ordered')?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px" onclick="openGRN('${d.id}')">📥 Receive Goods</button>`:''}
           ${v.status==='received'?`<button class="btn btn-blue" style="padding:4px 9px;font-size:11px" onclick="setStatus('hq_orders','${d.id}','paid','hqOrders')">💳 Mark Paid</button>`:''}
           <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('hq_orders','${d.id}','hqOrders')">🗑</button>
         </td>
@@ -2694,6 +3009,59 @@ window.openTransferModal = function() {
   document.body.appendChild(div);
 };
 
+// ── Goods received note: posts receipts to the stock ledger ──
+window.openGRN = async function(hqId) {
+  const [hq, invSnap] = await Promise.all([getDoc(doc(_db, C('hq_orders'), hqId)), getDocs(collection(_db, C('inventory')))]);
+  if (!hq.exists()) { showToast('HQ order not found','error'); return; }
+  const v = hq.data();
+  const items = invSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => String(a.name||'').localeCompare(String(b.name||'')));
+  const rows = (v.items||[]).map((it, i) => {
+    const match = _matchInventory(items, it.product);
+    const left = Math.max(0, _n(it.qty) - _n(it.receivedQty));
+    return `<tr>
+      <td style="font-size:12px">${_esc(it.product)}<div style="font-size:10px;color:var(--tx3)">ordered ${_qty(it.qty)} ${_esc(it.unit||'')}${_n(it.receivedQty)?` · received ${_qty(it.receivedQty)}`:''}</div></td>
+      <td><select class="finp grn-item" data-i="${i}" style="padding:6px 8px;min-width:150px"><option value="">— not stocked —</option>${items.map(x=>`<option value="${x.id}"${match&&match.id===x.id?' selected':''}>${_esc(x.name)}${x.sku?' ('+_esc(x.sku)+')':''}</option>`).join('')}</select></td>
+      <td><input class="finp grn-qty" data-i="${i}" type="number" min="0" step="any" value="${left}" style="width:90px;padding:6px 8px"></td>
+      <td><input class="finp grn-cost" data-i="${i}" type="number" min="0" step="any" value="${match?(_n(match.costPrice)||''):''}" style="width:90px;padding:6px 8px"></td>
+    </tr>`;
+  }).join('');
+  _stockModal('mGRN', `📥 Receive goods — ${_esc(v.ref||hqId.slice(-8))}`, `
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Supplier: <strong style="color:var(--tx)">${_esc(v.supplier||'—')}</strong>. Enter what actually arrived; anything short stays open for a later delivery.</div>
+    <div class="frow"><div class="fgrp"><label class="flbl">Delivery note / invoice no.</label><input class="finp" id="grnRef" placeholder="DO-12345"></div></div>
+    <div class="twrap"><table><thead><tr><th>Ordered item</th><th>Stock item</th><th>Received qty</th><th>Unit cost (RM)</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mGRN')">Cancel</button><button class="btn btn-primary" onclick="saveGRN('${hqId}')">Post receipt</button>`, true);
+};
+
+window.saveGRN = async function(hqId) {
+  const hq = await getDoc(doc(_db, C('hq_orders'), hqId));
+  const v = hq.data();
+  const items = (v.items||[]).map(x => ({ ...x }));
+  const dn = document.getElementById('grnRef').value.trim();
+  const posts = [];
+  items.forEach((it, i) => {
+    const invId = document.querySelector(`.grn-item[data-i="${i}"]`).value;
+    const qty = parseFloat(document.querySelector(`.grn-qty[data-i="${i}"]`).value) || 0;
+    if (!invId || qty <= 0) return;
+    const unitCost = parseFloat(document.querySelector(`.grn-cost[data-i="${i}"]`).value) || 0;
+    posts.push({ type:'receipt', invId, qty, unitCost, ref: [v.ref||hqId.slice(-8), dn].filter(Boolean).join(' · '), hqOrderId: hqId });
+    it.receivedQty = _n(it.receivedQty) + qty;
+    it.invId = invId;
+  });
+  if (!posts.length) { showToast('Enter a received quantity and stock item for at least one line','error'); return; }
+  const complete = items.every(it => _n(it.receivedQty) >= _n(it.qty));
+  try {
+    await Promise.all(posts.map(requestStockMovement));
+    await updateDoc(doc(_db, C('hq_orders'), hqId), {
+      items, status: complete ? 'received' : 'partially_received',
+      receivedAt: ts(), receivedBy: uid(),
+      grns: [...(v.grns||[]), { at: new Date().toISOString(), by: uid(), ref: dn, lines: posts.length }],
+    });
+    closeModal('mGRN');
+    showToast(`${posts.length} line(s) received ✓ — stock posting`,'success');
+    hqOrders();
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+};
+
 window.saveTransfer = async function() {
   const prod = document.getElementById('transProd')?.value?.trim();
   const qty = parseFloat(document.getElementById('transQty')?.value)||0;
@@ -2707,9 +3075,19 @@ window.saveTransfer = async function() {
     notes: document.getElementById('transNotes')?.value?.trim(),
     status: 'completed', createdAt: ts(), createdBy: uid()
   };
+  // Post the stock movement when the product is a stock item.
+  const movement = { send_to_hq:'transfer_out', zone_transfer:'transfer_out', receive_from_hq:'transfer_in', return:'return_in' }[data.type];
+  const invSnap = await getDocs(collection(_db, C('inventory')));
+  const item = _matchInventory(invSnap.docs.map(d => ({ id: d.id, ...d.data() })), prod);
   try {
-    await addDoc(collection(_db, C('transfers')), data);
-    showToast('Transfer recorded ✓','success');
+    const ref = await addDoc(collection(_db, C('transfers')), { ...data, invId: item ? item.id : '' });
+    if (item && movement) {
+      await requestStockMovement({ type: movement, invId: item.id, qty, ref: `Transfer ${ref.id.slice(-6)}`,
+        reason: data.notes || (movement === 'return_in' ? 'Returned stock' : '') });
+      showToast('Transfer recorded ✓ — stock posting','success');
+    } else {
+      showToast('Transfer recorded — product not matched to a stock item, so stock was not changed','warn');
+    }
     document.getElementById('transferForm')?.remove();
     transfers();
   } catch(e) { showToast('Error: '+e.message,'error'); }

@@ -638,8 +638,50 @@ service cloud.firestore {
       allow update, delete: if isStsbERPAdmin();
     }
 
+    // Stock quantities, average cost and reservations change only through
+    // the server (stock requests and the order bridge), so every change has
+    // a ledger entry. Item details (name, SKU, prices, reorder level) stay
+    // editable by ERP admins; new items start at zero and get opening stock
+    // through a stock request.
     match /stsb_inventory/{itemId} {
-      allow read, create, update, delete: if isStsbERPAdmin();
+      allow read, delete: if isStsbERPAdmin();
+      allow create: if isStsbERPAdmin()
+        && request.resource.data.get('qty', 0) == 0
+        && request.resource.data.get('reservedQty', 0) == 0
+        && !('reservations' in request.resource.data)
+        && !('avgCost' in request.resource.data);
+      allow update: if isStsbERPAdmin()
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['qty', 'reservedQty', 'reservations', 'avgCost', 'lastMovementAt']);
+    }
+
+    // Stock movement requests: created by an ERP admin as themselves, then
+    // posted by the erpStockRequest function. The only client change after
+    // that is a different admin approving or rejecting a held request.
+    match /stsb_stock_requests/{reqId} {
+      allow read: if isStsbERPAdmin();
+      allow create: if isStsbERPAdmin()
+        && request.resource.data.status == 'requested'
+        && request.resource.data.requestedBy == request.auth.uid;
+      allow update: if isStsbERPAdmin()
+        && resource.data.status == 'pending_approval'
+        && request.resource.data.status in ['approved', 'rejected']
+        && resource.data.requestedBy != request.auth.uid
+        && request.resource.data.approvedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'approvedBy', 'approvedByName', 'decidedAt', 'decisionNote']);
+      allow delete: if false;
+    }
+
+    // Immutable movement history and per-order stock state: server-written.
+    match /stsb_stock_ledger/{entryId} {
+      allow read: if isStsbERPAdmin();
+      allow write: if false;
+    }
+
+    match /stsb_stock_moves/{orderId} {
+      allow read: if isStsbERPAdmin();
+      allow write: if false;
     }
 
     match /stsb_invoices/{invoiceId} {

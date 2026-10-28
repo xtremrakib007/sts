@@ -10,8 +10,9 @@
     "test:security": "node --test tests/security-regression.test.js",
     "test:erp-sync": "node --test tests/erp-sync.test.js",
     "test:order-controls": "node --test tests/order-controls.test.js",
-    "test": "npm run test:security && npm run test:erp-sync && npm run test:order-controls && npm run test:native-app",
-    "test:native-app": "node --test tests/native-app.test.js"
+    "test": "npm run test:security && npm run test:erp-sync && npm run test:order-controls && npm run test:native-app && npm run test:stock-ledger",
+    "test:native-app": "node --test tests/native-app.test.js",
+    "test:stock-ledger": "node --test tests/stock-ledger.test.js"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",

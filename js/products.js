@@ -504,16 +504,29 @@ async function saveProduct() {
         updatedBy:CU.uid,
         company:'SAIRAH TRADING SDN BHD',
       };
-      // Update stsb_inventory (stock tracking) and stsb_products (product catalogue)
+      // Update stsb_inventory item details and stsb_products (catalogue).
+      // Stock quantities are never written here — they change only through
+      // the ERP stock ledger. A new item's starting quantity is posted as
+      // opening stock.
+      const invSnap=await window.__SF.getDoc(erpInvRef).catch(()=>null);
+      const isNewItem=!invSnap||!invSnap.exists();
       await Promise.all([
         window.__SF.setDoc(erpInvRef,{
           sku:data.sku||savedId, name, unit:data.unit||'pcs',
-          qty:data.stockQty, ctnSize:data.ctnSize, ctnPrice:data.ctnPrice,
-          reservedQty:0, minStock:0,
+          ctnSize:data.ctnSize, ctnPrice:data.ctnPrice,
+          ...(isNewItem?{minStock:0,costPrice:Number(data.cost)||0}:{}),
           updatedAt:new Date().toISOString(), source:'sales_app'
-        },{merge:true}).catch(()=>{}),
+        },{merge:true}).catch(e=>console.warn('[ERP] inventory item sync:',e.message)),
         window.__SF.setDoc(erpProductRef,erpPayload,{merge:true}).catch(()=>{}),
       ]);
+      if(isNewItem&&Number(data.stockQty)>0){
+        await window.__SF.addDoc(window.__SF.collection(db,'stsb_stock_requests'),{
+          type:'opening', invId:savedId||editId, qty:Number(data.stockQty),
+          unitCost:Number(data.cost)||0, ref:'Sales App product', reason:'',
+          status:'requested', requestedBy:CU.uid, requestedByName:CU.name,
+          createdAt:new Date().toISOString(),
+        }).catch(e=>console.warn('[ERP] opening stock:',e.message));
+      }
       console.log('[ERP] Product synced to stsb_inventory + stsb_products');
     } catch(erpErr) {
       console.warn('[ERP] Product sync failed (non-fatal):', erpErr.message);
