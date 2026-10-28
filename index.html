@@ -35,7 +35,7 @@
             href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap">
     </noscript>
     <link rel="stylesheet" href="app.css">
-    <script>"light" === (localStorage.getItem("stsb-theme") || "dark") && document.documentElement.setAttribute("data-theme", "light")</script>
+    <script>try { ("dark" !== localStorage.getItem("stfm-theme")) && document.documentElement.setAttribute("data-theme", "light") } catch (e) { document.documentElement.setAttribute("data-theme", "light") }</script>
 
     <!-- ╔══════════════════════════════════════════════════════════════╗
          ║   STSB SECURITY + FEATURE ENHANCEMENT LAYER v1.0           ║
@@ -208,36 +208,69 @@
         </div>
     </div>
     <div id="loginPage" style="display:none">
-        <div class="login-wrap">
-            <div class="login-card">
-                <div class="brand">
-                    <div class="brand-icon" style="background:0 0;box-shadow:none;padding:0;overflow:hidden"><img
-                            src="logo.png"
-                            style="width:100%;height:100%;object-fit:contain;border-radius:0"></div>
-                    <div class="brand-name">ST<span>SB</span></div>
-                </div>
-                <div
-                    style="font-size:11px;color:var(--tx3);margin-bottom:18px;font-weight:600;letter-spacing:.5px;text-transform:uppercase">
-                    SAIRAH TRADING SDN BHD</div>
-                <div class="login-title">Sign In</div>
-                <div class="login-sub">Access your sales dashboard</div>
-                <div class="fgrp"><label class="flbl">Email Address</label><input id="lemail" type="email" class="finp"
-                        placeholder="you@company.com"></div>
-                <div class="fgrp"><label class="flbl">Password</label><input id="lpwd" type="password" class="finp"
-                        placeholder="••••••••"></div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><input type="checkbox"
-                        id="rememberMe" style="width:15px;height:15px;accent-color:var(--acc);cursor:pointer"> <label
-                        for="rememberMe" style="font-size:13px;color:var(--tx2);cursor:pointer">Remember me on this
-                        device</label></div><button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Sign In
-                    →</button>
-                <div style="text-align:center;margin-top:14px"><button onclick="openForgotPassword()"
-                        style="background:0 0;border:none;color:var(--tx3);font-size:12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px">Forgot
-                        password?</button></div>
-                <div style="text-align:center;margin-top:8px;font-size:12px;color:var(--tx3)">Contact your administrator
-                    to get access</div>
-            </div>
+        <div class="lg-hero">
+            <div class="lg-hero-glow"></div>
+            <div class="lg-logo"><img src="logo.png" alt="ST Fresh Mart"></div>
+            <div class="lg-brand">ST FRESH MART</div>
+            <div class="lg-tag">Sairah Trading Sdn Bhd · Sales &amp; Distribution</div>
         </div>
+        <div class="lg-card">
+            <div class="lg-title">Welcome back</div>
+            <div class="lg-sub">Sign in to continue to your sales dashboard</div>
+            <label class="lg-lbl" for="lemail">Email address</label>
+            <div class="lg-field">
+                <span class="lg-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16v12H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+                <input id="lemail" type="email" inputmode="email" autocomplete="username" placeholder="you@company.com">
+            </div>
+            <label class="lg-lbl" for="lpwd">Password</label>
+            <div class="lg-field">
+                <span class="lg-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></span>
+                <input id="lpwd" type="password" autocomplete="current-password" placeholder="Enter your password">
+                <button type="button" class="lg-eye" id="lpwdEye" aria-label="Show password" onclick="var i=document.getElementById('lpwd'),s=i.type==='password';i.type=s?'text':'password';this.setAttribute('aria-label',s?'Hide password':'Show password');this.classList.toggle('on',s)"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+            </div>
+            <div class="lg-row">
+                <label class="lg-check"><input type="checkbox" id="rememberMe"> <span>Remember me</span></label>
+                <button type="button" class="lg-link" onclick="openForgotPassword()">Forgot password?</button>
+            </div>
+            <button class="lg-btn" id="loginBtn" onclick="doLogin()">Sign In →</button>
+            <div class="lg-foot">Need an account? Contact your administrator.</div>
+        </div>
+        <div class="lg-copy">© Sairah Trading Sdn Bhd</div>
     </div>
+    <style>
+        #loginPage{flex-direction:column;align-items:center;justify-content:flex-start!important;min-height:100vh;background:#f3f7f4!important;padding-bottom:28px;overflow-y:auto}
+        #loginPage::before{display:none}
+        #loginPage .lg-hero{position:relative;width:100%;padding:56px 20px 92px;text-align:center;color:#fff;background:linear-gradient(150deg,#0f5132 0%,#15803d 55%,#65a30d 100%);border-radius:0 0 32px 32px;overflow:hidden}
+        #loginPage .lg-hero-glow{position:absolute;inset:-40% -20% auto auto;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.22),transparent 70%)}
+        #loginPage .lg-logo{width:96px;height:96px;margin:0 auto 14px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,.18);animation:lgPop .6s cubic-bezier(.2,1.3,.4,1) both}
+        #loginPage .lg-logo img{width:78px;height:78px;object-fit:contain}
+        #loginPage .lg-brand{font-family:Syne,Arial,sans-serif;font-weight:800;font-size:22px;letter-spacing:2px}
+        #loginPage .lg-tag{font-size:12.5px;opacity:.85;margin-top:4px}
+        #loginPage .lg-card{position:relative;width:calc(100% - 32px);max-width:420px;margin-top:-62px;background:#fff;border-radius:22px;padding:28px 22px 22px;box-shadow:0 18px 50px rgba(15,81,50,.14),0 2px 6px rgba(0,0,0,.05);animation:lgUp .5s ease .1s both}
+        #loginPage .lg-title{font-family:Syne,Arial,sans-serif;font-size:23px;font-weight:800;color:#0f172a}
+        #loginPage .lg-sub{font-size:13.5px;color:#64748b;margin:4px 0 22px}
+        #loginPage .lg-lbl{display:block;font-size:12.5px;font-weight:700;color:#334155;margin:0 0 7px}
+        #loginPage .lg-field{position:relative;display:flex;align-items:center;margin-bottom:16px}
+        #loginPage .lg-field input{width:100%;height:52px;border:1.5px solid #dbe4de;border-radius:14px;background:#f8faf9;color:#0f172a;font-size:15px;padding:0 46px 0 46px;outline:0;transition:border-color .2s,box-shadow .2s,background .2s}
+        #loginPage .lg-field input::placeholder{color:#94a3b8}
+        #loginPage .lg-field input:focus{border-color:#16a34a;background:#fff;box-shadow:0 0 0 4px rgba(22,163,74,.12)}
+        #loginPage .lg-ico{position:absolute;left:15px;width:20px;height:20px;color:#64748b;pointer-events:none}
+        #loginPage .lg-ico svg,#loginPage .lg-eye svg{width:20px;height:20px;display:block}
+        #loginPage .lg-eye{position:absolute;right:8px;width:38px;height:38px;border:0;background:none;color:#94a3b8;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+        #loginPage .lg-eye.on{color:#16a34a}
+        #loginPage .lg-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 20px}
+        #loginPage .lg-check{display:flex;align-items:center;gap:8px;font-size:13.5px;color:#334155;cursor:pointer}
+        #loginPage .lg-check input{width:18px;height:18px;accent-color:#16a34a;cursor:pointer}
+        #loginPage .lg-link{background:none;border:0;color:#15803d;font-size:13.5px;font-weight:700;cursor:pointer;padding:6px 0}
+        #loginPage .lg-btn{width:100%;height:54px;border:0;border-radius:14px;background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;font-size:16px;font-weight:800;letter-spacing:.3px;cursor:pointer;box-shadow:0 10px 24px rgba(22,163,74,.3);transition:transform .15s,box-shadow .15s}
+        #loginPage .lg-btn:active{transform:scale(.98)}
+        #loginPage .lg-btn:disabled{opacity:.7;cursor:wait}
+        #loginPage .lg-foot{text-align:center;font-size:12.5px;color:#64748b;margin-top:16px}
+        #loginPage .lg-copy{font-size:11.5px;color:#94a3b8;margin-top:22px}
+        @keyframes lgPop{0%{opacity:0;transform:scale(.6)}100%{opacity:1;transform:scale(1)}}
+        @keyframes lgUp{0%{opacity:0;transform:translateY(18px)}100%{opacity:1;transform:translateY(0)}}
+        @media (min-height:760px){#loginPage .lg-hero{padding-top:80px}}
+    </style>
     <div id="app">
         <aside class="sidebar" id="sidebar">
             <div class="sb-head">
@@ -2854,7 +2887,7 @@
 })();
 </script>
 
-<script>function toggleTheme() { const t = document.documentElement, e = "light" === t.getAttribute("data-theme") ? "dark" : "light"; t.setAttribute("data-theme", e), localStorage.setItem("stfm-theme", e); const n = document.getElementById("themeToggleBtn"); n && (n.textContent = "light" === e ? "☀️" : "🌙") } document.addEventListener("DOMContentLoaded", () => { window.dispatchEvent(new Event("appReady")) }), document.addEventListener("DOMContentLoaded", () => { const t = document.getElementById("themeToggleBtn"); t && (t.textContent = "light" === localStorage.getItem("stfm-theme") ? "☀️" : "🌙") })</script>
+<script>function toggleTheme() { const t = document.documentElement, e = "light" === t.getAttribute("data-theme") ? "dark" : "light"; t.setAttribute("data-theme", e), localStorage.setItem("stfm-theme", e); const n = document.getElementById("themeToggleBtn"); n && (n.textContent = "light" === e ? "☀️" : "🌙") } document.addEventListener("DOMContentLoaded", () => { window.dispatchEvent(new Event("appReady")) }), document.addEventListener("DOMContentLoaded", () => { const t = document.getElementById("themeToggleBtn"); t && (t.textContent = "dark" !== localStorage.getItem("stfm-theme") ? "☀️" : "🌙") })</script>
     <script>let _notifTarget = "all", _notifPriority = "normal", _notifPageInited = !1; async function initNotifPage() { _notifPageInited || (await loadNotifUserList(), await loadNotifZones(), _notifPageInited = !0), await loadNotifHistory() } function updateNotifPreview() { const e = document.getElementById("notifTitle")?.value || "", t = document.getElementById("notifMessage")?.value || "", n = document.getElementById("notifPreviewTitle"), o = document.getElementById("notifPreviewMsg"); n && (n.textContent = e || "Notification Title"), o && (o.textContent = t || "Your message here") } function selectNotifTarget(e) { _notifTarget = e, document.querySelectorAll(".notif-target-btn").forEach(t => { t.className = t.dataset.target === e ? "btn btn-primary btn-sm notif-target-btn" : "btn btn-ghost btn-sm notif-target-btn" }); const t = document.getElementById("notifSpecificUser"); t && (t.style.display = "specific" === e ? "block" : "none"), "specific" === e && loadNotifUserList() } function selectNotifPriority(e) { _notifPriority = e, document.querySelectorAll(".notif-priority-btn").forEach(t => { t.dataset.priority === e ? (t.className = "btn btn-primary btn-sm notif-priority-btn", "urgent" === e ? (t.style.background = "#ef4444", t.style.borderColor = "#ef4444", t.style.color = "#fff") : (t.style.background = "", t.style.borderColor = "", t.style.color = "")) : (t.className = "btn btn-ghost btn-sm notif-priority-btn", "urgent" === t.dataset.priority ? (t.style.background = "", t.style.borderColor = "#ef4444", t.style.color = "#ef4444") : (t.style.borderColor = "", t.style.color = "")) }) } async function loadNotifUserList() { try { const e = document.getElementById("notifUserSelect"); if (!e) return; e.innerHTML = '<option value="">— Loading users... —</option>'; const { getDocs: t, collection: n, db: o } = { getDocs: window.__SF.getDocs, collection: window.__SF.collection, db: window.__SF.db }, [i, s] = await Promise.all([t(n(o, "users")), t(n(o, "fcmTokens"))]), a = new Set; s.forEach(e => { e.data().token && a.add(e.id) }), e.innerHTML = '<option value="">— Select a user —</option>', i.forEach(t => { const n = t.data(); if (t.id === CU.uid) return; const o = document.createElement("option"); o.value = n.uid || t.id; const i = a.has(t.id); o.textContent = `${n.name || n.email} (${n.role || "user"})${i ? "" : " ⚠️ no token"}`, i || (o.style.color = "var(--tx3)"), e.appendChild(o) }) } catch (e) { console.error("loadNotifUserList:", e); const t = document.getElementById("notifUserSelect"); t && (t.innerHTML = '<option value="">— Error loading users —</option>') } } async function loadNotifZones() { try { const e = document.getElementById("notifZoneRow"), t = document.getElementById("notifZoneSelect"); if (!e || !t) return; if (!isOwner()) return void (e.style.display = "none"); e.style.display = "block", t.innerHTML = '<option value="">🌐 All Zones</option>'; (await window.__SF.getDocs(window.__SF.collection(window.__SF.db, "zones"))).forEach(e => { const n = document.createElement("option"); n.value = e.id, n.textContent = e.data().name || e.id, t.appendChild(n) }) } catch (e) { } } async function _getNotifTokens(e, t, n) { const { getDocs: o, collection: i, doc: s, getDoc: a, query: r, where: l } = window.__SF, d = window.__SF.db, c = new Set, f = []; function u(e) { e && !c.has(e) && (c.add(e), f.push(e)) } try { if ("specific" === e && t) { const e = await a(s(d, "users", t)); e.exists() && u(e.data().fcmToken) } else { const t = []; "admin" === e ? t.push(l("role", "in", ["admin", "sub_admin"])) : "sales_rep" === e ? t.push(l("role", "==", "sales_rep")) : "delivery_man" === e && t.push(l("role", "==", "delivery_man")), n && t.push(l("zoneId", "==", n)); const s = t.length ? r(i(d, "users"), ...t) : i(d, "users"); (await o(s)).forEach(e => u(e.data().fcmToken)) } } catch (e) { console.warn("[_getNotifTokens] users:", e.message) } if (!f.length) try { if ("specific" === e && t) { const e = await a(s(d, "fcmTokens", t)); e.exists() && u(e.data().token) } else { (await o(i(d, "fcmTokens"))).forEach(t => { const o = t.data(); o.token && ("admin" === e && "admin" !== o.role && "sub_admin" !== o.role || "sales_rep" === e && "sales_rep" !== o.role || "delivery_man" === e && "delivery_man" !== o.role || n && o.zoneId !== n || u(o.token)) }) } } catch (e) { console.warn("[_getNotifTokens] fcmTokens:", e.message) } return f } async function _sendFcmDirect(e, t, n, o) { if (!e.length) return { sent: 0, failed: 0 }; let i = null; try { i = await (window.__SF.auth.currentUser?.getIdToken(!1)) } catch (e) { console.warn("[FCM direct] Could not get ID token:", e.message) } if (!i) return console.warn("[FCM direct] No auth token — falling back to server key"), _sendFcmLegacy(e, t, n, o); let s = 0, a = 0; return (await Promise.allSettled(e.map(e => fetch("https://fcm.googleapis.com/v1/projects/stfm-sales/messages:send", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${i}` }, body: JSON.stringify({ message: { token: e, notification: { title: t, body: n }, android: { priority: "urgent" === o ? "high" : "normal" }, apns: { headers: { "apns-priority": "urgent" === o ? "10" : "5" } }, webpush: { headers: { Urgency: "urgent" === o ? "high" : "normal" }, notification: { title: t, body: n, icon: "/icon-192.png" } } } }) }).then(e => e.json())))).forEach(e => { "fulfilled" === e.status && e.value?.name ? s++ : a++ }), { sent: s, failed: a } } async function _sendFcmLegacy(e, t, n, o) { let i = 0, s = 0; const a = await (async () => { try { const e = await window.__SF.getDoc(window.__SF.doc(window.__SF.db, "config", "app")); return e.exists() && e.data().fcmServerKey || null } catch (e) { return null } })(); if (!a) return console.warn("[FCM legacy] No server key in Firestore config/app"), { sent: 0, failed: e.length }; return (await Promise.allSettled(e.map(e => fetch("https://fcm.googleapis.com/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `key=${a}` }, body: JSON.stringify({ to: e, notification: { title: t, body: n }, priority: "urgent" === o ? "high" : "normal" }) }).then(e => e.json())))).forEach(e => { "fulfilled" === e.status && 1 === e.value?.success ? i++ : s++ }), { sent: i, failed: s } } async function sendAdminNotification() { const e = document.getElementById("notifTitle")?.value?.trim(), t = document.getElementById("notifMessage")?.value?.trim(), n = document.getElementById("notifSendBtn"); if (!e) return void showToast("Please enter a notification title", "error"); if (!t) return void showToast("Please enter a message", "error"); const o = "specific" === _notifTarget ? document.getElementById("notifUserSelect")?.value : null; if ("specific" !== _notifTarget || o) { n.disabled = !0, n.textContent = "⏳ Sending..."; try { const n = document.getElementById("notifZoneSelect")?.value || null, i = await sfAdd("admin_notifications", { title: e, message: t, priority: _notifPriority, target: _notifTarget, specificUserId: o || null, zone: n || null, sentBy: CU.uid, sentByName: CU.name || "Admin", sentAt: window.__SF.serverTimestamp(), status: "pending" }); await new Promise(e => { const t = setTimeout(() => { n(), showToast("❌ Cloud Function did not respond. Please make sure Firebase Functions are deployed: firebase deploy --only functions", "error"), e() }, 2e4), n = window.__SF.onSnapshot(i, o => { if (!o.exists()) return; const i = o.data(); if ("sent" === i.status) { clearTimeout(t), n(); const o = i.tokenCount || 0; o > 0 ? showToast(`✅ Notification delivered to ${o} device(s)!`, "success") : showToast("⚠️ Function ran but found 0 tokens. Users may not have opened the app yet.", "warn"), e() } else "error" === i.status && (clearTimeout(t), n(), showToast(`❌ Function error: ${i.error || "unknown error"}`, "error"), e()) }) }), document.getElementById("notifTitle").value = "", document.getElementById("notifMessage").value = "", document.getElementById("notifCharCount").textContent = "0", document.getElementById("notifPreview").style.display = "none", selectNotifTarget("all"), selectNotifPriority("normal"), await loadNotifHistory() } catch (e) { console.error("sendAdminNotification:", e), showToast(`❌ ${e.message || "Failed to send. Try again."}`, "error") } finally { n.disabled = !1, n.textContent = "🔔 Send Notification" } } else showToast("Please select a specific user", "error") } async function loadNotifHistory() { const e = document.getElementById("notifHistoryList"); if (e) { e.innerHTML = '<div style="text-align:center;padding:20px;color:var(--tx3);font-size:13px">Loading...</div>'; try { const t = await window.__SF.getDocs(window.__SF.query(window.__SF.collection(window.__SF.db, "admin_notifications"), window.__SF.orderBy("sentAt", "desc"), window.__SF.limit(50))); if (t.empty) return void (e.innerHTML = '<div style="text-align:center;padding:30px;color:var(--tx3);font-size:13px">📭 No notifications sent yet — send your first one above!</div>'); let n = '<div style="display:grid;gap:10px">'; t.forEach(e => { const t = e.data(), o = (t.sentAt?.toDate ? t.sentAt.toDate() : new Date).toLocaleString("en-MY", { dateStyle: "medium", timeStyle: "short" }), i = "urgent" === t.priority, s = "all" === t.target ? "👥 All Users" : "specific" === t.target ? "🎯 Specific User" : "sales_rep" === t.target ? "🧑‍💼 Sales Reps" : "delivery_man" === t.target ? "🚚 Delivery Men" : "admin" === t.target ? "👑 Admins" : t.target, a = e => String(e || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); n += `<div style="background:var(--s2);border:1px solid var(--bdr);border-radius:12px;padding:14px;display:flex;gap:12px;align-items:flex-start">\n        <div style="font-size:22px;flex-shrink:0">${i ? "🚨" : "📢"}</div>\n        <div style="flex:1;min-width:0">\n          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">\n            <span style="font-size:13px;font-weight:700;color:var(--tx)">${a(t.title)}</span>\n            ${i ? '<span style="background:#ef444420;color:#ef4444;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid #ef444440">URGENT</span>' : ""}\n          </div>\n          <div style="font-size:12px;color:var(--tx2);margin-bottom:8px;line-height:1.5">${a(t.message)}</div>\n          <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:var(--tx3)">\n            <span>${s}</span>\n            ${t.tokenCount ? `<span>📱 ${t.tokenCount} device(s)</span>` : ""}\n            ${t.zone ? `<span>📍 ${a(t.zone)}</span>` : ""}\n            <span>👤 ${a(t.sentByName || "Admin")}</span>\n            <span>🕐 ${o}</span>\n            ${"partial" === t.status ? '<span style="color:var(--ylw)">⚠️ partial</span>' : ""}\n          </div>\n        </div>\n      </div>` }), n += "</div>", e.innerHTML = n } catch (t) { console.error("loadNotifHistory:", t), e.innerHTML = '<div style="text-align:center;padding:30px;color:var(--tx3);font-size:13px">📭 No notifications sent yet — send your first one above!</div>' } } }</script>
     <div class="moverlay" id="mUserProfile">
         <div class="modal modal-lg" style="padding:0;overflow:hidden">

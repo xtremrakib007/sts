@@ -201,3 +201,13 @@ test('logo, animated splash and faster loading', () => {
   for (const f of ['logo.png', 'favicon.png', 'icon-192.png', 'android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png']) assert.ok(read(f).length > 500, f);
   assert.equal(JSON.parse(read('capacitor.config.json')).plugins.SplashScreen.backgroundColor, '#ffffff');
 });
+
+test('sign-in page: new design, same login fields, light mode by default', () => {
+  const html = read('index.html');
+  const login = html.slice(html.indexOf('<div id="loginPage"'), html.indexOf('<div id="app">'));
+  for (const id of ['lemail', 'lpwd', 'rememberMe', 'loginBtn']) assert.match(login, new RegExp(`id="${id}"`), id);
+  assert.match(login, /class="lg-card"/);
+  assert.match(login, /onclick="openForgotPassword\(\)"/);
+  assert.match(login, /autocomplete="current-password"/);
+  assert.match(html, /\("dark" !== localStorage\.getItem\("stfm-theme"\)\) && document\.documentElement\.setAttribute\("data-theme", "light"\)/);
+});
