@@ -599,7 +599,7 @@ function badgeStatus(s) {
   const map = {
     draft:'badge-gray', pending:'badge-yellow', pending_erp:'badge-yellow',
     ordered:'badge-blue', partially_received:'badge-orange', received:'badge-green',
-    assigned:'badge-blue', in_transit:'badge-blue', failed:'badge-red', rescheduled:'badge-orange',
+    void:'badge-gray', assigned:'badge-blue', in_transit:'badge-blue', failed:'badge-red', rescheduled:'badge-orange',
     partially_delivered:'badge-orange', pending_approval:'badge-yellow', posted:'badge-green',
     approved:'badge-green', rejected:'badge-red', processing:'badge-blue',
     dispatched:'badge-blue', delivered:'badge-green', cancelled:'badge-gray',
@@ -2277,6 +2277,8 @@ window.viewErpOrder = async function(orderId) {
   const live = !['cancelled'].includes(o.status) && !o.appDeleted;
   const actions = [
     o.status === 'pending' && live ? `<button class="btn btn-ghost" onclick="erpAcceptOrder('${_esc(orderId)}')">✅ Accept</button>` : '',
+    !_orderEditBlock(o) ? `<button class="btn btn-ghost" onclick="closeModal('mErpOrder');editErpOrder('${_esc(orderId)}')">✏️ Edit / add products</button>` : '',
+    o.invoiceId && o.status !== 'delivered' ? `<button class="btn btn-ghost" onclick="voidInvoice('${_esc(orderId)}')">⊘ Void invoice</button>` : '',
     !o.invoiceId && live ? `<button class="btn btn-primary" onclick="createInvoiceFromOrder('${_esc(orderId)}')">🧾 Create invoice</button>` : '',
     o.invoiceId ? `<button class="btn btn-primary" onclick="printInvoice('${_esc(o.invoiceId)}')">🖨️ Print invoice ${_esc(o.invoiceNo || '')}</button>` : '',
     live && o.status !== 'delivered' ? `<button class="btn btn-blue" onclick="closeModal('mErpOrder');window.__plannerDate='${_esc(o.deliveryDate || _localDate())}';goPage('deliveryPlanner')">🗓️ Plan delivery</button>` : '',
@@ -2310,6 +2312,7 @@ window.viewErpOrder = async function(orderId) {
       ${step('Placed', o.createdAt, o.repName)}${step('Accepted', o.acceptedAt)}${step('Invoiced ' + (o.invoiceNo || ''), o.invoicedAt)}
       ${step('Driver assigned', o.assignedAt, o.deliveryManName)}${step('Dispatched', o.dispatchedAt)}
       ${step(o.deliveryStatus === 'partially_delivered' ? 'Partly delivered' : 'Delivered', o.deliveredAt, o.receiverName ? 'received by ' + o.receiverName : '')}
+      ${step(`Edited ${o.editCount > 1 ? o.editCount + '×' : ''}`, o.editedAt, [o.editedByName, o.lastEditReason].filter(Boolean).join(' — '))}
       ${step('Cancelled', o.cancelledAt, o.cancelReason)}</div>`,
     `<div style="display:flex;gap:6px;flex-wrap:wrap;width:100%">${actions}<button class="btn btn-ghost" style="margin-left:auto" onclick="closeModal('mErpOrder')">Close</button></div>`, true);
 };
@@ -2414,6 +2417,158 @@ window.printInvoice = async function(invoiceId) {
   w.document.close();
 };
 
+// ═══════════════════════════════════════════
+//  EDIT ORDER (ERP)
+//  Change quantities (cartons + pieces), prices and line discounts, add or
+//  remove products, notes, delivery date and terms — until the order is
+//  invoiced or dispatched. The edit flows to the Sales App order
+//  (erpOrderToApp), which re-reserves stock for the new lines.
+// ═══════════════════════════════════════════
+const _ctnPriceOf = it => _n(it.ctnPrice) || (_n(it.ctnQty) && _n(it.ctnSize)
+  ? ((_n(it.total) + _n(it.discount)) - _n(it.pcsQty) * _n(it.price)) / _n(it.ctnQty) : _n(it.price) * _n(it.ctnSize));
+const _lineValue = l => Math.round(((_n(l.ctnSize) ? _n(l.ctnQty) * _n(l.ctnPrice) : 0) + _n(l.pcsQty) * _n(l.price)) * 100) / 100;
+
+function _orderEditBlock(o) {
+  if (o.status === 'cancelled') return 'Order is cancelled';
+  if (o.status === 'delivered' || ['delivered', 'partially_delivered'].includes(o.deliveryStatus)) return 'Order is delivered — use a return instead';
+  if (o.status === 'dispatched' || o.deliveryStatus === 'in_transit') return 'Order is out for delivery';
+  if (o.invoiceId) return `Order is invoiced (${o.invoiceNo}) — void the invoice first`;
+  return '';
+}
+
+window.editErpOrder = async function(orderId) {
+  const [os, ps, inv] = await Promise.all([getDoc(doc(_db, C('orders'), orderId)), getDocs(collection(_db, C('products'))), getDocs(collection(_db, C('inventory')))]);
+  if (!os.exists()) { showToast('Order not found', 'error'); return; }
+  const o = os.data(), blocked = _orderEditBlock(o);
+  if (blocked) { showToast(blocked, 'warn'); return; }
+  window.__editOrder = { id: orderId, o };
+  window.__editLines = (o.items || []).map(it => {
+    const ctnSize = _n(it.ctnSize), ctnQty = ctnSize ? _n(it.ctnQty) : 0;
+    return { productId: it.productId || '', name: it.name, sku: it.sku || '', unit: it.unit || 'pcs', ctnSize, ctnQty,
+      pcsQty: ctnSize ? _n(it.pcsQty) || Math.max(0, _n(it.qty) - ctnQty * ctnSize) : _n(it.qty), price: _n(it.price),
+      ctnPrice: Math.round(_ctnPriceOf(it) * 100) / 100, discount: _n(it.discount) };
+  });
+  // Catalogue for "add product": ERP products, plus stock items not in it.
+  const prods = ps.docs.map(d => ({ id: d.id, ...d.data() }));
+  inv.docs.forEach(d => { const v = d.data(); if (!prods.some(p => (p.sku && p.sku === v.sku) || p.name === v.name)) prods.push({ id: d.id, name: v.name, sku: v.sku, unit: v.unit, price: v.sellingPrice, ctnSize: v.ctnSize, ctnPrice: v.ctnPrice }); });
+  window.__editCatalog = prods.filter(p => p.name).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  _stockModal('mEditOrder', `✏️ Edit ${_esc(o.orderId || orderId)} — ${_esc(o.customer || '')}`, `
+    <div class="twrap"><table><thead><tr><th>Item</th><th>Cartons</th><th>Pieces</th><th>Price / pc</th><th>Price / ctn</th><th>Discount</th><th style="text-align:right">Line total</th><th></th></tr></thead>
+      <tbody id="eoBody"></tbody></table></div>
+    <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap;align-items:center">
+      <select class="finp" id="eoAdd" style="flex:1;min-width:220px"><option value="">+ Add a product…</option>${window.__editCatalog.map((p, i) => `<option value="${i}">${_esc(p.name)}${p.sku ? ' (' + _esc(p.sku) + ')' : ''} — ${fmt(p.price)}</option>`).join('')}</select>
+      <button class="btn btn-ghost" onclick="_eoAddLine()">Add</button>
+    </div>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Delivery date</label><input class="finp" type="date" id="eoDate" value="${_esc(o.deliveryDate || '')}"></div>
+      <div class="fgrp"><label class="flbl">Payment terms</label><select class="finp" id="eoTerms">${['COD', 'Credit 7 days', 'Credit 14 days', 'Credit 30 days'].map(t => `<option${(o.payTerms || 'COD') === t ? ' selected' : ''}>${t}</option>`).join('')}${['COD', 'Credit 7 days', 'Credit 14 days', 'Credit 30 days'].includes(o.payTerms || 'COD') ? '' : `<option selected>${_esc(o.payTerms)}</option>`}</select></div>
+    </div>
+    <div class="fgrp"><label class="flbl">Notes</label><input class="finp" id="eoNotes" value="${_esc(o.notes || '')}"></div>
+    <div class="fgrp"><label class="flbl">Reason for change *</label><input class="finp" id="eoReason" placeholder="e.g. customer asked for 2 more cartons"></div>
+    <div id="eoTotals" style="text-align:right;font-size:13px;line-height:1.8"></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mEditOrder')">Cancel</button><button class="btn btn-primary" onclick="saveErpOrderEdit()">Save changes</button>`, true);
+  _eoRender();
+};
+
+function _eoRender() {
+  const lines = window.__editLines, o = window.__editOrder.o;
+  document.getElementById('eoBody').innerHTML = lines.map((l, i) => `<tr>
+    <td><strong>${_esc(l.name)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(l.sku)}${l.ctnSize ? ' · ' + _qty(l.ctnSize) + '/ctn' : ''}</div></td>
+    <td>${l.ctnSize ? `<input class="finp" type="number" min="0" step="1" value="${l.ctnQty}" style="width:70px;padding:5px 7px" oninput="_eoSet(${i},'ctnQty',this.value)">` : '<span style="color:var(--tx3)">—</span>'}</td>
+    <td><input class="finp" type="number" min="0" step="1" value="${l.pcsQty}" style="width:76px;padding:5px 7px" oninput="_eoSet(${i},'pcsQty',this.value)"></td>
+    <td><input class="finp" type="number" min="0" step="0.01" value="${l.price}" style="width:84px;padding:5px 7px" oninput="_eoSet(${i},'price',this.value)"></td>
+    <td>${l.ctnSize ? `<input class="finp" type="number" min="0" step="0.01" value="${l.ctnPrice}" style="width:90px;padding:5px 7px" oninput="_eoSet(${i},'ctnPrice',this.value)">` : '<span style="color:var(--tx3)">—</span>'}</td>
+    <td><input class="finp" type="number" min="0" step="0.01" value="${l.discount}" style="width:80px;padding:5px 7px" oninput="_eoSet(${i},'discount',this.value)"></td>
+    <td style="text-align:right;font-family:'DM Mono',monospace" id="eoLt${i}">${fmt(_lineValue(l) - l.discount)}</td>
+    <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="window.__editLines.splice(${i},1);_eoRender()">✕</button></td></tr>`).join('')
+    || '<tr><td colspan="8" style="text-align:center;color:var(--tx3);padding:16px">No items — add a product</td></tr>';
+  _eoTotals();
+}
+
+function _eoTotals() {
+  const lines = window.__editLines, o = window.__editOrder.o;
+  const sub = lines.reduce((s, l) => s + _lineValue(l), 0), lineDisc = lines.reduce((s, l) => s + _n(l.discount), 0);
+  // Keep an approved order-level discount that was not on the lines.
+  const origLineDisc = (o.items || []).reduce((s, it) => s + _n(it.discount), 0);
+  const orderDisc = Math.max(0, _n(o.discount) - origLineDisc);
+  const total = Math.max(0, sub - lineDisc - orderDisc);
+  window.__editTotals = { subtotal: Math.round(sub * 100) / 100, discount: Math.round((lineDisc + orderDisc) * 100) / 100, total: Math.round(total * 100) / 100 };
+  document.getElementById('eoTotals').innerHTML = `Subtotal ${fmt(sub)}${lineDisc ? `<br>Line discounts − ${fmt(lineDisc)}` : ''}${orderDisc ? `<br>Order discount − ${fmt(orderDisc)}` : ''}
+    <br><strong style="font-size:15px">New total ${fmt(total)}</strong> <span style="color:var(--tx3)">(was ${fmt(o.total)})</span>`;
+}
+
+window._eoSet = function(i, k, v) {
+  const l = window.__editLines[i];
+  l[k] = Math.max(0, parseFloat(v) || 0);
+  const cell = document.getElementById('eoLt' + i);
+  if (cell) cell.textContent = fmt(_lineValue(l) - l.discount);
+  _eoTotals();
+};
+
+window._eoAddLine = function() {
+  const sel = document.getElementById('eoAdd'), p = window.__editCatalog[sel.value];
+  if (!p) return;
+  const existing = window.__editLines.findIndex(l => (p.id && l.productId === p.id) || (p.sku && l.sku === p.sku));
+  if (existing >= 0) { showToast('Already on the order — change its quantity instead', 'info'); sel.value = ''; return; }
+  const ctnSize = _n(p.ctnSize);
+  window.__editLines.push({ productId: p.id || '', name: p.name, sku: p.sku || '', unit: p.unit || 'pcs', ctnSize, ctnQty: ctnSize ? 1 : 0,
+    pcsQty: ctnSize ? 0 : 1, price: _n(p.price), ctnPrice: _n(p.ctnPrice) || _n(p.price) * ctnSize, discount: 0 });
+  sel.value = '';
+  _eoRender();
+};
+
+window.saveErpOrderEdit = async function() {
+  const { id, o } = window.__editOrder, lines = window.__editLines;
+  const reason = document.getElementById('eoReason').value.trim();
+  if (!lines.length) { showToast('An order needs at least one item — cancel it instead', 'error'); return; }
+  const bad = lines.find(l => (l.ctnSize ? l.ctnQty * l.ctnSize : 0) + l.pcsQty <= 0);
+  if (bad) { showToast(`${bad.name}: quantity must be more than zero (or remove the line)`, 'error'); return; }
+  const over = lines.find(l => l.discount > _lineValue(l));
+  if (over) { showToast(`${over.name}: discount is more than the line value`, 'error'); return; }
+  if (!reason) { showToast('Enter the reason for the change', 'error'); return; }
+  _eoTotals();
+  const t = window.__editTotals, now = new Date().toISOString();
+  const items = lines.map(l => {
+    const qty = (l.ctnSize ? l.ctnQty * l.ctnSize : 0) + l.pcsQty;
+    return { productId: l.productId, name: l.name, sku: l.sku, unit: l.unit, ctnSize: l.ctnSize, ctnQty: l.ctnSize ? l.ctnQty : 0,
+      pcsQty: l.pcsQty, qty, price: l.price, ctnPrice: l.ctnSize ? l.ctnPrice : 0, discount: l.discount,
+      total: Math.round((_lineValue(l) - l.discount) * 100) / 100 };
+  });
+  try {
+    // Re-check under a transaction: someone may have invoiced or dispatched it meanwhile.
+    await runTransaction(_db, async tx => {
+      const ref = doc(_db, C('orders'), id), cur = await tx.get(ref);
+      const blocked = _orderEditBlock(cur.data() || {});
+      if (blocked) throw new Error(blocked);
+      tx.update(ref, { items, subtotal: t.subtotal, discount: t.discount, total: t.total,
+        notes: document.getElementById('eoNotes').value.trim(), deliveryDate: document.getElementById('eoDate').value || cur.data().deliveryDate || '',
+        payTerms: document.getElementById('eoTerms').value, editedAt: now, editedBy: uid(), editedByName: _user?.name || _user?.email || '',
+        editCount: _n(cur.data().editCount) + 1, lastEditReason: reason, lastEditFrom: o.total, updatedAt: ts() });
+    });
+    closeModal('mEditOrder');
+    showToast(`Order updated ✓ — total ${fmt(t.total)}; the Sales App order and stock follow`, 'success');
+    viewErpOrder(id);
+    if (window.__curPage === 'salesOrders') salesOrders();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.voidInvoice = async function(orderId) {
+  const os = await getDoc(doc(_db, C('orders'), orderId));
+  const o = os.data() || {};
+  if (!o.invoiceId) return;
+  if (o.status === 'delivered') { showToast('Delivered orders keep their invoice — use a return / credit note', 'warn'); return; }
+  const why = prompt(`Void invoice ${o.invoiceNo}? The order can then be edited and invoiced again.\n\nReason (required):`);
+  if (!why) return;
+  try {
+    await runTransaction(_db, async tx => {
+      tx.update(doc(_db, C('invoices'), o.invoiceId), { status: 'void', voidReason: why, voidedAt: new Date().toISOString(), voidedBy: uid() });
+      tx.update(doc(_db, C('orders'), orderId), { invoiceId: '', invoiceNo: '', invoiceVoided: o.invoiceNo, updatedAt: ts() });
+    });
+    showToast(`Invoice ${o.invoiceNo} voided`, 'warn');
+    viewErpOrder(orderId);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
 window.editInventory = async function(id) {
   const d = await getDoc(doc(_db, C('inventory'), id));
   if (!d.exists()) return;
@@ -2450,6 +2605,7 @@ async function salesOrders() {
         <td style="font-size:11px;color:var(--tx3)">${fmtDate(v.createdAt)}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" title="View full order" onclick="viewErpOrder('${d.id}')">👁 View</button>
+          ${!_orderEditBlock(v)&&!needsDisc?`<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;margin-left:4px" title="Edit / add products" onclick="editErpOrder('${d.id}')">✏️</button>`:''}
           ${v.status==='pending'&&!needsDisc?`<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="erpAcceptOrder('${d.id}')">✅ Accept</button>`:''}
           ${!v.invoiceId&&v.status!=='cancelled'&&!needsDisc?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="createInvoiceFromOrder('${d.id}')">🧾 Invoice</button>`:''}
           ${v.invoiceId?`<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;margin-left:4px" title="Print invoice" onclick="printInvoice('${v.invoiceId}')">🖨️</button>`:''}
@@ -2508,8 +2664,7 @@ async function invoices() {
     let rows='',total=0,paid=0;
     snap.forEach(d=>{
       const v=d.data();
-      total+=v.total||0;
-      if(v.status==='paid')paid+=v.total||0;
+      if(v.status!=='void'){ total+=v.total||0; if(v.status==='paid')paid+=v.total||0; }
       rows+=`<tr>
         <td style="font-family:'DM Mono',monospace;font-size:12px"><strong>${v.invoiceNo||d.id.slice(-6)}</strong></td>
         <td>${v.customer||'—'}</td>
@@ -2519,7 +2674,7 @@ async function invoices() {
         <td style="font-size:11px;color:var(--tx3)">${v.dueDate||'—'}</td>
         <td style="white-space:nowrap"><button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" title="Print" onclick="printInvoice('${d.id}')">🖨️</button>
             ${(v.orderId||v.linkedOrderId)?`<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;margin-left:4px" title="Open order" onclick="viewErpOrder('${_esc(v.orderId||v.linkedOrderId)}')">📋</button>`:''}
-            ${v.status!=='paid'?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="markInvoicePaid('${d.id}')">✅ Mark Paid</button>`:''}
+            ${!['paid','void'].includes(v.status)?`<button class="btn btn-primary" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="markInvoicePaid('${d.id}')">✅ Mark Paid</button>`:''}${v.status==='void'?`<div style="font-size:10px;color:var(--tx3)">${_esc(v.voidReason||'')}</div>`:''}
             <button class="btn btn-danger" style="padding:4px 9px;font-size:11px;margin-left:4px" onclick="deleteRecord('invoices','${d.id}','invoices')">🗑</button></td>
       </tr>`;
     });

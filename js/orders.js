@@ -144,6 +144,8 @@ async function loadOrders() {
         <button class="btn btn-ghost btn-xs" onclick="viewOrder('${o._docId}')">👁</button>
         ${isAdmin()&&creditPending?`<button class="btn btn-ylw btn-xs" onclick="approveCredit('${o._docId}',true)" title="Approve over credit limit">💳 Approve</button><button class="btn btn-red btn-xs" onclick="approveCredit('${o._docId}',false)" title="Reject — cancels the order">✕ Credit</button>`:''}
         ${isAdmin()&&discPending?`<button class="btn btn-ylw btn-xs" onclick="approveDiscount('${o._docId}',true)" title="Approve discount & send to ERP">🏷️ Approve</button><button class="btn btn-red btn-xs" onclick="approveDiscount('${o._docId}',false)" title="Reject discount & send to ERP at full price">✕ Disc</button>`:''}
+        ${_appOrderEditable(o)?`<button class="btn btn-ghost btn-xs" title="Edit / add products" onclick="editMyOrder('${o._docId}')">✏️</button>`:''}
+        ${!isAdmin()&&_appOrderEditable(o)?`<button class="btn btn-red btn-xs" title="Cancel order" onclick="cancelMyOrder('${o._docId}')">✕</button>`:''}
         ${isAdmin()&&(o.status==='Pending'||o.status==='Confirmed')&&!discPending?`<button class="btn btn-red btn-xs" onclick="cancelOrder('${o._docId}')">✕</button>`:''}
         ${isStrictAdmin()?`<button class="btn btn-red btn-xs" onclick="deleteOrder('${o._docId}','Order ${o.id||o._docId}','${o._zoneId||""}')" title="Permanently delete">🗑</button>`:''}
       </div>
@@ -944,6 +946,113 @@ async function deliverOrder(id) {
   invalidateDashCache();loadOrders();renderDashboard();
   try{const _dODoc=await window.__SF.getDoc(window.__SF.doc(window.__SF.db,_zonePath('orders'),id));if(_dODoc.exists()){const _dOD=_dODoc.data();notifyRep(_dOD.createdBy,'🚚 Order Delivered',`Order ${_dOD.id||id} has been delivered`,{tag:'order-delivered'});}}
   catch(e){}
+}
+
+// ═══════════════ EDIT / CANCEL OWN ORDER ═══════════════
+// Until the ERP accepts or invoices an order, the salesman who placed it
+// (or an admin) can change quantities, add or remove products and notes,
+// or cancel it. Prices come from the catalogue; price changes are done in
+// the ERP. The server re-reserves stock for the new lines.
+function _appOrderEditable(o) {
+  if(!o)return false;
+  if(!['Pending','Confirmed'].includes(o.status))return false;
+  if(o.invoiceNo)return false;
+  if(o.erpStatus&&o.erpStatus!=='pending')return false;
+  return isAdmin()||o.createdBy===CU.uid;
+}
+let _eoItems=[], _eoOrder=null;
+
+async function editMyOrder(docId) {
+  const snap=await window.__SF.getDoc(docRef('orders',docId));
+  const o=snap.exists()?{_docId:snap.id,...snap.data()}:null;
+  if(!_appOrderEditable(o)){showToast('This order can no longer be changed — it is being processed. Ask the office.','warn');return;}
+  if(!allProducts.length)await loadCachedData();
+  _eoOrder=o;
+  _eoItems=(o.items||[]).map(it=>({...it, ctnQty:Number(it.ctnQty)||0, pcsQty:it.ctnSize?(Number(it.pcsQty)||0):(Number(it.qty)||0)}));
+  document.getElementById('mEditMyOrder')?.remove();
+  const el=document.createElement('div');
+  el.className='moverlay'; el.id='mEditMyOrder';
+  el.innerHTML=`<div class="modal"><div class="mhdr"><div class="mttl">✏️ Edit ${o.id||docId}</div><button class="mcls" onclick="closeM('mEditMyOrder')">✕</button></div>
+    <div class="mbody">
+      <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">🏪 ${outletName(o.outletId)}</div>
+      <div id="eoLines"></div>
+      <div style="display:flex;gap:6px;margin:10px 0">
+        <select class="finp" id="eoProd" style="flex:1"><option value="">+ Add a product…</option>${allProducts.filter(p=>p.stockStatus!=='out_of_stock').map(p=>`<option value="${p.id}">${p.name} — ${fmt(p.price)}</option>`).join('')}</select>
+        <button class="btn btn-ghost btn-sm" onclick="_eoAdd()">Add</button>
+      </div>
+      <div class="fgrp"><label class="flbl">Notes</label><input class="finp" id="eoNotesApp" value="${(o.notes||'').replace(/"/g,'&quot;')}"></div>
+      <div id="eoTotal" style="text-align:right;font-weight:700"></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-ghost" onclick="closeM('mEditMyOrder')">Cancel</button><button class="btn btn-primary" onclick="saveMyOrderEdit()">Save changes</button></div></div>`;
+  document.body.appendChild(el);
+  openM('mEditMyOrder');
+  _eoDraw();
+}
+
+function _eoLineTotal(it) {
+  const ctnPr=it.ctnPrice??((Number(it.price)||0)*(Number(it.ctnSize)||1));
+  return (it.ctnSize?(Number(it.ctnQty)||0)*ctnPr:0)+(Number(it.pcsQty)||0)*(Number(it.price)||0);
+}
+
+function _eoDraw() {
+  document.getElementById('eoLines').innerHTML=_eoItems.map((it,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--bdr)">
+      <div style="flex:1;font-size:12px"><strong>${it.name}</strong><div style="color:var(--tx3);font-size:11px">${fmt(it.price)}/pc${it.ctnSize?` · ${it.ctnSize}/ctn`:''}</div></div>
+      ${it.ctnSize?`<input class="finp" type="number" min="0" value="${it.ctnQty}" style="width:58px;padding:6px" title="Cartons" oninput="_eoQty(${i},'ctnQty',this.value)"><span style="font-size:10px;color:var(--tx3)">ctn</span>`:''}
+      <input class="finp" type="number" min="0" value="${it.pcsQty}" style="width:62px;padding:6px" title="Pieces" oninput="_eoQty(${i},'pcsQty',this.value)"><span style="font-size:10px;color:var(--tx3)">pcs</span>
+      <span id="eoLt${i}" style="width:78px;text-align:right;font-size:12px">${fmt(_eoLineTotal(it))}</span>
+      <button class="btn btn-red btn-xs" onclick="_eoItems.splice(${i},1);_eoDraw()">✕</button></div>`).join('')
+    ||'<div style="text-align:center;color:var(--tx3);padding:14px">No items — add a product or cancel the order</div>';
+  _eoSum();
+}
+function _eoQty(i,k,v){ _eoItems[i][k]=Math.max(0,Math.floor(Number(v)||0)); const c=document.getElementById('eoLt'+i); if(c)c.textContent=fmt(_eoLineTotal(_eoItems[i])); _eoSum(); }
+function _eoSum(){ const t=_eoItems.reduce((s,it)=>s+_eoLineTotal(it),0); const el=document.getElementById('eoTotal'); if(el)el.textContent=`New subtotal ${fmt(t)} (was ${fmt(_eoOrder.subtotal??_eoOrder.total)})`; }
+function _eoAdd(){
+  const sel=document.getElementById('eoProd'); const p=allProducts.find(x=>x.id===sel.value); if(!p)return;
+  if(_eoItems.some(it=>it.pid===p.id)){showToast('Already on the order — change its quantity','info');sel.value='';return;}
+  const ctnSize=Number(p.ctnSize)||0;
+  _eoItems.push({pid:p.id,name:p.name,sku:p.sku||'',price:p.price,ctnPrice:p.ctnPrice??p.ctn_price??null,ctnSize,unit:p.unit||'pcs',ctnQty:ctnSize?1:0,pcsQty:ctnSize?0:1});
+  sel.value=''; _eoDraw();
+}
+
+async function saveMyOrderEdit() {
+  const o=_eoOrder;
+  if(!_eoItems.length){showToast('No items left — cancel the order instead','error');return;}
+  const items=_eoItems.map(it=>{
+    const qty=(it.ctnSize?(Number(it.ctnQty)||0)*it.ctnSize:0)+(Number(it.pcsQty)||0);
+    const line=Math.round(_eoLineTotal(it)*100)/100;
+    const disc=it.discount&&it.discount.amount?{...it.discount,amount:Math.min(Number(it.discount.amount)||0,line)}:(it.discount||null);
+    return {...it,qty,ctnQty:it.ctnSize?(Number(it.ctnQty)||0):0,pcsQty:Number(it.pcsQty)||0,_lineTotal:line,discount:disc,
+      qtyDisplay:it.ctnSize&&it.ctnQty?`${it.ctnQty}ctn${it.pcsQty?`+${it.pcsQty}pcs`:''}`:`${qty}pcs`};
+  });
+  const zero=items.find(it=>it.qty<=0);
+  if(zero){showToast(`${zero.name}: enter a quantity or remove it`,'error');return;}
+  const subtotal=Math.round(items.reduce((s,it)=>s+it._lineTotal,0)*100)/100;
+  // An approved discount stays: line discounts follow their lines; an
+  // order-level amount is kept as is. A pending discount still waits.
+  const d=o.discount;
+  const discAmt=d&&d.status==='approved'?(d.type==='multi'?items.reduce((s,it)=>s+(Number(it.discount?.amount)||0),0):Number(d.amount)||0):0;
+  const total=Math.max(0,Math.round((subtotal-discAmt)*100)/100);
+  try {
+    await sfUpdate('orders',o._docId,{items,subtotal,total,notes:document.getElementById('eoNotesApp').value.trim(),
+      updatedAt:new Date().toISOString(),editedAt:new Date().toISOString(),editedBy:CU.uid,editedByName:CU.name});
+    closeM('mEditMyOrder');
+    showToast(`Order ${o.id||''} updated ✓ — total ${fmt(total)}`,'success');
+    loadOrders();
+  } catch(e){ showToast('Could not save: '+e.message,'error'); }
+}
+
+async function cancelMyOrder(docId) {
+  const snap=await window.__SF.getDoc(docRef('orders',docId));
+  const o=snap.exists()?{_docId:snap.id,...snap.data()}:null;
+  if(!_appOrderEditable(o)){showToast('This order can no longer be cancelled here — ask the office.','warn');return;}
+  const why=prompt(`Cancel order ${o.id||docId}?\n\nReason (required):`);
+  if(!why)return;
+  try {
+    await sfUpdate('orders',docId,{status:'Cancelled',cancelledAt:new Date().toISOString(),cancelledBy:CU.uid,cancelReason:why,updatedAt:new Date().toISOString()});
+    showToast('Order cancelled — reserved stock released','warn');
+    loadOrders();
+    try{notifyAdmins('❌ Order Cancelled',`${CU.name} cancelled ${o.id||docId}: ${why}`,{tag:'order-cancelled'});}catch(e){}
+  } catch(e){ showToast('Could not cancel: '+e.message,'error'); }
 }
 
 async function cancelOrder(id) {

@@ -308,7 +308,7 @@ function _deliveredTotal(items, delivered, orderTotal) {
   let full=0, got=0;
   items.forEach((it,i)=>{
     const q=Number(it.qty)||0; if(q<=0)return;
-    const line=it._lineTotal!=null?Number(it._lineTotal):(Number(it.price)||0)*q-(Number(it.discount?.amount)||0);
+    const line=(it._lineTotal!=null?Number(it._lineTotal):(Number(it.price)||0)*q)-(Number(it.discount?.amount)||0);
     full+=line; got+=(line/q)*Math.min(Number(delivered[i]?.qty)||0,q);
   });
   return full>0?Math.round((Number(orderTotal)||0)*got/full*100)/100:0;

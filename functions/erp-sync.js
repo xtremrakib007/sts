@@ -83,7 +83,8 @@ function mapItem(item) {
   const qty = num(item.qty);
   const price = num(item.price);
   const discount = num(item.discount && item.discount.amount);
-  const lineTotal = item._lineTotal != null ? num(item._lineTotal) : (price * qty) - discount;
+  // _lineTotal is the app's pre-discount line value (carton pricing).
+  const lineTotal = (item._lineTotal != null ? num(item._lineTotal) : price * qty) - discount;
   return {
     productId: item.pid || item.productId || '',
     name: item.name || '',
@@ -92,6 +93,7 @@ function mapItem(item) {
     ctnQty: num(item.ctnQty),
     pcsQty: num(item.pcsQty),
     ctnSize: num(item.ctnSize),
+    ctnPrice: num(item.ctnPrice),
     unit: item.unit || 'pcs',
     price,
     discount,
@@ -234,8 +236,12 @@ function buildErpCollection({collection: c, erpCurrent = null, docId, zoneId, ou
  * @return {boolean}
  */
 function isStaleEvent(erpCurrent, eventTime) {
-  return !!(erpCurrent && erpCurrent._srcEventTime && eventTime &&
-    erpCurrent._srcEventTime > eventTime);
+  if (!erpCurrent || !eventTime) return false;
+  if (erpCurrent._srcEventTime && erpCurrent._srcEventTime > eventTime) return true;
+  // An ERP-side edit wins over app events written before it, and over any
+  // app event that arrives while the edit is still being copied to the app.
+  if (erpCurrent.editedAt && erpCurrent._erpEditFor !== erpCurrent.editedAt) return true;
+  return !!(erpCurrent._erpEditTime && erpCurrent._erpEditTime > eventTime);
 }
 
 /**
@@ -267,10 +273,20 @@ const APP_FINAL = new Set(['Delivered', 'Cancelled']);
  * @param {string} appStatus Current status of the Sales App order.
  * @return {object|null} Fields to merge into the app order, or null.
  */
-function appPatchFromErp(before, after, appStatus) {
+function appPatchFromErp(before, after, appStatus, appOrder = {}) {
   if (!after || APP_FINAL.has(appStatus)) return null;
   const changed = (k) => JSON.stringify((before || {})[k]) !== JSON.stringify(after[k]);
   const patch = {};
+  // Order edited in the ERP (items, totals, notes): the app order follows,
+  // so stock reservation and credit use the edited lines.
+  if (changed('editedAt') && after.editedAt) {
+    patch.items = appItemsFromErp(after.items, appOrder.items);
+    patch.subtotal = num(after.subtotal);
+    patch.total = num(after.total);
+    patch.notes = after.notes || '';
+    patch.editedAt = after.editedAt;
+    patch.editedByName = after.editedByName || 'ERP';
+  }
   if (changed('status') || changed('deliveryStatus')) {
     if (after.status === 'cancelled') {
       patch.status = 'Cancelled';
@@ -294,12 +310,44 @@ function appPatchFromErp(before, after, appStatus) {
     if (['Confirmed', 'Failed'].includes(appStatus) && !patch.status) patch.status = 'Assigned';
   }
   if (changed('deliveryDate') && after.deliveryDate) patch.deliveryDate = after.deliveryDate;
-  if (changed('invoiceNo') && after.invoiceNo) patch.invoiceNo = after.invoiceNo;
+  if (changed('invoiceNo')) patch.invoiceNo = after.invoiceNo || '';
   if (patch.status === appStatus) delete patch.status;
   if (changed('status')) patch.erpStatus = after.status || '';
   if (!Object.keys(patch).length) return null;
   patch.erpStatus = after.status || '';
   return patch;
+}
+
+/**
+ * ERP order lines → Sales App order lines. App-only details (carton price,
+ * display text, discount type) are kept from the matching previous line.
+ * @param {object[]} items ERP lines.
+ * @param {object[]} prevAppItems Current app lines.
+ * @return {object[]}
+ */
+function appItemsFromErp(items, prevAppItems) {
+  const prev = prevAppItems || [];
+  const match = (it) => prev.find((p) => (it.productId && p.pid === it.productId) ||
+    (it.sku && p.sku === it.sku) || (!it.sku && p.name === it.name)) || {};
+  return (items || []).map((it) => {
+    const p = match(it);
+    const disc = num(it.discount);
+    return {
+      ...p,
+      pid: it.productId || p.pid || '',
+      name: it.name || p.name || '',
+      sku: it.sku || p.sku || '',
+      unit: it.unit || p.unit || 'pcs',
+      price: num(it.price),
+      qty: num(it.qty),
+      ctnQty: num(it.ctnQty),
+      pcsQty: num(it.pcsQty),
+      ctnSize: num(it.ctnSize),
+      qtyDisplay: num(it.ctnQty) ? `${num(it.ctnQty)} ctn + ${num(it.pcsQty)} pcs` : `${num(it.qty)} pcs`,
+      _lineTotal: num(it.total) + disc,
+      discount: disc ? {...(p.discount || {}), amount: disc} : null,
+    };
+  });
 }
 
 function toIso(v) {
@@ -345,6 +393,7 @@ function pickBackfillSources(docs, keyOf) {
 }
 
 module.exports = {
+  appItemsFromErp,
   pickBackfillSources,
   appPatchFromErp,
   isBridgeWrite,

@@ -625,10 +625,15 @@ exports.erpOrderToApp = functions.firestore
     if (!snaps.length) return;
 
     const appStatus = snaps[0].data().status || '';
-    const patch = erp.appPatchFromErp(before, after, appStatus);
+    const patch = erp.appPatchFromErp(before, after, appStatus, snaps[0].data());
     if (!patch) return;
     const stamped = { ...patch, _syncedFromERP: true, _syncedAt: FieldValue.serverTimestamp() };
     await Promise.all(snaps.map(s => s.ref.update(stamped)));
+    if (patch.editedAt) {
+      // Mark the edit as applied, at its server time, so older app events
+      // can no longer overwrite it (see erp.isStaleEvent).
+      await change.after.ref.update({ _erpEditFor: after.editedAt, _erpEditTime: change.after.updateTime.toDate().toISOString() });
+    }
     if (patch.status) await change.after.ref.update({ appStatus: patch.status });
     console.log(`[ERP→App] ${ctx.params.orderId} ${appStatus} → ${patch.status || '(fields)'}`);
   });
