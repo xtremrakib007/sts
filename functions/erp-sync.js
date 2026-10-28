@@ -294,6 +294,7 @@ function appPatchFromErp(before, after, appStatus) {
     if (['Confirmed', 'Failed'].includes(appStatus) && !patch.status) patch.status = 'Assigned';
   }
   if (changed('deliveryDate') && after.deliveryDate) patch.deliveryDate = after.deliveryDate;
+  if (changed('invoiceNo') && after.invoiceNo) patch.invoiceNo = after.invoiceNo;
   if (patch.status === appStatus) delete patch.status;
   if (changed('status')) patch.erpStatus = after.status || '';
   if (!Object.keys(patch).length) return null;
@@ -319,7 +320,32 @@ function isBridgeWrite(before, after) {
   return JSON.stringify((before || {})._srcEventTime) !== JSON.stringify((after || {})._srcEventTime);
 }
 
+/**
+ * Backfill: picks one source document per order/collection from a
+ * collection-group read (root copy + zone copies). The zone copy wins
+ * because it is the primary write; the root copy is a mirror.
+ * @param {Array<{path: string, id: string, data: object, updateTime: string}>} docs
+ * @param {function(object, string): string} keyOf ERP id for a doc.
+ * @return {Array<{key: string, docId: string, zoneId: string|null, data: object, updateTime: string}>}
+ */
+function pickBackfillSources(docs, keyOf) {
+  const out = {};
+  docs.forEach((d) => {
+    const parts = d.path.split('/');
+    const zoneId = parts[0] === 'zones' && parts.length === 4 ? parts[1] : null;
+    if (parts.length !== 2 && !zoneId) return; // ignore any other nesting
+    const key = keyOf(d.data, d.id);
+    const cur = out[key];
+    if (!cur || (zoneId && !cur.fromZone)) {
+      out[key] = {key, docId: d.id, fromZone: !!zoneId, zoneId: zoneId || d.data._zoneId || d.data.zoneId || null,
+        data: d.data, updateTime: d.updateTime};
+    }
+  });
+  return Object.values(out).map(({fromZone, ...src}) => src);
+}
+
 module.exports = {
+  pickBackfillSources,
   appPatchFromErp,
   isBridgeWrite,
   ERP_PREFIX,

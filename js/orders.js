@@ -984,7 +984,8 @@ async function viewOrder(docId) {
       </div>
       <div style="text-align:right">
         <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#1a1a1a;letter-spacing:-1px">INVOICE</div>
-        <div style="font-size:14px;font-weight:700;color:#22c55e;margin-top:2px">${o.id||o._docId}</div>
+        <div style="font-size:14px;font-weight:700;color:#22c55e;margin-top:2px">${o.invoiceNo||o.id||o._docId}</div>
+        ${o.invoiceNo?`<div style="font-size:11px;color:#888">Order ${o.id||o._docId}</div>`:''}
         <div style="margin-top:6px"><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${o.status==='Delivered'?'#dcfce7':o.status==='Cancelled'?'#fee2e2':o.status==='Confirmed'?'#dbeafe':'#fef9c3'};color:${o.status==='Delivered'?'#16a34a':o.status==='Cancelled'?'#dc2626':o.status==='Confirmed'?'#1d4ed8':'#b45309'}">${o.status}</span></div>
       </div>
     </div>
@@ -1049,7 +1050,7 @@ async function viewOrder(docId) {
       <div>Thank you for your business · Sairah Trading Sdn Bhd</div>
     </div>
   </div>`;
-  document.getElementById('mOrdDetTitle').textContent='Invoice — '+(o.id||o._docId);
+  document.getElementById('mOrdDetTitle').textContent='Invoice — '+(o.invoiceNo||o.id||o._docId);
   document.getElementById('mOrdDetBody').innerHTML=invoiceHtml;
   window.__currentInvoiceOrder = o;
   openM('mOrderDetail');
@@ -1088,7 +1089,7 @@ function downloadInvoicePDF() {
 function shareInvoice() {
   const o=window.__currentInvoiceOrder;
   if(!o)return;
-  const text=`*SAIRAH TRADING SDN BHD*\nInvoice: ${o.id||o._docId}\nDate: ${o.date}\nOutlet: ${outletName(o.outletId)}\nItems: ${(o.items||[]).length}\n*Total: ${fmt(o.total)}*\nStatus: ${o.status}`;
+  const text=`*SAIRAH TRADING SDN BHD*\nInvoice: ${o.invoiceNo||o.id||o._docId}\nDate: ${o.date}\nOutlet: ${outletName(o.outletId)}\nItems: ${(o.items||[]).length}\n*Total: ${fmt(o.total)}*\nStatus: ${o.status}`;
   if(navigator.share){
     navigator.share({title:`Invoice ${o.id}`,text}).catch(()=>{});
   } else {
