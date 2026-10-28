@@ -75,6 +75,7 @@ function stopOrdersLiveListener() {
 
 function _refreshActiveOrderViews() {
   const pg = document.querySelector('.page.active')?.id || '';
+  if (typeof invalidateCache === 'function') invalidateCache();
   if (typeof invalidateDashCache === 'function') invalidateDashCache();
   if (pg === 'pageOrders') loadOrders();
   else if (pg === 'pageDeliveries') loadDeliveries();

@@ -5,6 +5,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>STSB ERP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com"><link rel="icon" type="image/png" href="/favicon.png">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 /* ── CSS VARS ── */
@@ -211,6 +213,36 @@ body.store-mode .adm-only{display:none!important}
 </style>
 </head>
 <body>
+    <!-- Animated splash: covers the app while it signs in and loads data in
+         the background; _hideSplash() fades it out (12 s at most). -->
+    <div id="appSplash" aria-label="Loading STFM" role="status">
+        <div class="as-stage">
+            <div class="as-ring"></div><div class="as-ring as-ring2"></div>
+            <img class="as-logo" src="/logo.png" alt="">
+        </div>
+        <div class="as-name">STSB ERP</div>
+        <div class="as-sub">Operations</div>
+        <div class="as-bar"><span></span></div>
+    </div>
+    <style>
+        #appSplash{position:fixed;inset:0;z-index:100000;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;transition:opacity .4s ease,visibility .4s}
+        #appSplash.out{opacity:0;visibility:hidden}
+        #appSplash .as-stage{position:relative;width:150px;height:150px;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+        #appSplash .as-logo{width:128px;height:128px;object-fit:contain;animation:asPop .7s cubic-bezier(.2,1.4,.4,1) both,asFloat 2.4s ease-in-out .8s infinite}
+        #appSplash .as-ring{position:absolute;inset:6px;border-radius:50%;border:3px solid rgba(21,128,61,.45);animation:asRing 1.8s ease-out .4s infinite}
+        #appSplash .as-ring2{animation-delay:1.3s}
+        #appSplash .as-name{font-family:Syne,Arial,sans-serif;font-weight:800;font-size:20px;letter-spacing:2px;color:#14532d;animation:asUp .6s ease .35s both}
+        #appSplash .as-sub{font:600 12px Arial,sans-serif;letter-spacing:1px;color:#6b7280;animation:asUp .6s ease .5s both}
+        #appSplash .as-bar{width:150px;height:4px;border-radius:4px;background:#e5efe8;overflow:hidden;margin-top:14px;animation:asUp .6s ease .6s both}
+        #appSplash .as-bar span{display:block;width:40%;height:100%;border-radius:4px;background:linear-gradient(90deg,#16a34a,#84cc16);animation:asBar 1.1s ease-in-out infinite}
+        @keyframes asPop{0%{opacity:0;transform:scale(.55) rotate(-12deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+        @keyframes asFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+        @keyframes asRing{0%{transform:scale(.85);opacity:.9}100%{transform:scale(1.35);opacity:0}}
+        @keyframes asUp{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:translateY(0)}}
+        @keyframes asBar{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+        @media (prefers-reduced-motion:reduce){#appSplash *{animation:none!important}}
+    </style>
+    <script>window._hideSplash=function(){var s=document.getElementById('appSplash');if(!s||s.dataset.gone)return;s.dataset.gone='1';s.classList.add('out');setTimeout(function(){s.remove()},450)};setTimeout(window._hideSplash,8000);</script>
 
 <!-- TENANT SELECT SCREEN -->
 <div id="tenantScreen" style="display:none!important">
@@ -229,6 +261,7 @@ body.store-mode .adm-only{display:none!important}
 <!-- AUTH SCREEN -->
 <div id="authScreen">
   <div class="auth-card">
+    <img src="/logo.png" alt="" style="width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 8px">
     <div class="auth-logo" id="authLogo">⬡ STSB ERP</div>
     <div class="auth-co" id="authCoName">STSB Trading Sdn Bhd</div>
     <div class="auth-sub" id="authSub">Enterprise Resource Planning</div>
@@ -246,6 +279,7 @@ body.store-mode .adm-only{display:none!important}
 <div id="app">
   <div class="sidebar" id="sidebar">
     <div class="sb-logo">
+      <img src="/logo.png" alt="" style="width:34px;height:34px;object-fit:contain;float:left;margin:2px 10px 0 0;background:#fff;border-radius:50%">
       <div class="sb-logo-name" id="sbLogoName">⬡ STSB ERP</div>
       <div class="sb-logo-tag" id="sbLogoTag">ERP Operations</div>
       <div class="sb-tenant-chip" onclick="backToTenants()" title="Switch company">⬡ <span id="sbTenantName">—</span> ↗</div>
@@ -551,14 +585,14 @@ body.store-mode .adm-only{display:none!important}
 <!-- ══════════════════════════════════════
      FIREBASE + APP LOGIC
 ══════════════════════════════════════ -->
-<script src="/vendor/qrcode.js"></script>
-<script src="/vendor/invoice-template.js"></script>
-<script src="/vendor/read-excel-file.js"></script>
-<script src="/vendor/write-excel-file.js"></script>
+<script defer src="/vendor/qrcode.js"></script>
+<script defer src="/vendor/invoice-template.js"></script>
+<script defer src="/vendor/read-excel-file.js"></script>
+<script defer src="/vendor/write-excel-file.js"></script>
 <script type="module">
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs as _fsGetDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ═══════════════════════════════════════════
 //  MULTI-TENANT CONFIGURATION
@@ -596,6 +630,14 @@ const _selectedLoginRole = 'erp'; // STSB: always ERP
 // Helpers scoped to active tenant
 const DB = () => _db;
 const E = { collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit };
+// Collections the ERP keeps live listeners on: a read of the whole
+// collection is answered from the latest live snapshot (already in memory
+// and always current) instead of downloading it again on every page.
+const _liveSnaps = new Map();
+function getDocs(ref) {
+  if (ref && ref.type === 'collection' && _liveSnaps.has(ref.path)) return Promise.resolve(_liveSnaps.get(ref.path));
+  return _fsGetDocs(ref);
+}
 const ts = () => serverTimestamp();
 const uid = () => _user?.uid || 'system';
 // LHDN e-Invoice requests: each invoice carries a random token that its QR
@@ -707,6 +749,7 @@ window.selectTenant = function(tenantId) {
         }
       } else {
         stopRealtimeSync();
+        window._hideSplash && window._hideSplash();
         document.getElementById('authScreen').style.display = _tenant ? 'flex' : 'none';
         document.getElementById('app').classList.remove('visible');
       }
@@ -802,6 +845,7 @@ async function showApp() {
   document.getElementById('sbTenantName').textContent = 'STSB Trading';
   buildSidebar();
   goPage(_appRole === 'store' ? 'picking' : _appRole === 'erp' ? 'dashboard' : 'salesDashboard');
+  setTimeout(() => window._hideSplash && window._hideSplash(), 300);
   updateBadges();
   startRealtimeSync();
 }
@@ -953,6 +997,7 @@ function stopRealtimeSync() {
     try { unsub(); } catch (e) { console.warn('[ERP live sync] unsubscribe failed:', e); }
   });
   _realtimeUnsubs = [];
+  _liveSnaps.clear();
   if (_realtimeRefreshTimer) clearTimeout(_realtimeRefreshTimer);
   _realtimeRefreshTimer = null;
   _realtimeRefreshPending = false;
@@ -1010,9 +1055,11 @@ function startRealtimeSync() {
   let errorCount = 0;
   REALTIME_COLLECTIONS.forEach(name => {
     let firstSnapshot = true;
+    const livePath = C(name);
     const unsub = onSnapshot(
-      collection(_db, C(name)),
-      () => {
+      collection(_db, livePath),
+      snap => {
+        _liveSnaps.set(livePath, snap);
         if (firstSnapshot) {
           firstSnapshot = false;
           readyCount++;
@@ -1023,6 +1070,7 @@ function startRealtimeSync() {
         queueRealtimeRefresh();
       },
       error => {
+        _liveSnaps.delete(livePath);
         firstSnapshot = false;
         errorCount++;
         console.error('[ERP live sync] ' + C(name) + ' listener failed:', error.code || error.message);

@@ -11,6 +11,7 @@ function showToast(msg,type='info') {
 
 // ═══════════════ AUTH ═══════════════
 function showLoginPage() {
+  if (window._hideSplash) _hideSplash();
   // ★ If a device gate is active, show that screen instead of login
   const gate = _getDeviceGate();
   if (gate === 'pending' || gate === 'rejected') {
@@ -382,6 +383,7 @@ async function doAdminResetPassword() {
 // ═══════════════ FIRST SETUP ═══════════════
 let _setupUser = null;
 function showSetupPanel(user) {
+  if (window._hideSplash) _hideSplash();
   document.getElementById('loader').classList.add('hidden');
   _setupUser = user;
   document.getElementById('setupPanel').classList.add('show');

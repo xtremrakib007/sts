@@ -48,7 +48,9 @@ const COPY_FILES = [
   'firebase-messaging-sw.js',
   'fcm-client.js',
   'icon-192.png',
-  'icon-512.png'
+  'icon-512.png',
+  'logo.png',
+  'favicon.png'
 ];
 
 // Third-party browser files served as-is (the ERP portal loads these).

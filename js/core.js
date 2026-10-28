@@ -170,12 +170,23 @@ async function sfDelete(colName, docId) {
   invalidateCache();
 }
 
+// Whole-collection reads are shared for a short time, so moving between
+// pages does not download the same collections again. Any write through
+// sfAdd/sfUpdate/sfDelete, and live order changes, clear it.
+const _sfMemo = new Map();
+const _SF_MEMO_MS = 30000;
+function _sfMemoSet(colName, docs) { _sfMemo.set(_zoneReadPath(colName), { t: Date.now(), docs }); }
+
 async function sfGet(colName, constraints=[]) {
   try {
     const {getDocs, query} = window.__SF;
+    const key = constraints.length ? null : _zoneReadPath(colName);
+    const hit = key && _sfMemo.get(key);
+    if (hit && Date.now() - hit.t < _SF_MEMO_MS) return hit.docs;
     const ref = colR(colName); // colR respects _ownerZoneFilter for reads
     const q = constraints.length ? query(ref, ...constraints) : ref;
     const snap = await getDocs(q);
+    if (key) _sfMemo.set(key, { t: Date.now(), docs: snap.docs });
     return snap.docs;
   } catch(e) {
     console.warn('sfGet', colName, e.message);

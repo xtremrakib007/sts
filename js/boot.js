@@ -29,7 +29,7 @@ async function bootApp() {
     // ★ DEVICE APPROVAL GATE — enforce inside bootApp for sales_rep
     if (CU.role === 'sales_rep') {
       const allowed = await _enforceDeviceGate(CU);
-      if (!allowed) return;
+      if (!allowed) { _hideSplash(); return; }
     }
 
     // Show the app shell immediately
@@ -47,10 +47,19 @@ async function bootApp() {
     const lb=document.getElementById('loginBtn');
     if(lb){lb.disabled=false;lb.textContent='Sign In →';}
 
+    // ★ Start the GPS check and the data load together — the GPS check can
+    // take several seconds on a phone and used to hold up everything else.
+    const gpsPromise = requestGPSPermission();
+    // 1) Instant: last session's data from the on-device cache.
+    // 2) Fresh: the server, then the screen is redrawn with it.
+    const shownFromCache = await _bootLoad('cache').catch(() => false);
+    const freshLoad = _bootLoad('server');
+
     // ★ GPS PERMISSION — required for field users (sales_rep, delivery_man) for tracking
     // Admins do NOT need GPS and must never be blocked by GPS denial
-    const gpsOk = await requestGPSPermission();
+    const gpsOk = await gpsPromise;
     if(!gpsOk && !isAdmin()){
+      _hideSplash();
       // Show a blocking GPS required screen only for field users
       const appEl2=document.getElementById('app');
       appEl2.style.display='none';
@@ -67,39 +76,10 @@ async function bootApp() {
         </div>`;
       return;
     }
-    // Old code: await loadCachedData() [3 fetches], then renderDashboard() [3 more fetches] = sequential slow
-    // New code: all 6 fire at the same time — saves one full round-trip latency
-    // New code: all collections fire at the same time — saves one full round-trip latency
-    const [ouDocs, prDocs, ordDocs, colDocs, attDocs, rtDocs, znDocs] = await Promise.all([
-      sfGet('outlets'), window.__SF.getDocs(rootCol('products')), // always root global catalog
-      sfGet('orders'),  sfGet('collections'), sfGet('attendance'), sfGet('routes'), sfGet('zones')
-    ]);
-    // Users always fetched from root (shared collection)
-    const uSnapBoot = await _fetchUsers(); // zone-filtered for non-owners
-
-    allZones    = znDocs.map(d=>({id:d.id,...d.data()}));
-    allOutlets  = ouDocs.map(d=>({id:d.id,...d.data()}));
-    allUsers    = isOwner()
-      ? uSnapBoot.docs.map(d=>({...d.data()}))
-      : uSnapBoot.docs.map(d=>({...d.data()})).filter(u=>u.isOwner||u.zoneId===CU.zoneId||u.uid===CU.uid);
-    const _ovMap1 = await _loadZoneProductOverrides();
-    // Products always from root global catalog; prDocs already from rootCol('products') in boot
-    allProducts = _applyProductOverrides(prDocs.docs, _ovMap1);
-    allRoutes   = rtDocs.map(d=>({id:d.id,...d.data()}));
-
-    // Init zone bar + export buttons NOW — allZones is populated
-    if(isAdmin()) initOwnerZoneBar();
-
-    // Pre-loaded docs used directly — zone scoping is handled at collection path level
-    const filtOrdDocs = ordDocs;
-    const filtColDocs = colDocs;
-    const filtAttDocs = attDocs;
-
-    // Use internal functions that accept pre-loaded data — no extra Firestore round-trips
-    _renderDashboard(filtOrdDocs, filtColDocs, filtAttDocs);
-    _checkTodayAttendance(filtAttDocs);
-    _updateBadges(filtOrdDocs);
-    _updateSidebarStats(filtOrdDocs, filtColDocs);
+    // First run on this device (nothing cached): wait for the server data.
+    if (!shownFromCache) await freshLoad;
+    else freshLoad.catch(e => console.warn('[boot] refresh failed:', e.message));
+    _hideSplash();
 
     // ★ Restore last page or default based on role
     const lastPg = sessionStorage.getItem('stfm_lastPage');
@@ -136,6 +116,7 @@ async function bootApp() {
 
   } catch(err) {
     console.error('bootApp error:', err);
+    _hideSplash();
     const loader = document.getElementById('loader');
     loader.style.display='flex';
     loader.classList.remove('hidden');
@@ -393,7 +374,48 @@ async function exportMonitoring() {
 // ── Smart cache: skip Firestore if data is < TTL ms old ─────────────────────
 let _cacheTs = 0;
 const _CACHE_TTL = 8000; // 8 seconds — stale after writes that call invalidateCache()
-function invalidateCache() { _cacheTs = 0; }
+function invalidateCache() { _cacheTs = 0; if (typeof _sfMemo !== 'undefined') _sfMemo.clear(); }
+
+// Loads everything the first screen needs in one parallel round and draws
+// it. source 'cache' reads the device's Firestore cache (instant, last
+// session's data) and returns false when there is nothing cached yet;
+// 'server' reads fresh data and redraws.
+async function _bootLoad(source) {
+  const fromCache = source === 'cache';
+  const SF = window.__SF;
+  if (fromCache && typeof SF.getDocsFromCache !== 'function') return false;
+  const get = ref => (fromCache ? SF.getDocsFromCache(ref) : SF.getDocs(ref))
+    .catch(e => { if (!fromCache) console.warn('[boot]', e.message); return { docs: [] }; });
+  const names = ['outlets', 'orders', 'collections', 'attendance', 'routes', 'zones'];
+  const [snaps, prSnap, uSnap, ovMap] = await Promise.all([
+    Promise.all(names.map(n => get(colR(n)))),
+    get(rootCol('products')),   // always the root global catalog
+    get(_usersRef()),           // zone-filtered for non-owners
+    fromCache ? Promise.resolve({}) : _loadZoneProductOverrides(),
+  ]);
+  const [ouDocs, ordDocs, colDocs, attDocs, rtDocs, znDocs] = snaps.map(s => s.docs);
+  if (fromCache && !ouDocs.length && !prSnap.docs.length) return false;
+
+  allZones    = znDocs.map(d=>({id:d.id,...d.data()}));
+  allOutlets  = ouDocs.map(d=>({id:d.id,...d.data()}));
+  allUsers    = isOwner()
+    ? uSnap.docs.map(d=>({...d.data()}))
+    : uSnap.docs.map(d=>({...d.data()})).filter(u=>u.isOwner||u.zoneId===CU.zoneId||u.uid===CU.uid);
+  allProducts = _applyProductOverrides(prSnap.docs, ovMap);
+  allRoutes   = rtDocs.map(d=>({id:d.id,...d.data()}));
+  if (!fromCache) {
+    _cacheTs = Date.now();
+    names.forEach((n, i) => _sfMemoSet(n, snaps[i].docs));
+  }
+
+  // Init zone bar + export buttons — allZones is populated
+  if(isAdmin()) initOwnerZoneBar();
+  _renderDashboard(ordDocs, colDocs, attDocs);
+  _checkTodayAttendance(attDocs);
+  _updateBadges(ordDocs);
+  _updateSidebarStats(ordDocs, colDocs);
+  return true;
+}
 
 async function loadCachedData(force = false) {
   const now = Date.now();
@@ -545,6 +567,7 @@ function _fieldStaffBlockedOnWeb(user) {
 }
 
 function showStoremanScreen() {
+  _hideSplash();
   document.getElementById('loader')?.classList.add('hidden');
   const app = document.getElementById('app');
   if (app) app.style.display = 'none';
@@ -562,6 +585,7 @@ function showStoremanScreen() {
 }
 
 function showNativeAppOnlyScreen() {
+  _hideSplash();
   document.getElementById('loader')?.classList.add('hidden');
   const app = document.getElementById('app');
   if (app) app.style.display = 'none';
