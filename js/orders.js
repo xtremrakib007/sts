@@ -1251,14 +1251,23 @@ async function cancelOrder(id) {
 }
 
 // LHDN e-Invoice request QR for an invoiced order (token set by the ERP).
-function _einvoiceQrBlock(o) {
+function _einvoiceQrSvg(o) {
   if (!o.invoiceNo || !o.einvoiceToken || typeof qrcode !== 'function') return '';
   const url = `https://stfm-sales.web.app/einvoice.html?i=${encodeURIComponent(o.invoiceNo)}&t=${encodeURIComponent(o.einvoiceToken)}`;
   const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
-  return `<div style="display:flex;gap:12px;align-items:center;border:1px solid #e5e5e5;border-radius:8px;padding:10px;margin-bottom:14px">
-    <div style="width:96px;flex-shrink:0">${qr.createSvgTag({ cellSize: 3, margin: 2, scalable: true })}</div>
-    <div style="font-size:11px;color:#444;line-height:1.5"><strong style="color:#111">Need an LHDN e-Invoice?</strong><br>Scan to enter your tax details (TIN, ID, address). We will issue a validated e-Invoice for ${escH(o.invoiceNo)}.</div>
-  </div>`;
+  return qr.createSvgTag({ cellSize: 3, margin: 2, scalable: true });
+}
+
+// Company details for invoices: ERP → Settings → Company profile (copied to
+// config/company), cached for the session; template defaults otherwise.
+let _invoiceCompanyCache = null;
+async function _invoiceCompany() {
+  if (_invoiceCompanyCache) return _invoiceCompanyCache;
+  try {
+    const d = await window.__SF.getDoc(window.__SF.doc(window.__SF.db, 'config', 'company'));
+    _invoiceCompanyCache = d.exists() ? d.data() : {};
+  } catch (e) { _invoiceCompanyCache = {}; }
+  return _invoiceCompanyCache;
 }
 
 async function viewOrder(docId) {
@@ -1268,86 +1277,27 @@ async function viewOrder(docId) {
   const sBadge={Pending:'bdg-ylw',Confirmed:'bdg-blu',Delivered:'bdg-grn',Cancelled:'bdg-red'};
   const outlet=allOutlets.find(x=>x.id===o.outletId)||{name:'Unknown',address:'',phone:''};
   const createdByUser=allUsers.find(u=>u.uid===o.createdBy)||{name:o.createdByName||'Unknown'};
-  const subtotal=(o.items||[]).reduce((s,it)=>s+(it.price*it.qty),0);
   const discountInfo=o.discount&&o.discount.amount>0?o.discount:null;
-  const finalTotal=o.total;
-  const invoiceHtml=`
-  <div id="invoiceContent" style="background:#fff;color:#1a1a1a;padding:28px 30px;font-family:'DM Sans',sans-serif">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;padding-bottom:18px;border-bottom:2px solid #f0f0f0">
-      <div>
-        <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#22c55e;letter-spacing:-.5px">SAIRAH TRADING SDN BHD</div>
-        <div style="font-size:12px;color:#888;margin-top:3px">Sales & Distribution Management</div>
-        ${o.erpSynced?'<div style="font-size:10px;color:#22c55e;margin-top:2px">✓ Synced to ERP</div>':'<div style="font-size:10px;color:#f59e0b;margin-top:2px">⏳ Pending ERP sync</div>'}
-      </div>
-      <div style="text-align:right">
-        <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#1a1a1a;letter-spacing:-1px">INVOICE</div>
-        <div style="font-size:14px;font-weight:700;color:#22c55e;margin-top:2px">${o.invoiceNo||o.id||o._docId}</div>
-        ${o.invoiceNo?`<div style="font-size:11px;color:#888">Order ${o.id||o._docId}</div>`:''}
-        <div style="margin-top:6px"><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${o.status==='Delivered'?'#dcfce7':o.status==='Cancelled'?'#fee2e2':o.status==='Confirmed'?'#dbeafe':'#fef9c3'};color:${o.status==='Delivered'?'#16a34a':o.status==='Cancelled'?'#dc2626':o.status==='Confirmed'?'#1d4ed8':'#b45309'}">${o.status}</span></div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px">
-      <div style="background:#fafafa;border-radius:8px;padding:14px;border:1px solid #f0f0f0">
-        <div style="font-size:10px;font-weight:700;color:#999;letter-spacing:.8px;text-transform:uppercase;margin-bottom:7px">BILL TO</div>
-        <div style="font-weight:700;font-size:14px;color:#1a1a1a">${outlet.name}</div>
-        ${outlet.type?`<div style="font-size:12px;color:#666;margin-top:2px">${outlet.type}${outlet.area?' · '+outlet.area:''}</div>`:''}
-        ${outlet.phone?`<div style="font-size:12px;color:#666;margin-top:2px">📞 ${outlet.phone}</div>`:''}
-        ${outlet.address?`<div style="font-size:11px;color:#888;margin-top:4px;line-height:1.4">📍 ${outlet.address}</div>`:''}
-        ${outlet.route?`<div style="font-size:11px;color:#888;margin-top:3px">🗺️ Route: ${outlet.route}</div>`:''}
-      </div>
-      <div style="background:#fafafa;border-radius:8px;padding:14px;border:1px solid #f0f0f0">
-        <div style="font-size:10px;font-weight:700;color:#999;letter-spacing:.8px;text-transform:uppercase;margin-bottom:7px">INVOICE DETAILS</div>
-        <div style="display:flex;flex-direction:column;gap:5px">
-          <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#666">Date:</span><span style="font-weight:600">${o.date||'—'}</span></div>
-          <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#666">Sales Rep:</span><span style="font-weight:600">${createdByUser.name}</span></div>
-          ${o.approvedBy?`<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#666">Approved By:</span><span style="font-weight:600">${userName(o.approvedBy)}</span></div>`:''}
-          <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#666">Items:</span><span style="font-weight:600">${(o.items||[]).length}</span></div>
-          <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#666">Delivery:</span><span style="font-weight:600;color:#3b82f6">Managed by ERP</span></div>
-        </div>
-      </div>
-    </div>
-    <table style="width:100%;border-collapse:collapse;margin-bottom:18px">
-      <thead>
-        <tr style="background:#22c55e">
-          <th style="text-align:left;padding:9px 12px;font-size:11px;font-weight:700;color:#fff;letter-spacing:.5px;border-radius:6px 0 0 6px">ITEM</th>
-          <th style="text-align:center;padding:9px 12px;font-size:11px;font-weight:700;color:#fff;letter-spacing:.5px">QTY</th>
-          <th style="text-align:right;padding:9px 12px;font-size:11px;font-weight:700;color:#fff;letter-spacing:.5px">UNIT PRICE</th>
-          <th style="text-align:right;padding:9px 12px;font-size:11px;font-weight:700;color:#fff;letter-spacing:.5px;border-radius:0 6px 6px 0">AMOUNT</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(o.items||[]).map((it,i)=>`
-        <tr style="border-bottom:1px solid #f5f5f5;background:${i%2===0?'#fff':'#fafafa'}">
-          <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#1a1a1a">${it.name}${it.sku?`<span style="font-size:10px;color:#999;margin-left:4px">[${it.sku}]</span>`:''}</td>
-          <td style="padding:9px 12px;font-size:13px;text-align:center;color:#444">${it.qtyDisplay||it.qty}</td>
-          <td style="padding:9px 12px;font-size:13px;text-align:right;color:#444">${fmt(it.price)}</td>
-          <td style="padding:9px 12px;font-size:13px;text-align:right;font-weight:700;color:#22c55e">${fmt(it.price*it.qty)}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-    <div style="display:flex;justify-content:flex-end;margin-bottom:18px">
-      <div style="min-width:240px">
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px"><span style="color:#666">Subtotal</span><span style="font-weight:600">${fmt(subtotal)}</span></div>
-        ${discountInfo?`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px">
-          <span style="color:${discountInfo.status==='approved'?'#16a34a':discountInfo.status==='rejected'?'#dc2626':'#b45309'}">
-            🏷️ Discount${discountInfo.type==='multi'?' ('+((discountInfo.items||[]).length)+' items)':discountInfo.type==='percent'?' ('+discountInfo.value+'%)':''}
-            <span style="font-size:10px">(${discountInfo.status})</span>
-          </span>
-          <span style="font-weight:600;color:${discountInfo.status==='approved'?'#16a34a':'#b45309'}">−${fmt(discountInfo.amount)}</span>
-        </div>`:''}
-        <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:#666">GST/SST</span><span style="color:#999">—</span></div>
-        <div style="display:flex;justify-content:space-between;padding:9px 12px;margin-top:4px;background:#1a1a1a;border-radius:8px">
-          <span style="font-weight:700;color:#fff;font-size:14px">TOTAL</span>
-          <span style="font-family:'Syne',sans-serif;font-weight:800;color:#22c55e;font-size:18px">${fmt(finalTotal)}</span>
-        </div>
-      </div>
-    </div>
-    ${o.notes?`<div style="background:#fff9f0;border:1px solid #fed7aa;border-radius:8px;padding:11px 14px;font-size:12px;color:#7c3c00;margin-bottom:14px">📝 Notes: ${o.notes}</div>`:''}
-    ${_einvoiceQrBlock(o)}
-    <div style="border-top:1px solid #f0f0f0;padding-top:14px;text-align:center;font-size:11px;color:#999">
-      <div>Thank you for your business · Sairah Trading Sdn Bhd</div>
-    </div>
+  const company=await _invoiceCompany();
+  const created=o.createdAt?.toDate?o.createdAt.toDate():(typeof o.createdAt==='string'?new Date(o.createdAt):null);
+  const time=created&&!isNaN(created)?' '+created.toLocaleTimeString('en-MY',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase():'';
+  const invoiced=!!o.invoiceNo||o.type==='manual_invoice';
+  const sheet=renderSalesInvoice({
+    company, qrSvg:_einvoiceQrSvg(o),
+    title:o.status==='Cancelled'?(invoiced?'Sales Invoice (CANCELLED)':'Sales Order (CANCELLED)'):invoiced?'Sales Invoice':'Sales Order',
+    number:o.invoiceNo||o.id||o._docId, orderRef:o.invoiceNo&&o.id&&o.id!==o.invoiceNo?o.id:'',
+    date:(o.date||'')+time, salesBy:createdByUser.name,
+    customer:{id:outlet.code||outlet.customerCode||(outlet.id?String(outlet.id).slice(0,8).toUpperCase():''),name:outlet.name,address:outlet.address,mobile:outlet.phone},
+    items:o.items||[], total:o.deliveredTotal!=null?o.deliveredTotal:o.total,
+    sst:o.sst, transport:o.transportCost, paid:o.paidAmount, cashReturn:o.cashReturn, notes:o.notes,
+  });
+  // App-only status line, outside the printable invoice.
+  const statusBar=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+    <span class="bdg ${sBadge[o.status]||'bdg-gry'}">${escH(o.status||'')}</span>
+    ${o.erpSynced?'<span class="bdg bdg-grn">✓ Synced to ERP</span>':'<span class="bdg bdg-ylw">⏳ Pending ERP sync</span>'}
+    ${discountInfo&&discountInfo.status!=='approved'?`<span class="bdg ${discountInfo.status==='rejected'?'bdg-red':'bdg-ylw'}">🏷️ Discount ${fmt(discountInfo.amount)} ${escH(discountInfo.status)}</span>`:''}
   </div>`;
+  const invoiceHtml=`${statusBar}<div id="invoiceContent" style="background:#fff">${sheet}</div>`;
   document.getElementById('mOrdDetTitle').textContent='Invoice — '+(o.invoiceNo||o.id||o._docId);
   document.getElementById('mOrdDetBody').innerHTML=invoiceHtml;
   window.__currentInvoiceOrder = o;
@@ -1387,7 +1337,8 @@ function downloadInvoicePDF() {
 function shareInvoice() {
   const o=window.__currentInvoiceOrder;
   if(!o)return;
-  const text=`*SAIRAH TRADING SDN BHD*\nInvoice: ${o.invoiceNo||o.id||o._docId}\nDate: ${o.date}\nOutlet: ${outletName(o.outletId)}\nItems: ${(o.items||[]).length}\n*Total: ${fmt(o.total)}*\nStatus: ${o.status}`;
+  const co=_invoiceCompanyCache&&_invoiceCompanyCache.name||INVOICE_DEFAULT_COMPANY.name;
+  const text=`*${co}*\nInvoice: ${o.invoiceNo||o.id||o._docId}\nDate: ${o.date}\nOutlet: ${outletName(o.outletId)}\nItems: ${(o.items||[]).length}\n*Total: ${fmt(o.total)}*\nStatus: ${o.status}`;
   if(navigator.share){
     navigator.share({title:`Invoice ${o.id}`,text}).catch(()=>{});
   } else {
