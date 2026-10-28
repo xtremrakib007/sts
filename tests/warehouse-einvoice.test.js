@@ -141,3 +141,10 @@ test('ERP products page reads the Sales App catalogue and offers Excel/CSV impor
   const build = read('build.js');
   assert.match(build, /'node_modules\/write-excel-file\/bundle\/write-excel-file\.min\.js': 'vendor\/write-excel-file\.js'/);
 });
+
+test('picker: + only opens entry; the cart changes on "Add to cart"', () => {
+  const o = read('js/orders.js');
+  assert.match(o, /<button class="oc-plus" onclick="ocOpenDraft\('\$\{p\.id\}'\)"/);
+  assert.match(o, /onclick="ocAddToCart\('\$\{p\.id\}'\)"/);
+  assert.doesNotMatch(o, /function ocQuickAdd/, 'no one-tap add any more');
+});
