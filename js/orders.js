@@ -43,6 +43,46 @@ function _availableQty(stock) {
   return Math.max(0, qty - reserved);
 }
 
+// ── Live order listener ──────────────────────────────────────────────────────
+// Keeps the orders / deliveries / dashboard views current when the ERP or
+// another user changes an order (delivery assignment, status, approval).
+// Changes this device makes itself are skipped — their callers already reload.
+let _ordersUnsub = null;
+let _ordersLiveTimer = null;
+
+function startOrdersLiveListener() {
+  stopOrdersLiveListener();
+  try {
+    const {onSnapshot, query, where} = window.__SF;
+    const ref = col('orders');
+    const q = isAdmin() ? ref
+      : isDeliveryMan() ? query(ref, where('deliveryManId','==',CU.uid))
+      : query(ref, where('createdBy','==',CU.uid));
+    let first = true;
+    _ordersUnsub = onSnapshot(q, snap => {
+      if (first) { first = false; return; }
+      if (snap.metadata.hasPendingWrites || !snap.docChanges().length) return;
+      clearTimeout(_ordersLiveTimer);
+      _ordersLiveTimer = setTimeout(_refreshActiveOrderViews, 800);
+    }, err => console.warn('[orders live]', err.message));
+  } catch(e) { console.warn('startOrdersLiveListener', e.message); }
+}
+
+function stopOrdersLiveListener() {
+  clearTimeout(_ordersLiveTimer);
+  if (_ordersUnsub) { _ordersUnsub(); _ordersUnsub = null; }
+}
+
+function _refreshActiveOrderViews() {
+  const pg = document.querySelector('.page.active')?.id || '';
+  if (typeof invalidateDashCache === 'function') invalidateDashCache();
+  if (pg === 'pageOrders') loadOrders();
+  else if (pg === 'pageDeliveries') loadDeliveries();
+  else if (pg === 'pageDelivery') loadMyDeliveries();
+  else if (pg === 'pageDashboard') renderDashboard();
+  if (typeof updateBadges === 'function') updateBadges();
+}
+
 async function loadOrders() {
   const srch=document.getElementById('ordSrch')?.value.toLowerCase()||'';
   const statusF=document.getElementById('ordStatus')?.value||'';
@@ -702,7 +742,6 @@ async function saveOrder() {
   const initialStatus=hasDiscount?'Pending':'Confirmed';
   const total=subtotal; // discount applied to total only after approval
   const ordId='ORD-'+uid6();
-  const outlet=allOutlets.find(o=>o.id===outletId)||{name:'Unknown'};
   const orderDate=document.getElementById('ordDate').value;
   const notes=document.getElementById('ordNotes').value;
 
@@ -726,10 +765,9 @@ async function saveOrder() {
     // ── 2. Stock reservation ─────────────────────────────────────────────
     await _reserveStock(ordItems, ordId, 'reserve');
 
-    // ── 3. ERP sync — ONLY for no-discount orders ─────────────────────────
-    if(!hasDiscount){
-      await _syncOrderToERP(ordId, outletId, outlet, orderDate, notes, total, subtotal, null);
-    }
+    // ── 3. ERP sync — done server-side in real time by the erpBridge Cloud
+    //       Functions (functions/index.js). Discount orders stay held
+    //       (erpHeld) and reach the ERP the moment an admin decides.
 
     closeOrderCatalog();
     invalidateDashCache();
@@ -803,69 +841,12 @@ async function _reserveStock(items, orderId, action='reserve') {
   }
 }
 
-// ── Push order to ERP stsb_orders collection ─────────────────────────────────
-async function _syncOrderToERP(ordId, outletId, outlet, date, notes, total, subtotal, discountRequest) {
-  try {
-    const db = window.__SF.db;
-    const erpData = {
-      // ERP-compatible fields
-      orderId: ordId,
-      customer: outlet.name,
-      outletId,
-      outletAddress: outlet.address || '',
-      outletPhone: outlet.phone || '',
-      outletRoute: outlet.route || '',
-      repId: CU.uid,
-      repName: CU.name,
-      items: ordItems.map(item => ({
-        productId: item.pid,
-        name: item.name,
-        sku: item.sku || '',
-        qty: item.qty,           // total pcs
-        ctnQty: item.ctnQty || 0,
-        pcsQty: item.pcsQty || 0,
-        ctnSize: item.ctnSize || 0,
-        unit: item.unit || 'pcs',
-        price: item.price,
-        discount: item.discount?.amount || 0,
-        total: (item.price * item.qty) - (item.discount?.amount || 0),
-      })),
-      subtotal,
-      discount: discountRequest?.amount || 0,
-      total,
-      discountStatus: discountRequest ? 'pending' : 'not_required',
-      status: 'pending',
-      deliveryStatus: 'pending',
-      collectionStatus: 'not_required',
-      payTerms: 'COD',
-      notes,
-      date,
-      source: 'sales_app',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Write to ERP collection using the ordId as doc ID so ERP can find it
-    await window.__SF.setDoc(
-      window.__SF.doc(db, erpCol('orders'), ordId),
-      erpData
-    );
-
-    // Mark app order as ERP-synced
-    // Find the doc we just created and update it
-    const {where, getDocs, query, collection} = window.__SF;
-    const q = query(collection(db, _zonePath('orders')), where('id','==',ordId));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      await window.__SF.updateDoc(snap.docs[0].ref, { erpSynced: true });
-    }
-    console.log('[ERP] Order synced:', ordId);
-  } catch(e) {
-    console.warn('[ERP] Sync failed:', e.message);
-    // Non-fatal — app order is saved, ERP sync can retry
-    showToast('Order saved but ERP sync failed — admin will be notified', 'warn');
-  }
-}
+// ── ERP order sync ───────────────────────────────────────────────────────────
+// Orders, manual invoices and delivery status are mirrored into stsb_orders by
+// the erpBridge Cloud Functions on every write to the app order (create, edit,
+// approval, delivery, cancel, delete). The client must not write stsb_orders
+// itself: rules deny it for most roles and a full setDoc would overwrite the
+// server's newer state.
 
 // legacy stubs
 function renderOrderItems(){}
@@ -891,8 +872,6 @@ async function approveDiscount(id, approve=true) {
 
   const discStatus=approve?'approved':'rejected';
   const newTotal=approve?(o.subtotal||o.total)-discAmt:(o.subtotal||o.total);
-  const outlet=allOutlets.find(x=>x.id===o.outletId)||{name:'Unknown'};
-
   await sfUpdate('orders',id,{
     status:'Confirmed',
     total:newTotal,
@@ -903,12 +882,7 @@ async function approveDiscount(id, approve=true) {
     approvedByName:CU.name,
   });
 
-  // ★ Now sync to ERP — was held until this approval
-  await _syncOrderToERP(
-    o.id||id, o.outletId, outlet, o.date, o.notes,
-    newTotal, o.subtotal||o.total,
-    approve?{...o.discount,status:'approved',amount:discAmt}:null
-  );
+  // ★ erpHeld is now false — the erpBridge function pushes it to ERP in real time
 
   showToast(`Discount ${discStatus} ✅ · Order ${o.id||id} confirmed and sent to ERP`,'success');
   invalidateDashCache();loadOrders();renderDashboard();updateBadges();
@@ -934,25 +908,10 @@ async function approveOrder(id) {
 
   // No discount — order should already be Confirmed and in ERP (auto-flow)
   // This path handles edge cases (e.g. admin manually re-approving)
-  const outlet=allOutlets.find(x=>x.id===o.outletId)||{name:'Unknown'};
   await sfUpdate('orders',id,{status:'Confirmed',approvedBy:CU.uid,approvedAt:new Date().toISOString(),approvedByName:CU.name,erpHeld:false});
-  if(!o.erpSynced){
-    await _syncOrderToERP(o.id||id,o.outletId,outlet,o.date,o.notes,o.total,o.subtotal||o.total,null);
-  } else {
-    _updateERPOrderStatus(o.id||id,'processing');
-  }
   showToast('Order confirmed ✅','success');
   invalidateDashCache();loadOrders();renderDashboard();updateBadges();
   try{notifyRep(o.createdBy,'✅ Order Confirmed',`Your order ${o.id||id} has been confirmed`,{tag:'order-confirmed'});}catch(e){}
-}
-
-async function _updateERPOrderStatus(ordId, status, extra={}) {
-  try {
-    await window.__SF.updateDoc(
-      window.__SF.doc(window.__SF.db, erpCol('orders'), ordId),
-      { status, updatedAt: new Date().toISOString(), ...extra }
-    );
-  } catch(e) { console.warn('[ERP] status update failed:', e.message); }
 }
 
 // ★ Delivery is now managed by ERP — this function just syncs status back from ERP
@@ -988,7 +947,6 @@ async function cancelOrder(id) {
     if(o && o.items && o.items.length) {
       await _reserveStock(o.items, o.id||id, 'release');
     }
-    _updateERPOrderStatus(o?.id||id,'cancelled');
     showToast('Order cancelled — stock reservation released','warn');
     invalidateDashCache();loadOrders();renderDashboard();updateBadges();
     try{const _cODoc=await window.__SF.getDoc(window.__SF.doc(window.__SF.db,_zonePath('orders'),id));if(_cODoc.exists()){const _cOD=_cODoc.data();notifyRep(_cOD.createdBy,'❌ Order Cancelled',`Order ${_cOD.id||id} was cancelled`,{tag:'order-cancelled'});}}
@@ -1314,7 +1272,6 @@ async function saveManualInvoice() {
   const date = document.getElementById('manInvDate')?.value || new Date().toISOString().slice(0,10);
   const notes = document.getElementById('manInvNotes')?.value||'';
   const total = _manInvItems.reduce((s,x)=>s+x.lineTotal,0);
-  const outlet = allOutlets.find(o=>o.id===outletId)||{name:'Unknown'};
   const ordId = 'INV-'+uid6();
 
   try {
@@ -1341,8 +1298,7 @@ async function saveManualInvoice() {
     // Reserve stock
     await _reserveStock(_manInvItems, ordId, 'reserve');
 
-    // Sync to ERP immediately (manual invoices have no discount, go straight to ERP)
-    await _syncOrderToERP(ordId, outletId, outlet, date, notes, total, total, null);
+    // ERP sync happens server-side (erpBridge) from the saved invoice items
 
     closeM('mManualInvoice');
     _manInvItems=[];

@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 const functions = require('firebase-functions/v1');
 const admin     = require('firebase-admin');
+const { FieldValue } = require('firebase-admin/firestore');
 
 admin.initializeApp();
 
@@ -302,14 +303,175 @@ exports.onAdminNotificationCreated = functions.firestore
       await snap.ref.update({
         status: 'sent',
         tokenCount: uniqueTokens.length,
-        processedAt: admin.firestore.FieldValue.serverTimestamp()
+        processedAt: FieldValue.serverTimestamp()
       });
     } catch (e) {
       console.error('[AdminNotif] Error:', e.message);
       await snap.ref.update({
         status: 'error',
         error: e.message,
-        processedAt: admin.firestore.FieldValue.serverTimestamp()
+        processedAt: FieldValue.serverTimestamp()
       });
     }
+  });
+
+// ─────────────────────────────────────────────────────────────
+// 11. REAL-TIME ERP BRIDGE (orders · manual invoices · deliveries · collections)
+//
+// Every Sales App write — create, edit, approval, delivery status,
+// cancel, delete — is mirrored into the ERP's stsb_* collections from
+// the server. The Admin SDK is not bound by client rules, so a write a
+// rep, zone admin or delivery man makes always reaches the ERP; the
+// client no longer writes ERP order records directly.
+// ─────────────────────────────────────────────────────────────
+const erp = require('./erp-sync');
+
+async function _loadOutlet(outletId, zoneId) {
+  if (!outletId) return {};
+  try {
+    const root = await db().doc(`outlets/${outletId}`).get();
+    if (root.exists) return root.data();
+    if (zoneId) {
+      const z = await db().doc(`zones/${zoneId}/outlets/${outletId}`).get();
+      if (z.exists) return z.data();
+    }
+  } catch (e) { console.warn('[ERP] outlet lookup failed:', e.message); }
+  return {};
+}
+
+function _eventTime(change, ctx) {
+  const t = change.after.exists ? change.after.updateTime : null;
+  return t ? t.toDate().toISOString() : new Date(ctx.timestamp).toISOString();
+}
+
+async function _bridgeOrder(change, ctx, zoneId) {
+  const docId = ctx.params.orderId;
+  const before = change.before.exists ? change.before.data() : null;
+  const after = change.after.exists ? change.after.data() : null;
+  const nowIso = new Date().toISOString();
+  const eventTime = _eventTime(change, ctx);
+
+  if (!after) {
+    const ref = db().doc(`${erp.erpCol('orders')}/${erp.erpOrderId(before, docId)}`);
+    await db().runTransaction(async (tx) => {
+      const cur = await tx.get(ref);
+      if (!cur.exists || erp.isStaleEvent(cur.data(), eventTime)) return;
+      tx.set(ref, { ...erp.deletionPatch('order', nowIso), _srcEventTime: eventTime }, { merge: true });
+    });
+    console.log(`[→ERP] order deleted ${docId}`);
+    return;
+  }
+  if (before && erp.onlySyncMetaChanged(before, after)) return;
+  if (before && erp.isErpOriginatedWrite(before, after)) return;
+  if (erp.isHeldFromErp(after)) return;
+
+  const zid = zoneId || after.zoneId || after._zoneId || null;
+  try {
+    const outlet = await _loadOutlet(after.outletId, zid);
+    const ref = db().doc(`${erp.erpCol('orders')}/${erp.erpOrderId(after, docId)}`);
+    await db().runTransaction(async (tx) => {
+      const cur = await tx.get(ref);
+      const erpCurrent = cur.exists ? cur.data() : null;
+      if (erp.isStaleEvent(erpCurrent, eventTime)) return;
+      const payload = erp.buildErpOrder({ order: after, erpCurrent, docId, zoneId: zid, outlet, nowIso });
+      // The ERP portal sorts by createdAt, so keep it a Timestamp like its own records.
+      if (payload.createdAt) payload.createdAt = FieldValue.serverTimestamp();
+      tx.set(ref, { ...payload, _srcEventTime: eventTime }, { merge: true });
+    });
+    if (!after.erpSynced || after.erpSyncError) {
+      await change.after.ref.update({
+        erpSynced: true, erpSyncedAt: nowIso,
+        erpSyncError: FieldValue.delete(),
+      });
+    }
+    console.log(`[→ERP] order ${erp.erpOrderId(after, docId)} (${after.status})`);
+  } catch (e) {
+    console.error(`[→ERP] order ${docId} failed:`, e.message);
+    await change.after.ref.update({ erpSynced: false, erpSyncError: e.message }).catch(() => {});
+    throw e;
+  }
+}
+
+async function _bridgeCollection(change, ctx, zoneId) {
+  const docId = ctx.params.docId;
+  const after = change.after.exists ? change.after.data() : null;
+  const before = change.before.exists ? change.before.data() : null;
+  const nowIso = new Date().toISOString();
+  const eventTime = _eventTime(change, ctx);
+  const ref = db().doc(`${erp.erpCol('collections')}/${docId}`);
+
+  if (!after) {
+    await db().runTransaction(async (tx) => {
+      const cur = await tx.get(ref);
+      if (!cur.exists || erp.isStaleEvent(cur.data(), eventTime)) return;
+      tx.set(ref, { ...erp.deletionPatch('collection', nowIso), _srcEventTime: eventTime }, { merge: true });
+    });
+    console.log(`[→ERP] collection deleted ${docId}`);
+    return;
+  }
+  if (before && erp.onlySyncMetaChanged(before, after)) return;
+  if (before && erp.isErpOriginatedWrite(before, after)) return;
+
+  const zid = zoneId || after.zoneId || after._zoneId || null;
+  const outlet = await _loadOutlet(after.outletId, zid);
+  await db().runTransaction(async (tx) => {
+    const cur = await tx.get(ref);
+    const erpCurrent = cur.exists ? cur.data() : null;
+    if (erp.isStaleEvent(erpCurrent, eventTime)) return;
+    const payload = erp.buildErpCollection({ collection: after, erpCurrent, docId, zoneId: zid, outlet, nowIso });
+    if (payload.createdAt) payload.createdAt = FieldValue.serverTimestamp();
+    tx.set(ref, { ...payload, _srcEventTime: eventTime }, { merge: true });
+  });
+  console.log(`[→ERP] collection ${docId}`);
+}
+
+exports.erpBridgeOrderRoot = functions.firestore
+  .document('orders/{orderId}')
+  .onWrite((change, ctx) => _bridgeOrder(change, ctx, null));
+
+exports.erpBridgeOrderZone = functions.firestore
+  .document('zones/{zoneId}/orders/{orderId}')
+  .onWrite((change, ctx) => _bridgeOrder(change, ctx, ctx.params.zoneId));
+
+exports.erpBridgeCollectionRoot = functions.firestore
+  .document('collections/{docId}')
+  .onWrite((change, ctx) => _bridgeCollection(change, ctx, null));
+
+exports.erpBridgeCollectionZone = functions.firestore
+  .document('zones/{zoneId}/collections/{docId}')
+  .onWrite((change, ctx) => _bridgeCollection(change, ctx, ctx.params.zoneId));
+
+// ERP → App: when the ERP dispatches, confirms delivery, cancels or assigns
+// a driver on stsb_orders, update the Sales App order (root + zone copy) so
+// the salesman and delivery staff see it live. Writes are stamped
+// _syncedFromERP/_syncedAt so the bridge above does not echo them back.
+exports.erpOrderToApp = functions.firestore
+  .document(`${erp.erpCol('orders')}/{orderId}`)
+  .onUpdate(async (change, ctx) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    if (erp.isBridgeWrite(before, after)) return;
+
+    const refs = [];
+    if (after.appDocId) {
+      refs.push(db().doc(`orders/${after.appDocId}`));
+      if (after.zoneId) refs.push(db().doc(`zones/${after.zoneId}/orders/${after.appDocId}`));
+    } else {
+      // ERP records written by older app builds carry only the order number.
+      const q = await db().collection('orders').where('id', '==', ctx.params.orderId).limit(1).get();
+      q.docs.forEach(d => {
+        refs.push(d.ref);
+        if (d.data()._zoneId) refs.push(db().doc(`zones/${d.data()._zoneId}/orders/${d.id}`));
+      });
+    }
+    const snaps = (await Promise.all(refs.map(r => r.get()))).filter(s => s.exists);
+    if (!snaps.length) return;
+
+    const appStatus = snaps[0].data().status || '';
+    const patch = erp.appPatchFromErp(before, after, appStatus);
+    if (!patch) return;
+    const stamped = { ...patch, _syncedFromERP: true, _syncedAt: FieldValue.serverTimestamp() };
+    await Promise.all(snaps.map(s => s.ref.update(stamped)));
+    if (patch.status) await change.after.ref.update({ appStatus: patch.status });
+    console.log(`[ERP→App] ${ctx.params.orderId} ${appStatus} → ${patch.status || '(fields)'}`);
   });
