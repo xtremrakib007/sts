@@ -168,3 +168,19 @@ test('sales invoice: company header, customer block, rows, totals and amount in 
   assert.match(html, /Forty Five only/);
   assert.match(html, /Received by/);
 });
+
+test('app invoice Print / PDF / Share work inside the Android app', () => {
+  const o = read('js/orders.js');
+  assert.match(o, /_invPlugin\('StfmPrint'\)/, 'native print');
+  assert.match(o, /_invWriteFile\('DOCUMENTS', 'STFM\/' \+ name, pdf\)/, 'PDF saved on the phone');
+  assert.match(o, /sh\.share\(\{ title: name, text, files: \[uri\]/, 'PDF file to the share sheet');
+  assert.doesNotMatch(o.slice(o.indexOf('async function printInvoice'), o.indexOf('// ═══════════════ MANUAL INVOICE BUILDER')), /window\.open|a\.target='_blank'/, 'no browser tabs');
+  const plugin = read('android/app/src/main/java/com/sairah/stfm/PrintPlugin.java');
+  assert.match(plugin, /@CapacitorPlugin\(name = "StfmPrint"\)/);
+  assert.match(plugin, /createPrintDocumentAdapter/);
+  assert.match(read('android/app/src/main/java/com/sairah/stfm/MainActivity.java'), /registerPlugin\(PrintPlugin\.class\);\s*super\.onCreate/);
+  const pkg = JSON.parse(read('package.json'));
+  assert.ok(pkg.dependencies['@capacitor/share'] && pkg.dependencies['@capacitor/filesystem']);
+  assert.match(read('android/capacitor.settings.gradle'), /capacitor-share/);
+  assert.match(read('build.js'), /'node_modules\/jspdf\/dist\/jspdf\.umd\.min\.js': 'vendor\/jspdf\.js'/);
+});

@@ -97,7 +97,14 @@
     }
     String(c.terms || '').split(/\n+/).filter(function (t) { return t.trim(); }).forEach(function (t) { terms.push(esc(t.trim())); });
 
-    return '<div class="sales-invoice" style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.35;padding:22px 24px;max-width:800px;margin:0 auto">' +
+    // Scoped reset: the app's and portal's own table styles must not leak in.
+    var reset = '<style>.sales-invoice,.sales-invoice *{box-sizing:border-box}' +
+      '.sales-invoice table{border-collapse:collapse!important;background:none!important;margin-left:0;margin-right:0}' +
+      '.sales-invoice th,.sales-invoice td{color:#111!important;background:#fff!important;text-transform:none!important;letter-spacing:normal!important;' +
+      'font-family:Arial,Helvetica,sans-serif!important;font-size:12px!important;line-height:1.35!important;white-space:normal!important;vertical-align:middle}' +
+      '.sales-invoice th{font-weight:700!important}.sales-invoice tr{background:#fff!important}' +
+      '.sales-invoice .si-sum td{border:0!important;padding:2px 0!important}</style>';
+    return reset + '<div class="sales-invoice" style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.35;padding:22px 24px;max-width:800px;margin:0 auto">' +
       '<div style="display:flex;align-items:flex-start;gap:12px">' +
         '<div style="width:96px;flex-shrink:0">' + (c.logo ? '<img src="' + esc(c.logo) + '" alt="" style="max-width:96px;max-height:80px">' : '') + '</div>' +
         '<div style="flex:1;text-align:center">' +
@@ -129,9 +136,9 @@
             '<td style="' + cell + 'text-align:right">' + money(r.price) + '</td><td style="' + cell + 'text-align:right">' + money(r.total) + '</td></tr>';
         }).join('') +
       '</tbody></table>' +
-      '<div style="display:flex;justify-content:flex-end;margin-top:10px"><table style="width:280px;border-collapse:collapse;font-size:12px">' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:10px"><table class="si-sum" style="width:280px;border-collapse:collapse;font-size:12px">' +
         sumRow('Sub Total', subtotal) + sumRow('SST', sst) + sumRow('Discount', discount) + sumRow('Transport Cost', transport) +
-        '<tr><td colspan="2" style="border-top:1.5px solid #111;padding:0"></td></tr>' +
+        '<tr><td colspan="2" style="border-top:1.5px solid #111!important;padding:0!important;height:2px"></td></tr>' +
         sumRow('Total', total, true) + sumRow('Paid', paid) + sumRow('Due', due, true) + sumRow('Cash Return', cashReturn) +
       '</table></div>' +
       '<div style="margin-top:12px"><strong>In Word:</strong> ' + esc(amountInWords(total)) + '</div>' +
