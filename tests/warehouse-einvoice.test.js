@@ -172,7 +172,7 @@ test('sales invoice: company header, customer block, rows, totals and amount in 
 test('app invoice Print / PDF / Share work inside the Android app', () => {
   const o = read('js/orders.js');
   assert.match(o, /_invPlugin\('StfmPrint'\)/, 'native print');
-  assert.match(o, /_invWriteFile\('DOCUMENTS', 'STFM\/' \+ name, pdf\)/, 'PDF saved on the phone');
+  assert.match(o, /_invWriteFile\('DOCUMENTS', 'STSB\/' \+ name, pdf\)/, 'PDF saved on the phone');
   assert.match(o, /sh\.share\(\{ title: name, text, files: \[uri\]/, 'PDF file to the share sheet');
   assert.doesNotMatch(o.slice(o.indexOf('async function printInvoice'), o.indexOf('// ═══════════════ MANUAL INVOICE BUILDER')), /window\.open|a\.target='_blank'/, 'no browser tabs');
   const plugin = read('android/app/src/main/java/com/sairah/stfm/PrintPlugin.java');
@@ -200,4 +200,24 @@ test('logo, animated splash and faster loading', () => {
   assert.match(portal, /_liveSnaps\.set\(livePath, snap\);/);
   for (const f of ['logo.png', 'favicon.png', 'icon-192.png', 'android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png']) assert.ok(read(f).length > 500, f);
   assert.equal(JSON.parse(read('capacitor.config.json')).plugins.SplashScreen.backgroundColor, '#ffffff');
+});
+
+test('sign-in page: new design, same login fields, light mode by default', () => {
+  const html = read('index.html');
+  const login = html.slice(html.indexOf('<div id="loginPage"'), html.indexOf('<div id="app">'));
+  for (const id of ['lemail', 'lpwd', 'rememberMe', 'loginBtn']) assert.match(login, new RegExp(`id="${id}"`), id);
+  assert.match(login, /class="lg-card"/);
+  assert.match(login, /onclick="openForgotPassword\(\)"/);
+  assert.match(login, /autocomplete="current-password"/);
+  assert.match(html, /\("dark" !== localStorage\.getItem\("stfm-theme"\)\) && document\.documentElement\.setAttribute\("data-theme", "light"\)/);
+});
+
+test('outlets: every role gets a Nearby list sorted by distance', () => {
+  const o = read('js/outlets.js');
+  assert.match(o, /let _outletView=\(\(\)=>\{try\{return localStorage\.getItem\('stsb-outlet-view'\)\|\|'near';/, 'Nearby is the default');
+  const near = o.slice(o.indexOf("if(_outletView==='near'){"), o.indexOf('// Sort helper: by distance'));
+  assert.match(near, /const list=allOutlets\.filter\(/, 'all outlets the user can access, not only their own');
+  assert.match(near, /sort\(\(x,y\)=>\(x\.km-y\.km\)/, 'nearest first');
+  assert.match(near, /_outletLocate\(false\);/, 'gets the current position, also for admins');
+  assert.match(o, /_getPositionNative\(\)\.then\(pos=>\{/);
 });

@@ -2,6 +2,32 @@
 // State: which rep-node and route-node are open
 const _outletOpen={rep:null, route:null};
 
+// Outlets view: 'near' (all roles, nearest first) or 'group' (by rep/route).
+let _outletView=(()=>{try{return localStorage.getItem('stsb-outlet-view')||'near';}catch(e){return 'near';}})();
+let _outletNearLimit=60, _outletLocAt=0, _outletLocBusy=false, _outletLocErr=false;
+
+function setOutletView(v){
+  _outletView=v; _outletNearLimit=60;
+  try{localStorage.setItem('stsb-outlet-view',v);}catch(e){}
+  loadOutlets();
+}
+
+// Current position for the Nearby list (any role, also admins), at most
+// every 2 minutes unless asked; redraws the page when it arrives.
+function _outletLocate(force){
+  if(_outletLocBusy)return;
+  if(!force&&_userLat&&_userLng&&Date.now()-_outletLocAt<120000)return;
+  _outletLocBusy=true;
+  _getPositionNative().then(pos=>{
+    _userLat=pos.coords.latitude; _userLng=pos.coords.longitude; _gpsGranted=true;
+    _outletLocAt=Date.now(); _outletLocErr=false;
+  }).catch(()=>{ _outletLocErr=!_userLat; }).finally(()=>{
+    _outletLocBusy=false;
+    if(document.getElementById('pageOutlets')?.classList.contains('active'))loadOutlets();
+  });
+}
+function outletRelocate(){ _outletLocErr=false; _outletLocate(true); loadOutlets(); }
+
 async function loadOutlets() {
   await loadCachedData();
   const addBtn=document.getElementById('addOutletBtn');
@@ -49,32 +75,69 @@ async function loadOutlets() {
   // Outlet card: signboard photo, name, area, due and distance, with the
   // four field actions (Order, Direction, WhatsApp, NP Visit) and a ⋮ menu.
   function buildOutletCard(o,i){
-    const oOrders=orders.filter(x=>x.outletId===o.id&&x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
-    const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+x.amount,0);
-    const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?o.openingBalance:0));
-    const clr=o.color||COLORS[i%COLORS.length];
+    const oOrders=orders.filter(x=>x.outletId===o.id&&x.status!=='Cancelled').reduce((s,x)=>s+(Number(x.total)||0),0);
+    const oCol=cols.filter(x=>x.outletId===o.id).reduce((s,x)=>s+(Number(x.amount)||0),0);
+    const due=Math.max(0,oOrders-oCol+(o.balanceStatus==='approved'?Number(o.openingBalance)||0:0));
     const km=distKm(o);
-    const photo=o.signboardPhoto||o.coverPhoto||'';
-    const media=photo
-      ?`<img src="${escH(photo)}" alt="" loading="lazy">`
-      :`<div class="ol-initial" style="background:${clr}">${escH((o.name||'?')[0])}</div>`;
-    return`<div class="ol-card" onclick="viewOutlet('${o.id}')">
-      <div class="ol-media">${media}
-        ${km!==Infinity?`<span class="ol-dist">📍 ${fmtDist(km)}</span>`:''}
-        <button class="ol-more" onclick="event.stopPropagation();openOutletMenu('${o.id}',this)" aria-label="More options">⋮</button>
+    const sign=o.signboardPhoto||'';
+    const cover=o.coverPhoto||o.interiorPhoto||sign;
+    const rep=allUsers.find(u=>u.uid===(o.assignedRepId||o.createdBy));
+    const thumbSrc=sign||cover;
+    const thumb=thumbSrc?`<img src="${escH(thumbSrc)}" alt="" loading="lazy">`:`<span>${escH((o.name||'?')[0].toUpperCase())}</span>`;
+    const info=(ico,cls,label,val,valCls='')=>`<div class="olx-info"><div class="olx-ico ${cls}">${ico}</div><div class="olx-iv"><div class="olx-lbl">${label}</div><div class="olx-val ${valCls}">${val}</div></div></div>`;
+    return`<div class="ol-card olx" onclick="viewOutlet('${o.id}')">
+      <div class="olx-cover${cover?' has':''}" ${cover?`onclick="event.stopPropagation();openOutletPhoto('${o.id}','cover')" role="button" aria-label="View cover photo"`:''}>
+        ${cover?`<img src="${escH(cover)}" alt="" loading="lazy"><span class="olx-zoom">⤢</span>`:''}
       </div>
-      <div class="ol-body">
-        <div class="ol-name">${escH(o.name)}</div>
-        <div class="ol-sub">${escH(o.type||'')}${o.area?' · '+escH(o.area):''}${o.route?' · 🗺️ '+escH(o.route):''}</div>
-        <div class="ol-due ${due>0?'owed':''}">Due <strong>${fmt(due)}</strong></div>
+      <div class="olx-head">
+        <div class="olx-thumb" ${thumbSrc?`onclick="event.stopPropagation();openOutletPhoto('${o.id}','${sign?'sign':'cover'}')" role="button" aria-label="View photo"`:''}>${thumb}</div>
+        <div class="olx-title">
+          <div class="ol-name">${escH(o.name)}</div>
+          <div class="olx-meta"><span class="olx-status ${due>0?'due':'ok'}">${due>0?'Due '+fmt(due):'Settled'}</span>
+            ${km!==Infinity?`<span class="ol-dist">📍 ${fmtDist(km)}</span>`:`<span class="olx-nopin">No location</span>`}</div>
+        </div>
       </div>
-      <div class="ol-actions" onclick="event.stopPropagation()">
-        ${isDeliveryMan()?'':`<button class="ol-act ord" onclick="openNewOrder('${o.id}')"><span>📦</span>Order</button>`}
-        <button class="ol-act dir${o.lat&&o.lng?'':' off'}" onclick="${o.lat&&o.lng?`openDirections('${o.id}')`:"showToast('No location pinned for this outlet','warn')"}"><span>🧭</span>Direction</button>
-        <button class="ol-act wa${o.phone?'':' off'}" onclick="${o.phone?`openWhatsApp('${o.id}')`:"showToast('No phone number saved','warn')"}"><span>💬</span>WhatsApp</button>
-        ${isDeliveryMan()?'':`<button class="ol-act np" onclick="openNPVisit('${o.id}')"><span>📝</span>NP Visit</button>`}
+      <div class="olx-grid">
+        ${info('▦','gray','Category',escH(o.category||o.type||'—'))}
+        ${info('👤','teal','Rep name',escH(rep?.name||o.createdByName||'—'))}
+        ${info('📍','red','Route',escH(o.route||'—'))}
+        ${info('$','gold','Due',fmt(due),due>0?'neg':'pos')}
+      </div>
+      <div class="olx-actions" onclick="event.stopPropagation()">
+        ${isDeliveryMan()?'':`<button class="olx-btn ord" onclick="openNewOrder('${o.id}')">Order</button>`}
+        <button class="olx-btn wa${o.phone?'':' off'}" onclick="${o.phone?`openWhatsApp('${o.id}')`:"showToast('No phone number saved','warn')"}">WhatsApp</button>
+        <button class="olx-btn dir${o.lat&&o.lng?'':' off'}" onclick="${o.lat&&o.lng?`openDirections('${o.id}')`:"showToast('No location pinned for this outlet','warn')"}">Direction</button>
+        ${isDeliveryMan()?'':`<button class="olx-btn np" onclick="openNPVisit('${o.id}')" title="NP Visit">📄 NP</button>`}
+        ${isAdmin()?`<button class="olx-btn del" onclick="delOutlet('${o.id}')" title="Delete outlet" aria-label="Delete outlet">🗑️</button>`:''}
+        <button class="olx-btn more" onclick="openOutletMenu('${o.id}',this)" aria-label="More options">⋮</button>
       </div>
     </div>`;
+  }
+
+  // ── View switch (every role): Nearby = all outlets you can see, nearest
+  // first from your current location; or the grouped view below.
+  const fresh=_userLat&&_userLng;
+  const ago=_outletLocAt?Math.max(0,Math.round((Date.now()-_outletLocAt)/60000)):null;
+  const locLine=_outletView!=='near'?''
+    :fresh?`<span class="ol-loc ok">📍 Nearest first${ago!==null?` · location ${ago?ago+' min ago':'just now'}`:''}</span><button class="ol-loc-btn" onclick="outletRelocate()">↻ Update</button>`
+    :_outletLocErr?`<span class="ol-loc err">📍 Location is off — turn on GPS to sort by distance</span><button class="ol-loc-btn" onclick="outletRelocate()">Retry</button>`
+    :'<span class="ol-loc">📍 Finding your location…</span>';
+  const viewBar=`<div class="ol-viewbar"><div class="ol-seg">
+      <button class="${_outletView==='near'?'on':''}" onclick="setOutletView('near')">📍 Nearby</button>
+      <button class="${_outletView==='group'?'on':''}" onclick="setOutletView('group')">🗂️ ${isAdmin()?'By rep & route':isDeliveryMan()?'My deliveries':'By route'}</button>
+    </div><div class="ol-locrow">${locLine}</div></div>`;
+
+  if(_outletView==='near'){
+    const q=srch.trim();
+    const list=allOutlets.filter(o=>!q||[o.name,o.area,o.route,o.address,o.phone,o.type].some(v=>String(v||'').toLowerCase().includes(q)));
+    const withKm=list.map(o=>({o,km:distKm(o)})).sort((x,y)=>(x.km-y.km)||String(x.o.name||'').localeCompare(String(y.o.name||'')));
+    const shown=withKm.slice(0,_outletNearLimit);
+    tree.innerHTML=viewBar+(shown.length
+      ?`<div class="ol-count">${list.length} outlet${list.length!==1?'s':''}${q?` matching “${escH(q)}”`:''}</div><div class="ol-grid">${shown.map((x,i)=>buildOutletCard(x.o,i)).join('')}</div>`+
+        (withKm.length>shown.length?`<button class="btn btn-ghost" style="width:100%;margin-top:12px" onclick="_outletNearLimit+=60;loadOutlets()">Show more (${withKm.length-shown.length} further away)</button>`:'')
+      :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>');
+    _outletLocate(false);
+    return;
   }
 
   // Sort helper: by distance (pinned outlets first, then by km)
@@ -91,7 +154,7 @@ async function loadOutlets() {
     let allowedIds=new Set();
     try{const myO=await sfGet('orders',[wdm('deliveryManId','==',CU.uid)]);allowedIds=new Set(myO.map(d=>d.data().outletId));}catch(e){}
     const myOutlets=sortByDist(allOutlets.filter(o=>allowedIds.has(o.id)));
-    tree.innerHTML=myOutlets.length
+    tree.innerHTML=viewBar+myOutlets.length
       ?`<div class="ol-grid">${myOutlets.map((o,i)=>buildOutletCard(o,i)).join('')}</div>`
       :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets assigned to your deliveries</div>';
     return;
@@ -103,7 +166,7 @@ async function loadOutlets() {
     const myRouteIds=[...new Set(myOutlets.map(o=>o.routeId).filter(Boolean))];
     const myRoutes=allRoutes.filter(r=>myRouteIds.includes(r.id)||r.repId===CU.uid);
     if(!myRoutes.length&&!myOutlets.length){
-      tree.innerHTML='<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets or routes assigned yet</div>';return;
+      tree.innerHTML=viewBar+'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets or routes assigned yet</div>';return;
     }
     // Build route folders
     const html=myRoutes.map((r,ri)=>{
@@ -126,7 +189,7 @@ async function loadOutlets() {
     }).join('');
     // Unrouted outlets sorted by distance
     const unrouted=sortByDist(myOutlets.filter(o=>!o.routeId).filter(o=>!srch||o.name.toLowerCase().includes(srch)));
-    tree.innerHTML=html+(unrouted.length?`<div class="tree-l2"><div class="tree-hdr2" onclick="toggleOutletRoute('__unrouted__')"><span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span><div style="flex:1"><div style="font-size:13px;font-weight:700">Unassigned to Route</div><div style="font-size:10px;color:var(--tx3)">${unrouted.length} outlet${unrouted.length!==1?'s':''}</div></div></div><div class="tree-body2" id="otbody2-__unrouted__">${unrouted.map((o,i)=>buildOutletCard(o,i)).join('')}</div></div>`:'');
+    tree.innerHTML=viewBar+html+(unrouted.length?`<div class="tree-l2"><div class="tree-hdr2" onclick="toggleOutletRoute('__unrouted__')"><span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span><div style="flex:1"><div style="font-size:13px;font-weight:700">Unassigned to Route</div><div style="font-size:10px;color:var(--tx3)">${unrouted.length} outlet${unrouted.length!==1?'s':''}</div></div></div><div class="tree-body2" id="otbody2-__unrouted__">${unrouted.map((o,i)=>buildOutletCard(o,i)).join('')}</div></div>`:'');
     return;
   }
 
@@ -206,7 +269,36 @@ async function loadOutlets() {
     </div>`;
   }
 
-  tree.innerHTML=html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
+  tree.innerHTML=viewBar+html||'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets found</div>';
+}
+
+// Full-screen outlet photo (cover / signboard), tap or ✕ to close.
+function openOutletPhoto(id,which){
+  const o=allOutlets.find(x=>x.id===id); if(!o)return;
+  const photos=[];
+  const cover=o.coverPhoto||o.interiorPhoto;
+  if(cover)photos.push(['cover','Cover photo',cover]);
+  if(o.signboardPhoto)photos.push(['sign','Signboard',o.signboardPhoto]);
+  if(!photos.length)return;
+  let idx=Math.max(0,photos.findIndex(p=>p[0]===which));
+  document.getElementById('olPhotoView')?.remove();
+  const ov=document.createElement('div');
+  ov.id='olPhotoView';ov.className='olpv';
+  const draw=()=>{
+    const [,label,src]=photos[idx];
+    ov.innerHTML=`<div class="olpv-top"><div><div class="olpv-name">${escH(o.name)}</div><div class="olpv-lbl">${label}</div></div>
+        <button class="olpv-x" aria-label="Close">✕</button></div>
+      <img class="olpv-img" src="${escH(src)}" alt="${escH(label)}">
+      ${photos.length>1?`<div class="olpv-tabs">${photos.map((p,i)=>`<button data-i="${i}" class="${i===idx?'on':''}">${p[1]}</button>`).join('')}</div>`:''}`;
+    ov.querySelectorAll('.olpv-tabs button').forEach(b=>b.onclick=e=>{e.stopPropagation();idx=+b.dataset.i;draw();});
+    ov.querySelector('.olpv-img').onclick=e=>e.stopPropagation();
+  };
+  const close=()=>{ov.remove();document.removeEventListener('keydown',onKey);};
+  const onKey=e=>{if(e.key==='Escape')close();};
+  ov.onclick=close;
+  document.addEventListener('keydown',onKey);
+  draw();
+  document.body.appendChild(ov);
 }
 
 // ⋮ menu on an outlet card. Everyone gets view/edit/QR/call; admins also
