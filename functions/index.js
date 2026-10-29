@@ -894,3 +894,75 @@ exports.erpBackfill = functions.runWith({ timeoutSeconds: 540, memory: '1GB' }).
       await ref.update({ status: 'failed', error: e.message, finishedAt: new Date().toISOString(), ...counts });
     }
   });
+
+// ─────────────────────────────────────────────────────────────
+// COLLECTION DUES REMINDER
+// Set by the super admin in ERP → Settings → Dues reminder
+// (stsb_config/duesReminder: enabled, everyDays, hour, minDue,
+// notifyOwner). Runs hourly; on a due day at/after the set hour
+// (Malaysia time) each salesman gets a push listing their outlets
+// that still owe money. "Send now" in the ERP sets runNowAt.
+// ─────────────────────────────────────────────────────────────
+const dues = require('./dues-reminder');
+const DUES_CFG = () => db().doc(`${erp.erpCol('config')}/duesReminder`);
+
+async function _readAll(name) {
+  const rows = [];
+  const root = await db().collection(name).get();
+  root.docs.forEach(d => rows.push({ id: d.id, ...d.data() }));
+  const zones = await db().collection('zones').get();
+  for (const z of zones.docs) {
+    const s = await db().collection(`zones/${z.id}/${name}`).get();
+    s.docs.forEach(d => rows.push({ id: d.id, _zoneId: z.id, ...d.data() }));
+  }
+  return rows;
+}
+
+async function _ownerTokens() {
+  const [a, b] = await Promise.all([
+    db().collection('users').where('role', '==', 'super_admin').get(),
+    db().collection('users').where('isOwner', '==', true).get(),
+  ]);
+  const tokens = new Set();
+  for (const d of [...a.docs, ...b.docs]) (await _getTokenForUid(d.id)).forEach(t => tokens.add(t));
+  return [...tokens];
+}
+
+async function _sendDuesReminders(cfg, reason) {
+  const [outlets, orders, collections] = await Promise.all([_readAll('outlets'), _readAll('orders'), _readAll('collections')]);
+  const list = dues.computeOutletDues({ outlets, orders, collections }, cfg.minDue);
+  const reminders = dues.buildRepReminders(list);
+  let sent = 0;
+  for (const r of reminders) {
+    const tokens = await _getTokenForUid(r.repId, r.zoneId);
+    if (tokens.length) { await _sendPush(tokens, r.title, r.body, { screen: 'collection', type: 'dues_reminder' }); sent++; }
+  }
+  if (cfg.notifyOwner !== false && list.length) {
+    const s = dues.buildOwnerSummary(list, reminders);
+    await _sendPush(await _ownerTokens(), s.title, s.body, { screen: 'collection', type: 'dues_reminder' });
+  }
+  const now = new Date();
+  const lastRun = {
+    at: now.toISOString(), reason, outlets: list.length, salesmen: reminders.length, delivered: sent,
+    total: Math.round(list.reduce((s, d) => s + d.due, 0) * 100) / 100,
+  };
+  await DUES_CFG().set({ lastSentDay: dues.localParts(now).day, lastRun }, { merge: true });
+  console.log('[dues] reminder', JSON.stringify(lastRun));
+  return lastRun;
+}
+
+exports.duesReminderHourly = functions.pubsub.schedule('every 60 minutes').timeZone('Asia/Kuala_Lumpur').onRun(async () => {
+  const snap = await DUES_CFG().get();
+  const cfg = snap.exists ? snap.data() : null;
+  if (!dues.isReminderDue(cfg)) return null;
+  await _sendDuesReminders(cfg, 'schedule');
+  return null;
+});
+
+exports.duesReminderRunNow = functions.firestore.document(`${erp.erpCol('config')}/duesReminder`).onUpdate(async (change) => {
+  const before = change.before.data() || {}, after = change.after.data() || {};
+  if (!after.runNowAt || after.runNowAt === before.runNowAt) return null;
+  try { await _sendDuesReminders(after, 'manual'); }
+  catch (e) { await change.after.ref.set({ lastRun: { at: new Date().toISOString(), reason: 'manual', error: e.message } }, { merge: true }); }
+  return null;
+});

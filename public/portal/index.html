@@ -4259,6 +4259,63 @@ window.saveNewAdvance = async function() {
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 };
 
+
+// ═══════════════════════════════════════════
+//  COLLECTION DUES REMINDER (super admin)
+//  Saved to stsb_config/duesReminder; the Cloud Function
+//  duesReminderHourly sends each salesman a push listing their outlets
+//  that owe money, every N days at the set hour (Malaysia time).
+// ═══════════════════════════════════════════
+const _duesRef = () => doc(_db, C('config'), 'duesReminder');
+window.loadDuesReminder = async function() {
+  const card = document.getElementById('duesCard'); if (!card) return;
+  let c = {};
+  try { const d = await getDoc(_duesRef()); if (d.exists()) c = d.data(); } catch (e) { card.innerHTML = `<div style="color:var(--red)">${_esc(e.message)}</div>`; return; }
+  const every = [1, 2, 3, 7, 14, 30];
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+  const hourLabel = h => new Date(2000, 0, 1, h).toLocaleTimeString('en-MY', { hour: 'numeric', hour12: true });
+  const lr = c.lastRun;
+  card.innerHTML = `
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px">🔔 Automatic dues reminder</div>
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:16px">Each salesman gets a phone notification listing their outlets that still owe money, so they collect on their next visit. You get a summary.</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:14px"><input type="checkbox" id="duesOn" ${c.enabled ? 'checked' : ''}> Send reminders automatically</label>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Repeat every</label><select class="finp" id="duesEvery">${every.map(d => `<option value="${d}" ${n_(c.everyDays, 1) === d ? 'selected' : ''}>${d === 1 ? 'day' : d + ' days'}${d === 7 ? ' (weekly)' : d === 30 ? ' (monthly)' : ''}</option>`).join('')}</select></div>
+      <div class="fgrp"><label class="flbl">Send at (Malaysia time)</label><select class="finp" id="duesHour">${hours.map(h => `<option value="${h}" ${n_(c.hour, 9) === h ? 'selected' : ''}>${hourLabel(h)}</option>`).join('')}</select></div>
+      <div class="fgrp"><label class="flbl">Only outlets owing at least (RM)</label><input class="finp" id="duesMin" type="number" min="0" step="1" value="${n_(c.minDue, 1)}"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:16px"><input type="checkbox" id="duesOwner" ${c.notifyOwner !== false ? 'checked' : ''}> Send me a summary too</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="saveDuesReminder()">Save</button>
+      <button class="btn btn-ghost" onclick="runDuesReminderNow()">📣 Send now</button>
+    </div>
+    <div style="font-size:12px;color:var(--tx3);margin-top:16px;border-top:1px solid var(--bdr);padding-top:12px" id="duesLast">${lr
+      ? (lr.error ? `<span style="color:var(--red)">Last run failed (${_esc(new Date(lr.at).toLocaleString())}): ${_esc(lr.error)}</span>`
+        : `Last sent ${_esc(new Date(lr.at).toLocaleString())} (${lr.reason === 'manual' ? 'Send now' : 'scheduled'}): ${lr.outlets} outlet${lr.outlets === 1 ? '' : 's'} owe ${fmt(lr.total)} · ${lr.salesmen} salesm${lr.salesmen === 1 ? 'an' : 'en'} (${lr.delivered} reached)`)
+      : 'Not sent yet.'}</div>`;
+};
+const n_ = (v, d) => (v == null || v === '' ? d : Number(v));
+window.saveDuesReminder = async function() {
+  const cfg = {
+    enabled: document.getElementById('duesOn').checked,
+    everyDays: Number(document.getElementById('duesEvery').value),
+    hour: Number(document.getElementById('duesHour').value),
+    minDue: Math.max(0, Number(document.getElementById('duesMin').value) || 0),
+    notifyOwner: document.getElementById('duesOwner').checked,
+    updatedBy: uid(), updatedAt: new Date().toISOString(),
+  };
+  try { await setDoc(_duesRef(), cfg, { merge: true }); showToast(cfg.enabled ? 'Saved — reminders are on ✓' : 'Saved — reminders are off', 'success'); loadDuesReminder(); }
+  catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+window.runDuesReminderNow = async function() {
+  if (!confirm('Send the dues reminder to all salesmen now?')) return;
+  try {
+    await window.saveDuesReminder();
+    await setDoc(_duesRef(), { runNowAt: new Date().toISOString() }, { merge: true });
+    showToast('Sending… the result shows below in a few seconds', 'info');
+    setTimeout(() => window.loadDuesReminder(), 8000);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
 // This page script is an ES module, so its functions are not global. Expose
 // the ones called from inline onclick/onchange handlers.
 Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests, staffAdvances });
@@ -4297,6 +4354,7 @@ async function settings() {
       <div class="rtab active" onclick="switchTab('settCompany','settTabs',this)">🏢 Company Profile</div>
       <div class="rtab" onclick="switchTab('settProducts','settTabs',this)">📦 Products</div>
       <div class="rtab" onclick="switchTab('settSystem','settTabs',this)">⚙️ System</div>
+      <div class="rtab" onclick="switchTab('settDues','settTabs',this);loadDuesReminder()">🔔 Dues reminder</div>
     </div>
     <div id="settCompany" style="max-width:900px">
       <div class="card" style="padding:22px">
@@ -4357,6 +4415,7 @@ async function settings() {
       <div class="card"><div class="twrap"><table><thead><tr><th>Name</th><th>Category</th><th>SKU</th><th>Price</th><th>Unit</th><th>Max Discount</th><th></th></tr></thead>
       <tbody>${prodRows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No products yet</td></tr>'}</tbody></table></div></div>
     </div>
+    <div id="settDues" style="display:none;max-width:620px"><div class="card" style="padding:22px" id="duesCard">Loading…</div></div>
     <div id="settSystem" style="display:none;max-width:560px">
       <div class="card" style="padding:20px;margin-bottom:14px">
         <div style="font-size:13px;font-weight:700;margin-bottom:6px">⬇️ Past Sales App data</div>
@@ -4381,7 +4440,7 @@ async function settings() {
   window.switchTab = function(showId, tabsId, el) {
     document.querySelectorAll(`#${tabsId} .rtab`).forEach(t=>t.classList.remove('active'));
     el.classList.add('active');
-    ['settCompany','settProducts','settSystem'].forEach(id=>{
+    ['settCompany','settProducts','settSystem','settDues'].forEach(id=>{
       const el2 = document.getElementById(id);
       if(el2) el2.style.display = id===showId?'block':'none';
     });
