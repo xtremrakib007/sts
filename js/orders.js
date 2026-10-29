@@ -343,6 +343,9 @@ function ocRenderCatalog(){
 // the cart shows its line, with Edit to change it.
 let _ocDraft = {}; // pid → { ctnQty, pcsQty, discount: {type, value} } being entered
 
+// Pieces per carton; products without one count a carton as 1 pcs.
+function _ocCtnSize(p) { return Number(p.ctnSize ?? p.ctn_size) || 1; }
+
 function ocProductCard(p){
   const item = ordItems.find(x=>x.pid===p.id);
   const draft = _ocDraft[p.id];
@@ -389,12 +392,11 @@ function _ocStepper(pid, unit, val, label) {
 }
 
 function _ocCardEditor(p, draft, inCart) {
-  const hasCtn = (p.ctnSize || 0) > 0;
   const d = draft.discount || { type: '', value: 0 };
   const line = _ocBuildItem(p, draft.ctnQty, draft.pcsQty, d);
   return `<div class="oc-edit">
     <div class="oc-edit-qty">
-      ${hasCtn ? _ocStepper(p.id, 'ctn', draft.ctnQty, 'CTN') : ''}
+      ${_ocStepper(p.id, 'ctn', draft.ctnQty, 'CTN')}
       ${_ocStepper(p.id, 'pcs', draft.pcsQty, 'PCS')}
     </div>
     <div class="oc-edit-disc">
@@ -424,19 +426,19 @@ function _ocLineText(item) {
 
 // A cart line for a product and quantity (null when the quantity is 0).
 function _ocBuildItem(p, ctnQty, pcsQty, discount) {
-  const hasCtn = (p.ctnSize || 0) > 0;
-  ctnQty = hasCtn ? Math.max(0, Math.floor(ctnQty || 0)) : 0;
+  const size = _ocCtnSize(p);
+  ctnQty = Math.max(0, Math.floor(ctnQty || 0));
   pcsQty = Math.max(0, Math.floor(pcsQty || 0));
-  const totalPcs = ctnQty * (p.ctnSize || 1) + pcsQty;
+  const totalPcs = ctnQty * size + pcsQty;
   if (totalPcs <= 0) return null;
-  const ctnPr = p.ctnPrice ?? p.ctn_price ?? (p.price * (p.ctnSize || 1));
+  const ctnPr = p.ctnPrice ?? p.ctn_price ?? (p.price * size);
   const ctnTotal = ctnQty * ctnPr;
   const pcsTotal = pcsQty * p.price;
   const item = {
     pid: p.id, name: p.name, sku: p.sku || '',
     price: p.price, ctnPrice: ctnPr,
     qty: totalPcs, ctnQty, pcsQty,
-    ctnSize: p.ctnSize || 0, unit: p.unit || 'pcs',
+    ctnSize: size, unit: p.unit || 'pcs',
     qtyDisplay: ctnQty > 0 ? (pcsQty > 0 ? `${ctnQty}ctn+${pcsQty}pcs` : `${ctnQty}ctn`) : `${totalPcs}pcs`,
     _ctnTotal: ctnTotal, _pcsTotal: pcsTotal, _lineTotal: ctnTotal + pcsTotal,
   };
@@ -477,7 +479,7 @@ function _ocRefreshCard(pid) {
   const it = _ocBuildItem(p, dr.ctnQty, dr.pcsQty, dr.discount);
   const set = (id, html) => { const e = document.getElementById(id + pid); if (e) e.innerHTML = html; };
   set('ocLine-', it ? _ocLineText(it) : fmt(0));
-  set('ocSum-', it ? `${escH(it.qtyDisplay)} = ${it.qty} pcs` : 'Enter a quantity');
+  set('ocSum-', it ? `1 ctn = ${_ocCtnSize(p)} pcs · total ${it.qty} pcs` : 'Enter a quantity');
   const avail = _availableQty(_getStock(p));
   const w = document.getElementById('ocWarn-' + pid);
   if (w) {
@@ -494,7 +496,7 @@ function ocOpenDraft(pid) {
   const it = ordItems.find(x => x.pid === pid);
   _ocDraft[pid] = it
     ? { ctnQty: it.ctnQty || 0, pcsQty: it.pcsQty || 0, discount: it.discount ? { type: it.discount.type, value: it.discount.value } : { type: '', value: 0 } }
-    : { ctnQty: (p.ctnSize || 0) > 0 ? 1 : 0, pcsQty: (p.ctnSize || 0) > 0 ? 0 : 1, discount: { type: '', value: 0 } };
+    : { ctnQty: _ocCtnSize(p) > 1 ? 1 : 0, pcsQty: _ocCtnSize(p) > 1 ? 0 : 1, discount: { type: '', value: 0 } };
   _ocRedrawCard(pid);
 }
 
@@ -502,7 +504,7 @@ function ocStepQty(pid, unit, delta) {
   const dr = _ocDraft[pid]; if (!dr) return;
   if (unit === 'ctn') dr.ctnQty = Math.max(0, (dr.ctnQty || 0) + delta); else dr.pcsQty = Math.max(0, (dr.pcsQty || 0) + delta);
   const card = document.getElementById('ocProd-' + pid);
-  const inp = card && card.querySelectorAll('.oc-step input')[unit === 'ctn' ? 0 : card.querySelectorAll('.oc-step input').length - 1];
+  const inp = card && card.querySelectorAll('.oc-step input')[unit === 'ctn' ? 0 : 1];
   if (inp) inp.value = unit === 'ctn' ? dr.ctnQty : dr.pcsQty;
   _ocRefreshCard(pid);
 }
