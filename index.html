@@ -327,6 +327,7 @@
                 <div class="nav-sec">Settings</div>
                 <div class="nitem" onclick="openUserProfile(),closeSidebar()"><span class="nico">👤</span> My Profile</div>
                 <div class="nitem" onclick="openChangePassword(),closeSidebar()"><span class="nico">🔑</span> Change Password</div>
+                <div class="nitem" onclick='goPage("advances"),closeSidebar()'><span class="nico">💵</span> My Advances</div>
                 <div class="nav-sec admin-only" style="display:none">Management</div>
                 <div class="nitem admin-only" style="display:none" id="deviceReqNav" onclick="loadDeviceRequests()"><span class="nico">📱</span> Device Requests <span class="nbadge nbadge-red" id="deviceReqBadge" style="display:none">0</span></div>
                 <div class="nitem admin-only" style="display:none" onclick='goPage("notifications"),initNotifPage()'><span class="nico">🔔</span> Send Notification</div>
@@ -623,6 +624,18 @@
                                 oninput="loadOutlets()" id="outSrch"></div>
                     </div>
                     <div id="outletTree"></div>
+                </div>
+                <div id="pageAdvances" class="page">
+                    <div class="page-hdr">
+                        <button class="back-btn" onclick="goPage('dashboard')">← Back</button>
+                        <div class="page-hdr-info">
+                            <div style="font-family:Syne,sans-serif;font-size:19px;font-weight:700">💵 My Advances</div>
+                            <div style="font-size:11px;color:var(--tx3)">Salary / cash advances and staff loans, repaid from your salary</div>
+                        </div>
+                        <div style="display:flex;gap:7px;flex-shrink:0"><button class="btn btn-primary btn-sm" onclick="openAdvanceRequest()">+ Request</button></div>
+                    </div>
+                    <div class="col-sum" id="advSummary"></div>
+                    <div id="advList"></div>
                 </div>
                 <div id="pageCollection" class="page">
                     <div class="page-hdr">
@@ -1548,6 +1561,34 @@
                     class="btn btn-primary btn-sm" onclick="downloadOutletQR()">⬇️ Download QR</button></div>
         </div>
     </div>
+    <div class="moverlay" id="mAdvance">
+        <div class="modal">
+            <div class="mhdr">
+                <div class="mttl">💵 Request an Advance</div><button class="mcls" onclick='closeM("mAdvance")'>✕</button>
+            </div>
+            <div class="mbody">
+                <div class="fgrp"><label class="flbl">Type *</label><select id="advType" class="finp">
+                        <option value="salary">Salary advance</option>
+                        <option value="cash">Cash advance</option>
+                        <option value="loan">Staff loan</option>
+                        <option value="other">Other advance</option>
+                    </select></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="fgrp" style="margin:0"><label class="flbl">Amount (RM) *</label><input type="number" id="advAmt" class="finp" placeholder="0.00" min="0" step="0.01" inputmode="decimal" oninput="_advPreview()"></div>
+                    <div class="fgrp" style="margin:0"><label class="flbl">Repay over</label><select id="advMonths" class="finp" onchange="_advPreview()">
+                            <option value="1">1 month</option><option value="2">2 months</option><option value="3">3 months</option>
+                            <option value="4">4 months</option><option value="6">6 months</option><option value="9">9 months</option>
+                            <option value="12">12 months</option><option value="18">18 months</option><option value="24">24 months</option>
+                        </select></div>
+                </div>
+                <div id="advPreview" style="font-size:12px;color:var(--tx2);margin:10px 0 12px;background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r2);padding:9px 12px"></div>
+                <div class="fgrp"><label class="flbl">Reason *</label><textarea id="advReason" class="finp" maxlength="500" placeholder="e.g. medical bill, school fees, motorcycle repair"></textarea></div>
+                <div style="font-size:11px;color:var(--tx3)">An admin approves the request and sets the final amount and deduction months.</div>
+            </div>
+            <div class="mfoot"><button class="btn btn-ghost btn-sm" onclick='closeM("mAdvance")'>Cancel</button> <button
+                    class="btn btn-primary btn-sm" id="advSaveBtn" onclick="saveAdvanceRequest()">Send request</button></div>
+        </div>
+    </div>
     <div class="moverlay" id="mCol">
         <div class="modal">
             <div class="mhdr">
@@ -2263,6 +2304,8 @@
     <script src="js/delete.js"></script>
     <script src="js/broadcast.js"></script>
     <script src="js/misc.js"></script>
+    <script src="js/advance-core.js"></script>
+    <script src="js/advances.js"></script>
     <script src="js/boot.js"></script>
     <script>
 /* ===== LOCATION TRACKING NOTIFICATION — show only once per session ===== */
@@ -2323,6 +2366,7 @@
         { page:'routes',        ico:'🗺️',  lbl:'Routes',          roles:[...R_ADMIN,...R_SALES]                 },
         { page:'collection',    ico:'💰', lbl:'Collection',      roles:[...R_ADMIN,...R_SALES]                 },
         { page:'reports',       ico:'📈', lbl:'Reports',         roles:[...R_ADMIN,...R_SALES]                 },
+        { page:'advances',      ico:'💵', lbl:'Advances',        roles:[...R_ALL]                              },
         { page:'delivery',      ico:'🚚', lbl:'My Deliveries',   roles:[...R_DELIV],             badgeId:'delivBadge'      },
         { page:'monitoring',    ico:'👁️',  lbl:'Rep Monitoring',  roles:[...R_ADMIN]                            },
         { page:'users',         ico:'👥', lbl:'Users',           roles:[...R_ADMIN],             badgeId:'device-req-badge'},
