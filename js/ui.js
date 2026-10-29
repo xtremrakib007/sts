@@ -135,6 +135,25 @@ function closeSidebar(){
   document.body.style.overflow='';
 }
 
+// ═══════════════ PHONE-FRIENDLY TABLES ═══════════════
+// On phones (see app.css) each table row is shown as a card, with the
+// column heading beside every value: copy the headings onto the cells.
+function _labelTables() {
+  document.querySelectorAll('.twrap table').forEach(t => {
+    const heads = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    if (!heads.length) return;
+    t.querySelectorAll('tbody tr').forEach(tr => {
+      [...tr.children].forEach((td, i) => { if (td.dataset.label === undefined && heads[i] !== undefined) td.dataset.label = heads[i]; });
+    });
+  });
+}
+let _labelTablesQueued = false;
+new MutationObserver(() => {
+  if (_labelTablesQueued) return;
+  _labelTablesQueued = true;
+  requestAnimationFrame(() => { _labelTablesQueued = false; _labelTables(); });
+}).observe(document.documentElement, { childList: true, subtree: true });
+
 // ═══════════════ ANDROID BACK BUTTON (Capacitor) ═══════════════
 window.addEventListener('load',()=>{
   if(!window.Capacitor?.isNativePlatform?.())return;
