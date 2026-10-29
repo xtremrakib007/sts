@@ -37,6 +37,8 @@ const JS_FILES = [
   'js/delete.js',
   'js/broadcast.js',
   'js/misc.js',
+  'js/advance-core.js',
+  'js/advances.js',
   'js/boot.js'
 ];
 
@@ -57,6 +59,7 @@ const COPY_FILES = [
 const VENDOR_FILES = {
   'node_modules/qrcode-generator/qrcode.js': 'vendor/qrcode.js',
   'js/invoice-template.js': 'vendor/invoice-template.js',
+  'js/advance-core.js': 'vendor/advance-core.js',
   'node_modules/html2canvas/dist/html2canvas.min.js': 'vendor/html2canvas.js', // invoice PDF (loaded on use)
   'node_modules/jspdf/dist/jspdf.umd.min.js': 'vendor/jspdf.js',
   'node_modules/read-excel-file/bundle/read-excel-file.min.js': 'vendor/read-excel-file.js',
@@ -107,7 +110,7 @@ async function build() {
   let html = fs.readFileSync('index.html', 'utf8');
 
   // Replace individual script tags with single minified script bundle
-  const scriptRegex = /<script\s+src=["']js\/(invoice-template|core|ui|auth|fcm|tracking|dashboard|attendance|orders|outlets|products|collections|routes|deliveries|reports|users|delete|broadcast|misc|boot)\.js["']><\/script>\s*/gi;
+  const scriptRegex = /<script\s+src=["']js\/(invoice-template|core|ui|auth|fcm|tracking|dashboard|attendance|orders|outlets|products|collections|routes|deliveries|reports|users|delete|broadcast|misc|advance-core|advances|boot)\.js["']><\/script>\s*/gi;
   html = html.replace(scriptRegex, '');
 
   // Version = hash of the shipped JS + CSS. It goes into the asset URLs so

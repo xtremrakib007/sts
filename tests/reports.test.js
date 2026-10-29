@@ -110,7 +110,7 @@ test('returns report and return rate', () => {
 });
 
 test('portal exposes functions used by inline handlers (module script)', () => {
-  assert.match(html, /Object\.assign\(window, \{ prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests \}\)/);
+  assert.match(html, /Object\.assign\(window, \{ prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests, staffAdvances \}\)/);
   assert.match(html, /--chart-1:#00b07a/);
   assert.match(html, /--chart-1:#008f62/);
 });

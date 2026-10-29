@@ -587,6 +587,7 @@ body.store-mode .adm-only{display:none!important}
 ══════════════════════════════════════ -->
 <script defer src="/vendor/qrcode.js"></script>
 <script defer src="/vendor/invoice-template.js"></script>
+<script defer src="/vendor/advance-core.js"></script>
 <script defer src="/vendor/read-excel-file.js"></script>
 <script defer src="/vendor/write-excel-file.js"></script>
 <script type="module">
@@ -880,6 +881,7 @@ function buildSidebar() {
       <div class="sb-item" data-page="invoices" onclick="goPage('invoices')"><span class="ico">🧾</span> Invoices</div>
       <div class="sb-item" data-page="einvoiceRequests" onclick="goPage('einvoiceRequests')"><span class="ico">🏛️</span> e-Invoice Requests <span class="sb-badge" id="badgeEinv" style="display:none">0</span></div>
       <div class="sb-item" data-page="collections" onclick="goPage('collections')"><span class="ico">💰</span> Collections <span class="sb-badge sb-badge-ylw" id="badgeColl" style="display:none">0</span></div>
+      <div class="sb-item" data-page="staffAdvances" onclick="goPage('staffAdvances')"><span class="ico">💵</span> Staff Advances <span class="sb-badge" id="badgeAdv" style="display:none">0</span></div>
       <div class="sb-section">Operations</div>
       <div class="sb-item" data-page="deliveryPlanner" onclick="goPage('deliveryPlanner')"><span class="ico">🗓️</span> Delivery Planner</div>
       <div class="sb-item" data-page="dispatch" onclick="goPage('dispatch')"><span class="ico">🚚</span> Dispatch & Delivery</div>
@@ -933,6 +935,7 @@ const pageConfig = {
   products:       {title:'Product Catalogue',icon:'🛍️',action:null},
   picking:        {title:'Picking & Packing', icon:'📦', action:null},
   einvoiceRequests:{title:'e-Invoice Requests', icon:'🏛️', action:null},
+  staffAdvances:  {title:'Staff Advances', icon:'💵', action:'+ New Advance'},
   storeRequests:  {title:'Stock In / Out',    icon:'📥', action:null},
 };
 
@@ -949,7 +952,7 @@ window.goPage = function(page) {
   if (cfg.action) {
     ab.style.display = '';
     ab.textContent = cfg.action;
-    ab.onclick = () => { prepModal(cfg.prep); openModal(cfg.modal); };
+    ab.onclick = page === 'staffAdvances' ? () => window.openNewAdvance() : () => { prepModal(cfg.prep); openModal(cfg.modal); };
   } else { ab.style.display = 'none'; }
   // Guard: Firebase must be ready before rendering any data page
   if (!_db) {
@@ -968,7 +971,7 @@ window.goPage = function(page) {
     dispatch, suppliers, reports, settings, salesmanOrdersReport,
     hqOrders, transfers,
     salesDashboard, myOrders, myCollections, myDeliveries, products,
-    picking, storeRequests, einvoiceRequests
+    picking, storeRequests, einvoiceRequests, staffAdvances
   };
   if (renders[page]) renders[page]();
 };
@@ -981,7 +984,7 @@ window.goPage = function(page) {
 const REALTIME_COLLECTIONS = [
   'users', 'products', 'orders', 'inventory', 'invoices',
   'suppliers', 'transfers', 'hq_orders', 'collections', 'config',
-  'stock_requests', 'stock_ledger', 'returns', 'credit_notes', 'einvoice_requests'
+  'stock_requests', 'stock_ledger', 'returns', 'credit_notes', 'einvoice_requests', 'staff_advances'
 ];
 
 function setRealtimeStatus(message, color) {
@@ -1088,16 +1091,18 @@ async function updateBadges() {
   if (!_db) return;
   try {
     if (_appRole === 'store') return;
-    const [discSnap, collSnap, soSnap, einvSnap] = await Promise.all([
+    const [discSnap, collSnap, soSnap, einvSnap, advSnap] = await Promise.all([
       getDocs(query(collection(_db, C('orders')), where('discountStatus','==','pending'))).catch(()=>({size:0})),
       getDocs(query(collection(_db, C('collections')), where('status','==','pending_erp'))).catch(()=>({size:0})),
       getDocs(query(collection(_db, C('orders')), where('status','==','pending'))).catch(()=>({size:0})),
       getDocs(query(collection(_db, C('einvoice_requests')), where('status','==','pending'))).catch(()=>({size:0})),
+      getDocs(query(collection(_db, C('staff_advances')), where('status','==','pending'))).catch(()=>({size:0})),
     ]);
     setBadge('badgeDiscount', discSnap.size);
     setBadge('badgeColl', collSnap.size);
     setBadge('badgeSO', soSnap.size);
     setBadge('badgeEinv', einvSnap.size);
+    setBadge('badgeAdv', advSnap.size);
   } catch(e) {}
 }
 function setBadge(id, n) {
@@ -3985,9 +3990,278 @@ window.saveEinvRequest = async function(id) {
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 };
 
+// ═══════════════════════════════════════════
+//  STAFF ADVANCES
+//  Staff request a salary / cash advance or loan in the Sales App (My
+//  Advances). Here admins approve it with a monthly deduction plan, record
+//  the pay-out, mark each month's salary deductions and any cash repayment.
+//  Plan and balance logic: /vendor/advance-core.js (js/advance-core.js).
+// ═══════════════════════════════════════════
+const ADV_BADGE = { pending: 'badge-yellow', approved: 'badge-blue', active: 'badge-blue', settled: 'badge-green', rejected: 'badge-red', cancelled: 'badge-gray' };
+const _ym = window.monthOf ? () => window.monthOf() : () => new Date().toISOString().slice(0, 7);
+const _ymLabel = ym => { const [y, m] = String(ym).split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }); };
+window.__advTab = window.__advTab || 'requests';
+window.__advMonth = window.__advMonth || _ym();
+const _advBy = () => ({ uid: uid(), name: _user?.name || _user?.email || '' });
+
+async function staffAdvances() {
+  const mc = document.getElementById('mainContent');
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const snap = await getDocs(collection(_db, C('staff_advances')));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(b.requestedAt || '').localeCompare(String(a.requestedAt || '')));
+    window.__advRows = all;
+    const pending = all.filter(a => a.status === 'pending');
+    const live = all.filter(a => a.status === 'approved' || a.status === 'active');
+    const outstanding = live.reduce((s, a) => s + advanceTotals(a).balance, 0);
+    const month = window.__advMonth;
+    const ded = deductionsForMonth(all, month);
+    const dedTotal = ded.reduce((s, r) => s + r.entry.amount, 0);
+    const tab = window.__advTab;
+    const typeL = a => (window.ADVANCE_TYPES || {})[a.type] || 'Advance';
+    const staffCell = a => `<strong>${_esc(a.staffName || a.uid)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc((a.staffRole || '').replace(/_/g, ' '))}</div>`;
+    const statusCell = a => `<span class="badge ${ADV_BADGE[a.status] || 'badge-gray'}">${_esc((window.ADVANCE_STATUS || {})[a.status] || a.status)}</span>`;
+    let body = '';
+    if (tab === 'requests') {
+      body = `<table id="advTbl"><thead><tr><th>Requested</th><th>Staff</th><th>Type</th><th>Amount</th><th>Repay over</th><th>Reason</th><th></th></tr></thead><tbody>${
+        pending.map(a => `<tr><td style="font-size:11px">${_esc(String(a.requestedAt || '').slice(0, 10))}</td><td>${staffCell(a)}</td><td>${_esc(typeL(a))}</td>
+          <td><strong>${fmt(a.amount)}</strong></td><td>${a.instalments} month${a.instalments > 1 ? 's' : ''}</td><td style="max-width:260px;font-size:12px">${_esc(a.reason)}</td>
+          <td><button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="openAdvReview('${_esc(a.id)}')">Review</button></td></tr>`).join('')
+        || '<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No requests waiting</td></tr>'}</tbody></table>`;
+    } else if (tab === 'active') {
+      body = `<table id="advTbl"><thead><tr><th>Staff</th><th>Type</th><th>Amount</th><th>Repaid</th><th>Balance</th><th>Plan</th><th>Status</th><th></th></tr></thead><tbody>${
+        live.map(a => { const t = advanceTotals(a); const n = (a.schedule || []).length; const done = (a.schedule || []).filter(e => e.status === 'deducted').length;
+          return `<tr><td>${staffCell(a)}</td><td>${_esc(typeL(a))}</td><td>${fmt(t.principal)}</td><td>${fmt(t.repaid)}</td><td><strong style="color:var(--red)">${fmt(t.balance)}</strong></td>
+          <td style="font-size:11px">${done}/${n} from ${_esc(_ymLabel(a.startMonth))}</td><td>${statusCell(a)}</td>
+          <td style="white-space:nowrap">${a.status === 'approved'
+            ? `<button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="openAdvPayout('${_esc(a.id)}')">Pay out</button>`
+            : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openAdvRepay('${_esc(a.id)}')">+ Repayment</button>`}
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openAdvDetail('${_esc(a.id)}')">View</button></td></tr>`; }).join('')
+        || '<tr><td colspan="8" style="text-align:center;color:var(--tx3);padding:30px">No advances being repaid</td></tr>'}</tbody></table>`;
+    } else if (tab === 'deductions') {
+      body = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <label class="flbl" style="margin:0">Payroll month</label><input type="month" class="finp" style="width:170px" value="${_esc(month)}" onchange="window.__advMonth=this.value;staffAdvances()">
+          <span style="font-size:12px;color:var(--tx3)">${ded.length} deduction${ded.length === 1 ? '' : 's'} · ${fmt(dedTotal)}</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost" onclick="exportAdvDeductions()">📥 Export CSV</button>
+          ${ded.length ? `<button class="btn btn-primary" onclick="markAdvDeducted(null)">✓ Mark all deducted</button>` : ''}</div>
+        <table id="advTbl"><thead><tr><th>Staff</th><th>Advance</th><th>Instalment</th><th>Deduct</th><th>Balance before</th><th></th></tr></thead><tbody>${
+        ded.map(r => { const a = r.advance;
+          return `<tr><td>${staffCell(a)}</td><td>${_esc(typeL(a))} · ${fmt(advanceTotals(a).principal)}</td>
+          <td>${_esc(_ymLabel(r.entry.month))}${r.overdue ? ' <span class="badge badge-red">overdue</span>' : ''}</td>
+          <td><strong>${fmt(r.entry.amount)}</strong></td><td>${fmt(advanceTotals(a).balance)}</td>
+          <td><button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="markAdvDeducted('${_esc(a.id)}')">✓ Deducted</button></td></tr>`; }).join('')
+        || `<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:30px">Nothing to deduct for ${_esc(_ymLabel(month))}</td></tr>`}</tbody></table>`;
+    } else {
+      body = `<table id="advTbl"><thead><tr><th>Requested</th><th>Staff</th><th>Type</th><th>Amount</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>${
+        all.map(a => `<tr><td style="font-size:11px">${_esc(String(a.requestedAt || '').slice(0, 10))}</td><td>${staffCell(a)}</td><td>${_esc(typeL(a))}</td>
+          <td>${fmt(a.approvedAmount ?? a.amount)}</td><td>${['active', 'approved', 'settled'].includes(a.status) ? fmt(advanceTotals(a).balance) : '—'}</td><td>${statusCell(a)}</td>
+          <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openAdvDetail('${_esc(a.id)}')">View</button></td></tr>`).join('')
+        || '<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No advances yet</td></tr>'}</tbody></table>`;
+    }
+    const tabBtn = (k, label) => `<div class="rtab ${tab === k ? 'active' : ''}" onclick="window.__advTab='${k}';staffAdvances()">${label}</div>`;
+    mc.innerHTML = `
+      <div class="pbar"><div><div class="page-title">Staff Advances</div>
+        <div class="page-sub">Salary / cash advances and staff loans, repaid by monthly salary deduction</div></div>
+        <div class="srch-bar"><input class="srch-inp" placeholder="Search staff, reason…" oninput="filterTable(this,'advTbl')"></div></div>
+      <div class="kpi-grid">
+        <div class="kpi" style="--kpi-color:var(--ylw)" onclick="window.__advTab='requests';staffAdvances()"><div class="kpi-ico">📝</div><div class="kpi-val">${pending.length}</div><div class="kpi-lbl">Requests waiting</div></div>
+        <div class="kpi" style="--kpi-color:var(--red)" onclick="window.__advTab='active';staffAdvances()"><div class="kpi-ico">💵</div><div class="kpi-val">${fmt(outstanding)}</div><div class="kpi-lbl">Outstanding</div><div class="kpi-delta">${live.length} advance${live.length === 1 ? '' : 's'}</div></div>
+        <div class="kpi" style="--kpi-color:var(--blu)" onclick="window.__advTab='deductions';staffAdvances()"><div class="kpi-ico">🗓️</div><div class="kpi-val">${fmt(dedTotal)}</div><div class="kpi-lbl">To deduct · ${_esc(_ymLabel(month))}</div><div class="kpi-delta">${ded.length} staff</div></div>
+      </div>
+      <div class="rtabs">${tabBtn('requests', `Requests (${pending.length})`)}${tabBtn('active', `Active (${live.length})`)}${tabBtn('deductions', 'Monthly deductions')}${tabBtn('all', `All (${all.length})`)}</div>
+      <div class="card"><div class="twrap">${body}</div></div>`;
+  } catch (e) { mc.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${_esc(e.message)}</div>`; }
+}
+
+const _advFind = id => (window.__advRows || []).find(x => x.id === id);
+const _advSave = async (id, patch, msg) => {
+  await updateDoc(doc(_db, C('staff_advances'), id), patch);
+  showToast(msg || 'Saved ✓', 'success'); staffAdvances(); updateBadges();
+};
+
+window._advPlanPreview = function() {
+  const amt = parseFloat(document.getElementById('advAmt').value) || 0;
+  const n = parseInt(document.getElementById('advN').value, 10) || 1;
+  const start = document.getElementById('advStart').value;
+  const el = document.getElementById('advPlan');
+  if (!amt || !start) { el.innerHTML = ''; return; }
+  el.innerHTML = advanceSchedule(amt, n, start).map(e => `<span class="badge badge-gray" style="margin:2px">${_esc(_ymLabel(e.month))}: ${fmt(e.amount)}</span>`).join('');
+};
+
+const _advPlanFields = (amount, n, start) => `
+  <div class="frow">
+    <div class="fgrp"><label class="flbl">Amount approved (RM)</label><input class="finp" id="advAmt" type="number" min="0" step="0.01" value="${amount}" oninput="_advPlanPreview()"></div>
+    <div class="fgrp"><label class="flbl">Monthly instalments</label><input class="finp" id="advN" type="number" min="1" max="${window.MAX_INSTALMENTS || 24}" value="${n}" oninput="_advPlanPreview()"></div>
+    <div class="fgrp"><label class="flbl">First deduction month</label><input class="finp" id="advStart" type="month" value="${start}" onchange="_advPlanPreview()"></div>
+  </div>
+  <div id="advPlan" style="margin:-4px 0 12px"></div>`;
+
+window.openAdvReview = function(id) {
+  const a = _advFind(id); if (!a) return;
+  _stockModal('mAdv', `💵 Advance request — ${_esc(a.staffName)}`, `
+    <div style="font-size:13px;margin-bottom:12px">${_esc((window.ADVANCE_TYPES || {})[a.type] || 'Advance')} of <strong>${fmt(a.amount)}</strong>, repay over ${a.instalments} month${a.instalments > 1 ? 's' : ''}
+      <div style="color:var(--tx3);margin-top:4px">“${_esc(a.reason)}”</div></div>
+    ${_advPlanFields(a.amount, a.instalments, addMonths(_ym(), 1))}
+    <div class="fgrp"><label class="flbl">Note to staff (required when rejecting)</label><input class="finp" id="advNote"></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mAdv')">Close</button>
+     <button class="btn btn-ghost" style="color:var(--red)" onclick="decideAdvance('${_esc(a.id)}',false)">Reject</button>
+     <button class="btn btn-primary" onclick="decideAdvance('${_esc(a.id)}',true)">Approve</button>`, true);
+  _advPlanPreview();
+};
+
+window.decideAdvance = async function(id, approve) {
+  const note = document.getElementById('advNote').value.trim();
+  const by = _advBy(), at = new Date().toISOString();
+  try {
+    if (!approve) {
+      if (!note) { showToast('Add a note saying why it was rejected', 'error'); return; }
+      await _advSave(id, { status: 'rejected', adminNote: note, decidedBy: by.uid, decidedByName: by.name, decidedAt: at }, 'Request rejected');
+    } else {
+      const amount = Math.round((parseFloat(document.getElementById('advAmt').value) || 0) * 100) / 100;
+      const n = parseInt(document.getElementById('advN').value, 10) || 1;
+      const start = document.getElementById('advStart').value;
+      if (!(amount > 0) || !start) { showToast('Enter the amount and first deduction month', 'error'); return; }
+      await _advSave(id, { status: 'approved', approvedAmount: amount, startMonth: start, schedule: advanceSchedule(amount, n, start),
+        repayments: [], repaid: 0, balance: amount, adminNote: note, decidedBy: by.uid, decidedByName: by.name, decidedAt: at }, 'Approved — pay it out next');
+    }
+    closeModal('mAdv');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.openAdvPayout = function(id) {
+  const a = _advFind(id); if (!a) return;
+  _stockModal('mAdv', `💸 Pay out — ${_esc(a.staffName)}`, `
+    <div style="font-size:13px;margin-bottom:12px">Pay <strong>${fmt(a.approvedAmount)}</strong> to ${_esc(a.staffName)}. Deductions start ${_esc(_ymLabel(a.startMonth))}.</div>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Paid by</label><select class="finp" id="advPayMethod"><option value="cash">Cash</option><option value="bank">Bank transfer</option></select></div>
+      <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="advPayDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+      <div class="fgrp"><label class="flbl">Reference</label><input class="finp" id="advPayRef" placeholder="voucher / transfer ref"></div>
+    </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mAdv')">Close</button><button class="btn btn-primary" onclick="saveAdvPayout('${_esc(a.id)}')">Confirm paid</button>`, true);
+};
+
+window.saveAdvPayout = async function(id) {
+  const by = _advBy();
+  try {
+    await _advSave(id, { status: 'active', paidOutMethod: document.getElementById('advPayMethod').value, paidOutDate: document.getElementById('advPayDate').value,
+      paidOutRef: document.getElementById('advPayRef').value.trim(), paidOutBy: by.uid, paidOutByName: by.name, paidOutAt: new Date().toISOString() }, 'Paid out ✓');
+    closeModal('mAdv');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.openAdvRepay = function(id) {
+  const a = _advFind(id); if (!a) return;
+  const bal = advanceTotals(a).balance;
+  _stockModal('mAdv', `➕ Repayment — ${_esc(a.staffName)}`, `
+    <div style="font-size:13px;margin-bottom:12px">Balance <strong style="color:var(--red)">${fmt(bal)}</strong>. A repayment shortens the remaining salary deductions.</div>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Amount (RM)</label><input class="finp" id="advRepAmt" type="number" min="0" step="0.01" max="${bal}" value="${bal}"></div>
+      <div class="fgrp"><label class="flbl">Method</label><select class="finp" id="advRepMethod"><option value="cash">Cash</option><option value="bank">Bank transfer</option><option value="salary">Salary (extra deduction)</option></select></div>
+      <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="advRepDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+    </div>
+    <div class="fgrp"><label class="flbl">Note</label><input class="finp" id="advRepNote" placeholder="receipt no. / remarks"></div>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mAdv')">Close</button><button class="btn btn-primary" onclick="saveAdvRepay('${_esc(a.id)}')">Record</button>`, true);
+};
+
+window.saveAdvRepay = async function(id) {
+  const a = _advFind(id); if (!a) return;
+  try {
+    const patch = applyRepayment(a, document.getElementById('advRepAmt').value, document.getElementById('advRepMethod').value, _advBy(),
+      document.getElementById('advRepNote').value.trim(), document.getElementById('advRepDate').value);
+    await _advSave(id, patch, patch.status === 'settled' ? 'Repaid in full ✓' : 'Repayment recorded ✓');
+    closeModal('mAdv');
+  } catch (e) { showToast(e.message, 'error'); }
+};
+
+// One advance (id) or every deduction listed for the chosen month (null).
+window.markAdvDeducted = async function(id) {
+  const month = window.__advMonth;
+  const rows = deductionsForMonth(window.__advRows || [], month).filter(r => !id || r.advance.id === id);
+  if (!rows.length) return;
+  if (!id && !confirm(`Mark ${rows.length} salary deduction(s) for ${_ymLabel(month)} as deducted (${fmt(rows.reduce((s, r) => s + r.entry.amount, 0))})?`)) return;
+  try {
+    const batch = writeBatch(_db);
+    rows.forEach(r => batch.update(doc(_db, C('staff_advances'), r.advance.id), applySalaryDeduction(r.advance, month, _advBy())));
+    await batch.commit();
+    showToast(`${rows.length} deduction(s) recorded ✓`, 'success'); staffAdvances();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
+window.exportAdvDeductions = function() {
+  const month = window.__advMonth;
+  const rows = deductionsForMonth(window.__advRows || [], month);
+  _downloadCsv(`advance-deductions-${month}.csv`, ['Staff', 'Role', 'Advance type', 'Advance amount', 'Instalment month', 'Deduct (RM)', 'Balance before'],
+    rows.map(r => [r.advance.staffName, r.advance.staffRole, (window.ADVANCE_TYPES || {})[r.advance.type] || r.advance.type, advanceTotals(r.advance).principal.toFixed(2),
+      r.entry.month, r.entry.amount.toFixed(2), advanceTotals(r.advance).balance.toFixed(2)]));
+};
+
+window.openAdvDetail = function(id) {
+  const a = _advFind(id); if (!a) return;
+  const t = advanceTotals(a);
+  const line = (k, v) => v ? `<tr><td style="color:var(--tx3);width:150px">${k}</td><td>${v}</td></tr>` : '';
+  _stockModal('mAdv', `💵 ${_esc(a.staffName)} — ${_esc((window.ADVANCE_TYPES || {})[a.type] || 'Advance')}`, `
+    <table style="width:100%;font-size:13px;margin-bottom:12px"><tbody>
+      ${line('Status', `<span class="badge ${ADV_BADGE[a.status] || 'badge-gray'}">${_esc((window.ADVANCE_STATUS || {})[a.status] || a.status)}</span>`)}
+      ${line('Requested', `${fmt(a.amount)} on ${_esc(String(a.requestedAt || '').slice(0, 10))}`)}
+      ${line('Reason', _esc(a.reason))}
+      ${a.approvedAmount != null ? line('Approved', `${fmt(a.approvedAmount)} by ${_esc(a.decidedByName || '')}`) : ''}
+      ${a.paidOutAt ? line('Paid out', `${_esc(a.paidOutDate || '')} · ${_esc(a.paidOutMethod)} ${_esc(a.paidOutRef || '')}`) : ''}
+      ${a.approvedAmount != null ? line('Repaid / balance', `${fmt(t.repaid)} / <strong style="color:var(--red)">${fmt(t.balance)}</strong>`) : ''}
+      ${line('Note', _esc(a.adminNote))}
+    </tbody></table>
+    ${(a.schedule || []).length ? `<div class="flbl">Deduction plan</div><table style="width:100%;font-size:12px;margin-bottom:12px"><tbody>${a.schedule.map(e =>
+      `<tr><td>${_esc(_ymLabel(e.month))}</td><td>${fmt(e.deducted ?? e.amount)}</td><td>${e.status === 'deducted' ? '✅ deducted' : e.status === 'covered' ? '— not needed' : 'due'}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${(a.repayments || []).length ? `<div class="flbl">Repayments</div><table style="width:100%;font-size:12px"><tbody>${a.repayments.map(r =>
+      `<tr><td>${_esc(r.date)}</td><td>${fmt(r.amount)}</td><td>${_esc(r.method)}${r.month ? ' · ' + _esc(_ymLabel(r.month)) : ''}</td><td>${_esc(r.note || '')}</td><td style="color:var(--tx3)">${_esc(r.byName || '')}</td></tr>`).join('')}</tbody></table>` : ''}`,
+    `<button class="btn btn-ghost" onclick="closeModal('mAdv')">Close</button>`, true);
+};
+
+// Admin records an advance on a staff member's behalf (already agreed).
+window.openNewAdvance = async function() {
+  const [a, b] = await Promise.all([
+    getDocs(collection(_db, 'users')).catch(() => ({ docs: [] })),
+    getDocs(collection(_db, C('users'))).catch(() => ({ docs: [] })),
+  ]);
+  const staff = {};
+  [...a.docs, ...b.docs].forEach(d => { const v = d.data(); if (v.active !== false && v.status !== 'inactive') staff[d.id] = { name: v.name || v.email || d.id, role: v.role || '', zoneId: v.zoneId || null }; });
+  window.__advStaff = staff;
+  const opts = Object.entries(staff).sort((x, y) => x[1].name.localeCompare(y[1].name))
+    .map(([id, v]) => `<option value="${_esc(id)}">${_esc(v.name)} (${_esc(v.role.replace(/_/g, ' '))})</option>`).join('');
+  _stockModal('mAdv', '💵 New staff advance', `
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Staff</label><select class="finp" id="advStaff">${opts}</select></div>
+      <div class="fgrp"><label class="flbl">Type</label><select class="finp" id="advTypeSel">${Object.entries(window.ADVANCE_TYPES || {}).map(([k, l]) => `<option value="${k}">${_esc(l)}</option>`).join('')}</select></div>
+    </div>
+    ${_advPlanFields('', 1, addMonths(_ym(), 1))}
+    <div class="fgrp"><label class="flbl">Reason</label><input class="finp" id="advReasonA"></div>
+    <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="advPaidNow" checked> Already paid out to the staff member</label>`,
+    `<button class="btn btn-ghost" onclick="closeModal('mAdv')">Close</button><button class="btn btn-primary" onclick="saveNewAdvance()">Save</button>`, true);
+};
+
+window.saveNewAdvance = async function() {
+  const sid = document.getElementById('advStaff').value, s = (window.__advStaff || {})[sid];
+  const amount = Math.round((parseFloat(document.getElementById('advAmt').value) || 0) * 100) / 100;
+  const n = parseInt(document.getElementById('advN').value, 10) || 1;
+  const start = document.getElementById('advStart').value;
+  if (!s || !(amount > 0) || !start) { showToast('Choose the staff member, amount and first deduction month', 'error'); return; }
+  const by = _advBy(), at = new Date().toISOString(), paid = document.getElementById('advPaidNow').checked;
+  try {
+    await addDoc(collection(_db, C('staff_advances')), {
+      uid: sid, staffName: s.name, staffRole: s.role, zoneId: s.zoneId, type: document.getElementById('advTypeSel').value,
+      amount, instalments: n, reason: document.getElementById('advReasonA').value.trim(), requestedAt: at, createdBy: by.uid, createdByName: by.name,
+      status: paid ? 'active' : 'approved', approvedAmount: amount, startMonth: start, schedule: advanceSchedule(amount, n, start),
+      repayments: [], repaid: 0, balance: amount, decidedBy: by.uid, decidedByName: by.name, decidedAt: at,
+      ...(paid ? { paidOutAt: at, paidOutDate: at.slice(0, 10), paidOutMethod: 'cash', paidOutBy: by.uid, paidOutByName: by.name } : {}),
+    });
+    closeModal('mAdv'); showToast('Advance saved ✓', 'success'); window.__advTab = 'active'; staffAdvances();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+};
+
 // This page script is an ES module, so its functions are not global. Expose
 // the ones called from inline onclick/onchange handlers.
-Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests });
+Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests, staffAdvances });
 // Keep the import status line live on Sales Orders and Settings.
 const _origGoPageForBackfill = window.goPage;
 window.goPage = function(page) {

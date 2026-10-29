@@ -81,6 +81,7 @@ const PAGE_META={
   monitoring:{title:'Rep Monitoring',sub:'Track rep activity, NP visits, orders & attendance'},
   zones:{title:'Zone Management',sub:'Manage zones — scope data access by region or territory'},
   outletstructure:{title:'Outlet Structure',sub:'Sales rep → route → outlets hierarchy'},
+  advances:{title:'My Advances',sub:'Salary / cash advances and staff loans'},
 };
 function goPage(pg) {
   if((pg==='users'||pg==='products')&&!isAdmin()){showToast('Access denied','error');return;}
@@ -115,6 +116,7 @@ function goPage(pg) {
   if(pg==='monitoring')loadMonitoring();
   if(pg==='outletstructure')loadOutletStructure();
   if(pg==='zones')loadZones();
+  if(pg==='advances')loadMyAdvances();
   // Update zone bar visibility for owner
   _updateOwnerZoneBar(pg);
   // close mobile sidebar

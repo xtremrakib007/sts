@@ -836,6 +836,35 @@ service cloud.firestore {
                            'processedBy', 'processedByName', 'processedAt']));
     }
 
+    // Staff advances: any Sales App user may request an advance for
+    // themselves and cancel it while it waits; only ERP admins approve, pay
+    // out and record deductions / repayments. Staff read only their own.
+    function validAdvanceRequest() {
+      let d = request.resource.data;
+      return isSignedIn() && isStfmUser()
+        && d.keys().hasOnly(['uid', 'staffName', 'staffRole', 'zoneId', 'type', 'amount', 'instalments', 'reason', 'status', 'requestedAt'])
+        && d.uid == request.auth.uid
+        && d.status == 'pending'
+        && d.staffRole == ud().get('role', '')
+        && d.staffName is string && d.staffName.size() <= 120
+        && d.type in ['salary', 'cash', 'loan', 'other']
+        && d.amount is number && d.amount > 0 && d.amount <= 100000
+        && d.instalments is int && d.instalments >= 1 && d.instalments <= 24
+        && d.reason is string && d.reason.size() > 0 && d.reason.size() <= 500
+        && d.requestedAt is string;
+    }
+
+    match /stsb_staff_advances/{advId} {
+      allow read: if isStsbERPAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isStsbERPAdmin() || validAdvanceRequest();
+      allow update: if isStsbERPAdmin()
+        || (isSignedIn() && resource.data.uid == request.auth.uid
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt']));
+      allow delete: if isStsbERPAdmin();
+    }
+
     match /stsb_suppliers/{supplierId} {
       allow read, create, update, delete: if isStsbERPAdmin();
     }
