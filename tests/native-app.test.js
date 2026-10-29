@@ -101,3 +101,10 @@ test('field-staff location tracking works when watchPosition returns the id dire
   assert.equal(saved.length, 2, 'each watcher delivered a position');
   assert.match(read('js/boot.js'), /try \{ startLocationTracking\(\); \} catch/);
 });
+
+test('owner (super_admin) gets the admin home tiles and alerts', () => {
+  const html = read('index.html');
+  assert.match(html, /if \(role === 'super_admin'\) role = 'admin';/, 'home grid maps super_admin to admin');
+  assert.match(html, /\['admin','sub_admin','super_admin'\]\.includes\(role\)/, 'low stock alert');
+  assert.match(html, /\{ page:'advances',\s+ico:'💵', lbl:'Advances',\s+roles:\[\.\.\.R_ALL\]/);
+});

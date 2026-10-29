@@ -2380,7 +2380,9 @@
     function buildHomeGrid() {
         const grid = document.getElementById('homeGrid');
         if (!grid) return;
-        const role = window.__currentUser?.role || '';
+        // super_admin (the owner) sees what an admin sees.
+        let role = (typeof CU !== 'undefined' && CU && CU.role) || window.__currentUser?.role || '';
+        if (role === 'super_admin') role = 'admin';
 
         grid.innerHTML = '';
 
@@ -3635,7 +3637,7 @@
     window.stsbCheckLowStock = async function() {
         if (!window.__SF || !window.__currentUser) return;
         const role = window.__currentUser.role || '';
-        if (!['admin','sub_admin'].includes(role)) return;
+        if (!['admin','sub_admin','super_admin'].includes(role)) return;
 
         try {
             const snap = await window.__SF.getDocs(
