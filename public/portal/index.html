@@ -3078,14 +3078,28 @@ async function renderTopSheet() {
 // date), one block per driver. Printing opens a clean light document, one
 // page per driver, so it prints the same whatever the screen theme.
 const _isCod = v => String(v.payTerms || 'COD').trim().toLowerCase() === 'cod';
-function _loadingList(orders) {
-  const t = {};
+// One line per product for a delivery man's orders: every invoice's
+// quantity of the same product added up (10 invoices × 1 ctn = 10 ctn).
+// Lines match on product id, SKU or name, so an invoice that is missing
+// one of them still joins the same line. The carton size comes from any
+// line that has it, else from the product catalogue (sizeOf).
+const _prodKey = v => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+function _loadingList(orders, sizeOf) {
+  const byKey = {}, rows = [];
   orders.forEach(v => (v.items || []).forEach(it => {
-    const k = it.sku || it.name;
-    const r = (t[k] = t[k] || { name: it.name, sku: it.sku || '', ctnSize: _n(it.ctnSize), qty: 0 });
-    r.qty += _n(it.qty);
+    const keys = [it.productId || it.pid ? 'id:' + (it.productId || it.pid) : '', it.sku ? 'sku:' + _prodKey(it.sku) : '', it.name ? 'name:' + _prodKey(it.name) : ''].filter(Boolean);
+    if (!keys.length) return;
+    let r = keys.map(k => byKey[k]).find(Boolean);
+    if (!r) { r = { name: it.name || it.sku || '', sku: it.sku || '', ctnSize: 0, qty: 0 }; rows.push(r); }
+    keys.forEach(k => { byKey[k] = r; });
+    if (!r.sku && it.sku) r.sku = it.sku;
+    const size = _n(it.ctnSize) || r.ctnSize || (sizeOf ? _n(sizeOf(it)) : 0);
+    if (size && !r.ctnSize) r.ctnSize = size;
+    // Pieces on the line; older lines may only carry cartons + loose pieces.
+    const pcs = _n(it.qty) || (_n(it.ctnQty) * (_n(it.ctnSize) || size) + _n(it.pcsQty));
+    r.qty += pcs;
   }));
-  return Object.values(t).sort((a, b) => String(a.name).localeCompare(String(b.name))).map(r => ({
+  return rows.sort((a, b) => String(a.name).localeCompare(String(b.name))).map(r => ({
     ...r, ctn: r.ctnSize ? Math.floor(r.qty / r.ctnSize) : 0, pcs: r.ctnSize ? r.qty % r.ctnSize : r.qty }));
 }
 
@@ -3096,11 +3110,18 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
   const body = document.getElementById('tsBody');
   if (!body) return;
   body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--tx3)">Loading…</div>';
-  const [ordSnap, collSnap, coSnap] = await Promise.all([
+  const [ordSnap, collSnap, coSnap, appProds, erpProds] = await Promise.all([
     getDocs(query(collection(_db, C('orders')), where('status', 'in', ['pending', 'processing', 'dispatched', 'delivered']))).catch(() => ({ docs: [] })),
     getDocs(collection(_db, C('collections'))).catch(() => ({ docs: [] })),
     getDoc(doc(_db, C('config'), 'company')).catch(() => null),
+    getDocs(collection(_db, 'products')).catch(() => ({ docs: [] })),
+    getDocs(collection(_db, C('products'))).catch(() => ({ docs: [] })),
   ]);
+  // Carton sizes from the catalogue, for invoice lines that did not record one.
+  const sizes = {};
+  [...erpProds.docs, ...appProds.docs].forEach(d => { const p = d.data(), z = _n(p.ctnSize ?? p.ctn_size); if (!z) return;
+    ['id:' + d.id, p.sku ? 'sku:' + _prodKey(p.sku) : '', p.name ? 'name:' + _prodKey(p.name) : ''].filter(Boolean).forEach(k => { sizes[k] = z; }); });
+  const sizeOf = it => sizes['id:' + (it.productId || it.pid)] || (it.sku && sizes['sku:' + _prodKey(it.sku)]) || (it.name && sizes['name:' + _prodKey(it.name)]) || 0;
   const collByOrder = {};
   collSnap.docs.forEach(d => { const c = d.data(); const ref = c.orderRef || c.linkedOrderId || ''; if (ref && c.status !== 'rejected') collByOrder[ref] = (collByOrder[ref] || 0) + _n(c.amount); });
   const groups = {};
@@ -3113,7 +3134,7 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
     (groups[dm] = groups[dm] || []).push(v);
   });
   Object.values(groups).forEach(list => list.sort((a, b) => String(a.outletRoute || '').localeCompare(String(b.outletRoute || '')) || String(a.customer || '').localeCompare(String(b.customer || ''))));
-  window.__tsData = { dateStr, groups, dmMap, collByOrder, company: coSnap && coSnap.exists() ? coSnap.data() : {} };
+  window.__tsData = { dateStr, groups, dmMap, collByOrder, sizeOf, company: coSnap && coSnap.exists() ? coSnap.data() : {} };
   const ids = Object.keys(groups).sort((a, b) => (a === 'unassigned') - (b === 'unassigned') || String(dmMap[a] || a).localeCompare(String(dmMap[b] || b)));
   if (!ids.length) {
     body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--tx3)"><div style="font-size:32px;margin-bottom:10px">📋</div>
@@ -3134,7 +3155,7 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
         <td style="text-align:right;font-family:'DM Mono',monospace">${_isCod(v) ? fmt(amt) : '—'}</td>
         <td>${badgeStatus(v.status === 'delivered' ? (v.deliveryStatus || 'delivered') : v.status)}</td></tr>`;
     }).join('');
-    const load = _loadingList(orders.filter(v => v.status !== 'delivered'));
+    const load = _loadingList(orders.filter(v => v.status !== 'delivered'), sizeOf);
     return `<div class="card" style="margin-bottom:16px;padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <div><div style="font-weight:800;font-size:15px">🚚 ${_esc(name)}</div><div style="font-size:11px;color:var(--tx3)">${orders.length} order(s) · ${fmt(total)} · COD to collect ${fmt(cod)} · ${delivered} delivered</div></div>
@@ -3168,7 +3189,7 @@ window.printTopSheet = function(onlyDm) {
         <td class="r">${fmt(amt)}</td><td class="r">${_isCod(v) ? fmt(amt) : '—'}</td>
         <td class="box"></td><td class="box"></td></tr>`;
     }).join('');
-    const load = _loadingList(orders);
+    const load = _loadingList(orders, t.sizeOf);
     return `<section>
       <div class="hd"><div><div class="co">${_esc(c.name || 'SAIRAH TRADING SDN BHD')}</div><div class="m">${_esc([c.addr1, c.city, c.phone].filter(Boolean).join(' · '))}</div></div>
         <div class="r"><div class="ti">DELIVERY TOP SHEET</div><div><b>${_esc(day)}</b></div></div></div>
