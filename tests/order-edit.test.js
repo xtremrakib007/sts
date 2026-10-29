@@ -78,7 +78,31 @@ test('top sheet: COD detection is case-insensitive and printing uses its own lig
   const pr = portal.slice(portal.indexOf('window.printTopSheet'), portal.indexOf('window.reloadTopSheet = async function() {\n  const date'));
   assert.match(pr, /@page\{size:A4 portrait/);
   assert.match(pr, /background:#fff/);
-  assert.match(pr, /LOADING SUMMARY/);
+  assert.match(pr, /PRODUCTS TO LOAD/);
   assert.match(pr, /column-count:3/, 'products summary packed in three columns');
   assert.doesNotMatch(pr, /<th>Items<\/th>/, 'outlet list shows no products');
+  assert.match(pr, /PRODUCTS TO LOAD — \$\{_esc\(name\)\}/, 'each delivery man has his own products summary');
+  assert.ok(pr.indexOf('PRODUCTS TO LOAD') < pr.indexOf('<table class="ol">'), 'summary sits together at the top of his page');
+  assert.doesNotMatch(read('public/portal/index.html'), /_combinedLoadHtml|all drivers/, 'no combined summary across drivers');
+});
+
+test('top sheet summary: same product across invoices adds up per delivery man', () => {
+  const portal = read('public/portal/index.html');
+  const src = portal.slice(portal.indexOf('const _prodKey ='), portal.indexOf('const _qtyText ='));
+  const _n = (v) => Number(v) || 0;
+  const load = new Function('_n', src + '; return _loadingList;')(_n);
+  // 10 invoices, each 1 ctn of 100PLUS 500ML (24 pcs per ctn).
+  const ten = Array.from({ length: 10 }, () => ({ items: [{ productId: 'p1', sku: 'P500', name: '100PLUS 500ML', qty: 24, ctnQty: 1, pcsQty: 0, ctnSize: 24 }] }));
+  assert.deepEqual(load(ten).map((l) => [l.name, l.ctn, l.pcs]), [['100PLUS 500ML', 10, 0]]);
+  // Lines missing the sku / id / carton size, or with different name spacing, still join.
+  const mixed = [
+    { items: [{ productId: 'p1', sku: 'P500', name: '100PLUS 500ML', qty: 24, ctnSize: 24 }] },
+    { items: [{ name: '100plus  500ml', qty: 24 }] },
+    { items: [{ sku: 'p500', name: '100PLUS 500ML', ctnQty: 1, pcsQty: 6 }] },
+  ];
+  assert.deepEqual(load(mixed).map((l) => [l.ctn, l.pcs]), [[3, 6]]);
+  // No carton size on any line: taken from the catalogue.
+  const noSize = Array.from({ length: 3 }, () => ({ items: [{ name: 'Milo 1kg', qty: 12 }] }));
+  assert.deepEqual(load(noSize, (it) => (it.name === 'Milo 1kg' ? 12 : 0)).map((l) => [l.ctn, l.pcs]), [[3, 0]]);
+  assert.match(portal, /_loadingList\(orders, t\.sizeOf\)/);
 });

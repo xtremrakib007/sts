@@ -3078,14 +3078,28 @@ async function renderTopSheet() {
 // date), one block per driver. Printing opens a clean light document, one
 // page per driver, so it prints the same whatever the screen theme.
 const _isCod = v => String(v.payTerms || 'COD').trim().toLowerCase() === 'cod';
-function _loadingList(orders) {
-  const t = {};
+// One line per product for a delivery man's orders: every invoice's
+// quantity of the same product added up (10 invoices × 1 ctn = 10 ctn).
+// Lines match on product id, SKU or name, so an invoice that is missing
+// one of them still joins the same line. The carton size comes from any
+// line that has it, else from the product catalogue (sizeOf).
+const _prodKey = v => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+function _loadingList(orders, sizeOf) {
+  const byKey = {}, rows = [];
   orders.forEach(v => (v.items || []).forEach(it => {
-    const k = it.sku || it.name;
-    const r = (t[k] = t[k] || { name: it.name, sku: it.sku || '', ctnSize: _n(it.ctnSize), qty: 0 });
-    r.qty += _n(it.qty);
+    const keys = [it.productId || it.pid ? 'id:' + (it.productId || it.pid) : '', it.sku ? 'sku:' + _prodKey(it.sku) : '', it.name ? 'name:' + _prodKey(it.name) : ''].filter(Boolean);
+    if (!keys.length) return;
+    let r = keys.map(k => byKey[k]).find(Boolean);
+    if (!r) { r = { name: it.name || it.sku || '', sku: it.sku || '', ctnSize: 0, qty: 0 }; rows.push(r); }
+    keys.forEach(k => { byKey[k] = r; });
+    if (!r.sku && it.sku) r.sku = it.sku;
+    const size = _n(it.ctnSize) || r.ctnSize || (sizeOf ? _n(sizeOf(it)) : 0);
+    if (size && !r.ctnSize) r.ctnSize = size;
+    // Pieces on the line; older lines may only carry cartons + loose pieces.
+    const pcs = _n(it.qty) || (_n(it.ctnQty) * (_n(it.ctnSize) || size) + _n(it.pcsQty));
+    r.qty += pcs;
   }));
-  return Object.values(t).sort((a, b) => String(a.name).localeCompare(String(b.name))).map(r => ({
+  return rows.sort((a, b) => String(a.name).localeCompare(String(b.name))).map(r => ({
     ...r, ctn: r.ctnSize ? Math.floor(r.qty / r.ctnSize) : 0, pcs: r.ctnSize ? r.qty % r.ctnSize : r.qty }));
 }
 
@@ -3096,11 +3110,18 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
   const body = document.getElementById('tsBody');
   if (!body) return;
   body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--tx3)">Loading…</div>';
-  const [ordSnap, collSnap, coSnap] = await Promise.all([
+  const [ordSnap, collSnap, coSnap, appProds, erpProds] = await Promise.all([
     getDocs(query(collection(_db, C('orders')), where('status', 'in', ['pending', 'processing', 'dispatched', 'delivered']))).catch(() => ({ docs: [] })),
     getDocs(collection(_db, C('collections'))).catch(() => ({ docs: [] })),
     getDoc(doc(_db, C('config'), 'company')).catch(() => null),
+    getDocs(collection(_db, 'products')).catch(() => ({ docs: [] })),
+    getDocs(collection(_db, C('products'))).catch(() => ({ docs: [] })),
   ]);
+  // Carton sizes from the catalogue, for invoice lines that did not record one.
+  const sizes = {};
+  [...erpProds.docs, ...appProds.docs].forEach(d => { const p = d.data(), z = _n(p.ctnSize ?? p.ctn_size); if (!z) return;
+    ['id:' + d.id, p.sku ? 'sku:' + _prodKey(p.sku) : '', p.name ? 'name:' + _prodKey(p.name) : ''].filter(Boolean).forEach(k => { sizes[k] = z; }); });
+  const sizeOf = it => sizes['id:' + (it.productId || it.pid)] || (it.sku && sizes['sku:' + _prodKey(it.sku)]) || (it.name && sizes['name:' + _prodKey(it.name)]) || 0;
   const collByOrder = {};
   collSnap.docs.forEach(d => { const c = d.data(); const ref = c.orderRef || c.linkedOrderId || ''; if (ref && c.status !== 'rejected') collByOrder[ref] = (collByOrder[ref] || 0) + _n(c.amount); });
   const groups = {};
@@ -3113,7 +3134,7 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
     (groups[dm] = groups[dm] || []).push(v);
   });
   Object.values(groups).forEach(list => list.sort((a, b) => String(a.outletRoute || '').localeCompare(String(b.outletRoute || '')) || String(a.customer || '').localeCompare(String(b.customer || ''))));
-  window.__tsData = { dateStr, groups, dmMap, collByOrder, company: coSnap && coSnap.exists() ? coSnap.data() : {} };
+  window.__tsData = { dateStr, groups, dmMap, collByOrder, sizeOf, company: coSnap && coSnap.exists() ? coSnap.data() : {} };
   const ids = Object.keys(groups).sort((a, b) => (a === 'unassigned') - (b === 'unassigned') || String(dmMap[a] || a).localeCompare(String(dmMap[b] || b)));
   if (!ids.length) {
     body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--tx3)"><div style="font-size:32px;margin-bottom:10px">📋</div>
@@ -3134,13 +3155,16 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
         <td style="text-align:right;font-family:'DM Mono',monospace">${_isCod(v) ? fmt(amt) : '—'}</td>
         <td>${badgeStatus(v.status === 'delivered' ? (v.deliveryStatus || 'delivered') : v.status)}</td></tr>`;
     }).join('');
-    const load = _loadingList(orders.filter(v => v.status !== 'delivered'));
+    const load = _loadingList(orders.filter(v => v.status !== 'delivered'), sizeOf);
     return `<div class="card" style="margin-bottom:16px;padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <div><div style="font-weight:800;font-size:15px">🚚 ${_esc(name)}</div><div style="font-size:11px;color:var(--tx3)">${orders.length} order(s) · ${fmt(total)} · COD to collect ${fmt(cod)} · ${delivered} delivered</div></div>
         <button class="btn btn-primary" onclick="printTopSheet('${_esc(dm)}')">🖨️ Print this driver</button></div>
+      ${load.length ? `<div style="margin:0 0 10px;border:1px solid var(--bdr);border-radius:10px;padding:10px 12px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px">📦 Products to load — ${load.length} products · ${_loadTotals(load)}</div>
+        <div style="columns:3 220px;column-gap:18px;font-size:12px">${load.map(l => `<div style="display:flex;justify-content:space-between;gap:8px;break-inside:avoid;padding:2px 0;border-bottom:1px dashed var(--bdr)"><span>${_esc(l.name)}</span><strong style="white-space:nowrap">${_qtyText(l)}</strong></div>`).join('')}</div></div>` : ''}
       <div class="twrap"><table><thead><tr><th>#</th><th>Invoice / Order</th><th>Customer</th><th>Terms</th><th style="text-align:right">Amount</th><th style="text-align:right">COD</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
-      ${load.length ? `<div style="font-size:11px;color:var(--tx3);margin-top:8px"><strong>Load (${load.length} products · ${_loadTotals(load)}):</strong> ${load.map(l => `${_esc(l.name)} <b>${_qtyText(l)}</b>`).join(' · ')}</div>` : ''}
+
     </div>`;
   }).join('');
 }
@@ -3165,16 +3189,16 @@ window.printTopSheet = function(onlyDm) {
         <td class="r">${fmt(amt)}</td><td class="r">${_isCod(v) ? fmt(amt) : '—'}</td>
         <td class="box"></td><td class="box"></td></tr>`;
     }).join('');
-    const load = _loadingList(orders);
+    const load = _loadingList(orders, t.sizeOf);
     return `<section>
       <div class="hd"><div><div class="co">${_esc(c.name || 'SAIRAH TRADING SDN BHD')}</div><div class="m">${_esc([c.addr1, c.city, c.phone].filter(Boolean).join(' · '))}</div></div>
         <div class="r"><div class="ti">DELIVERY TOP SHEET</div><div><b>${_esc(day)}</b></div></div></div>
       <div class="meta"><div>Driver: <b>${_esc(name)}</b></div><div>Vehicle no.: ____________</div><div>Orders: <b>${orders.length}</b></div><div>Total: <b>${fmt(total)}</b></div><div>COD to collect: <b>${fmt(cod)}</b></div></div>
+      <div class="load"><div class="lh"><b>PRODUCTS TO LOAD — ${_esc(name)}</b> — ${load.length} product${load.length === 1 ? '' : 's'} · ${_loadTotals(load)} <span class="m">(tick when loaded)</span></div>
+        <div class="cols">${load.map(l => `<div class="li"><span class="tk"></span><span class="ln2">${_esc(l.name)}</span><b>${_qtyText(l)}</b></div>`).join('')}</div></div>
       <table class="ol"><thead><tr><th>#</th><th>Invoice</th><th>Outlet / Address</th><th>Terms</th><th class="r">Amount</th><th class="r">COD</th><th>Cash recv.</th><th>Sign / chop</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr><td colspan="4" class="r"><b>TOTAL</b></td><td class="r"><b>${fmt(total)}</b></td><td class="r"><b>${fmt(cod)}</b></td><td></td><td></td></tr></tfoot></table>
-      <div class="load"><div class="lh"><b>LOADING SUMMARY</b> — ${load.length} product${load.length === 1 ? '' : 's'} · ${_loadTotals(load)} <span class="m">(tick when loaded)</span></div>
-        <div class="cols">${load.map(l => `<div class="li"><span class="tk"></span><span class="ln2">${_esc(l.name)}</span><b>${_qtyText(l)}</b></div>`).join('')}</div></div>
       <div class="foot">
 
         <div class="panel"><b>Cash reconciliation</b>
@@ -3192,9 +3216,9 @@ window.printTopSheet = function(onlyDm) {
     thead{display:table-header-group}tr{page-break-inside:avoid}.r{text-align:right}.c{text-align:center}.m{color:#444;font-size:10px}.s{font-size:10px}
     .ol td{padding:3px 4px;font-size:10.5px}.ol .m{font-size:9px}.one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}.nw{white-space:nowrap}
     td.box{width:72px;height:24px}
-    .load{border:1px solid #444;margin-top:8px;padding:5px 6px;page-break-inside:avoid}.lh{font-size:11px;margin-bottom:4px}
+    .load{border:1px solid #444;margin:0 0 8px;padding:5px 6px;page-break-inside:avoid}.lh{font-size:11px;margin-bottom:4px}
     .cols{column-count:3;column-gap:12px;font-size:10px}.li{display:flex;gap:4px;align-items:center;break-inside:avoid;border-bottom:1px dotted #bbb;padding:1.5px 0}
-    .li .ln2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tk{width:9px;height:9px;border:1px solid #444;flex-shrink:0}
+    .li .ln2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tk{display:inline-block;width:9px;height:9px;border:1px solid #444;flex-shrink:0}
     .foot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;page-break-inside:avoid}.panel{border:1px solid #444;padding:5px 6px}
     .ln{display:flex;justify-content:space-between;border-bottom:1px dotted #888;padding:3px 0}.sig{border-bottom:1px solid #000;height:22px;margin-top:4px;font-size:9.5px;padding-top:12px}
     </style></head><body>${pages}<script>window.onload=()=>window.print()<\/script></body></html>`);
