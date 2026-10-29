@@ -1198,9 +1198,10 @@
                     style="display:none;position:relative;padding:7px 14px;gap:6px">🛒 <span
                         id="ocCartCount">0</span></button>
             </div>
-            <div style="padding:8px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);flex-shrink:0"><input
-                    id="ocSearch" class="finp" placeholder="🔍 Search products by name or category..."
-                    style="margin:0;font-size:14px;padding:9px 13px" oninput="ocSearchProducts()"></div>
+            <div class="oc-searchrow"><input
+                    id="ocSearch" class="finp" placeholder="🔍 Search products..."
+                    style="margin:0;font-size:14px;padding:9px 13px" oninput="ocSearchProducts()"><select
+                    id="ocCatSel" class="finp" aria-label="Category" onchange="ocSetCat(this.value)"><option value="">All categories</option></select></div>
             <div id="ocCatBar"
                 style="display:flex;gap:8px;overflow-x:auto;padding:10px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);flex-shrink:0;-webkit-overflow-scrolling:touch;scrollbar-width:none">
             </div>

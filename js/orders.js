@@ -248,6 +248,7 @@ function ocGoProducts(){
   document.getElementById('ocStep1').style.display='none';
   document.getElementById('ocStep2').style.display='flex';
   const srch=document.getElementById('ocSearch');if(srch)srch.value='';
+  _ocCatFilter='';
   const bar=document.getElementById('ocCatBar');if(bar)bar.style.display='flex';
   ocRenderCatalog();
 }
@@ -269,9 +270,19 @@ function ocBackToProducts(){
   document.getElementById('ocStep3').style.display='none';
   document.getElementById('ocStep2').style.display='flex';
   const srch=document.getElementById('ocSearch');if(srch)srch.value='';
+  _ocCatFilter='';
   const bar=document.getElementById('ocCatBar');if(bar)bar.style.display='flex';
   ocRenderCatalog();
   ocUpdateCartBtn();
+}
+
+let _ocCatFilter = ''; // category picked in the dropdown ('' = all)
+
+function ocSetCat(cat) {
+  _ocCatFilter = cat || '';
+  const sel = document.getElementById('ocCatSel'); if (sel) sel.value = _ocCatFilter;
+  ocSearchProducts();
+  document.getElementById('ocProductList')?.scrollTo({ top: 0 });
 }
 
 function ocSearchProducts() {
@@ -279,6 +290,7 @@ function ocSearchProducts() {
   if (!q) { ocRenderCatalog(); return; }
   const matches = allProducts.filter(p =>
     p.stockStatus !== 'out_of_stock' &&
+    (!_ocCatFilter || (p.category || 'Other') === _ocCatFilter) &&
     (p.name?.toLowerCase().includes(q) ||
      p.category?.toLowerCase().includes(q) ||
      p.unit?.toLowerCase().includes(q))
@@ -300,11 +312,21 @@ function ocRenderCatalog(){
     if(!grouped[c])grouped[c]=[];
     grouped[c].push(p);
   });
-  const cats=Object.keys(grouped).sort();
+  const allCats=Object.keys(grouped).sort();
+  if(_ocCatFilter&&!grouped[_ocCatFilter])_ocCatFilter='';
+  const cats=_ocCatFilter?[_ocCatFilter]:allCats;
+
+  const sel=document.getElementById('ocCatSel');
+  if(sel){
+    sel.innerHTML=`<option value="">All categories (${available.length})</option>`+
+      allCats.map(c=>`<option value="${escH(c)}">${escH(c)} (${grouped[c].length})</option>`).join('');
+    sel.value=_ocCatFilter;
+  }
 
   const bar=document.getElementById('ocCatBar');
-  bar.innerHTML=`<button class="oc-cat-pill active" id="ocCat-all" onclick="ocScrollToAll()">🏷️ All</button>`+
-    cats.map(c=>`<button class="oc-cat-pill" id="ocCat-${CSS.escape(c)}" onclick="ocScrollToCat('${c.replace(/'/g,"\\'")}')">
+  bar.style.display='flex';
+  bar.innerHTML=`<button class="oc-cat-pill${_ocCatFilter?'':' active'}" id="ocCat-all" onclick="ocScrollToAll()">🏷️ All</button>`+
+    allCats.map(c=>`<button class="oc-cat-pill${c===_ocCatFilter?' active':''}" id="ocCat-${CSS.escape(c)}" onclick="ocScrollToCat('${c.replace(/'/g,"\\'")}')">
       ${getCatEmoji(c)} ${c} <span style="font-size:10px;opacity:.6">${grouped[c].length}</span>
     </button>`).join('');
 
@@ -570,12 +592,14 @@ function getCatEmoji(cat){
 }
 
 function ocScrollToCat(cat){
+  if(_ocCatFilter){ocSetCat(cat);return;}
   const id='ocSec-'+cat.replace(/\s+/g,'_');
   const el=document.getElementById(id);
   if(el)el.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 function ocScrollToAll(){
+  if(_ocCatFilter){ocSetCat('');return;}
   document.getElementById('ocProductList').scrollTo({top:0,behavior:'smooth'});
 }
 

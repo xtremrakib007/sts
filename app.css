@@ -145,3 +145,8 @@
 .olpv-tabs{position:absolute;bottom:calc(20px + env(safe-area-inset-bottom,0px));display:flex;gap:8px}
 .olpv-tabs button{border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer}
 .olpv-tabs button.on{background:#16a34a;border-color:#16a34a}
+
+/* Order picker: search + category dropdown */
+.oc-searchrow{display:flex;gap:8px;padding:8px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.oc-searchrow #ocSearch{flex:1 1 auto;min-width:0}
+.oc-searchrow #ocCatSel{flex:0 1 42%;min-width:0;margin:0;font-size:13px;padding:9px 8px}
