@@ -14,6 +14,7 @@ async function loadCollections() {
   const today=todayStr();
   const todayT=cols.filter(c=>c.date===today).reduce((s,c)=>s+c.amount,0);
   const cash=cols.filter(c=>c.mode==='Cash').reduce((s,c)=>s+c.amount,0);
+  loadOutletDues();
   document.getElementById('colSummary').innerHTML=`
     <div class="cs-card"><div class="cs-v" style="color:var(--acc)">${fmt(total)}</div><div class="cs-l">Total Collected</div></div>
     <div class="cs-card"><div class="cs-v" style="color:var(--grn)">${fmt(todayT)}</div><div class="cs-l">Today's Collection</div></div>
@@ -52,6 +53,36 @@ async function openNewCollection(outletId='') {
 function _orderAmountDue(o){
   const base=o.deliveredTotal!=null?Number(o.deliveredTotal):Number(o.total);
   return Math.max(0,(base||0)-(Number(o.returnedTotal)||0));
+}
+
+// ── Outlet dues: what each outlet still owes, largest first ──────────
+// A salesman sees their own outlets; admins see every outlet with its rep.
+let _duesShowAll = false;
+async function loadOutletDues() {
+  const box = document.getElementById('colDues');
+  if (!box) return;
+  const [ordD, colD] = await Promise.all([sfGet('orders'), sfGet('collections')]);
+  const owed = {}, paid = {}, oldest = {};
+  ordD.forEach(d => { const o = d.data(); if (!o.outletId || o.status === 'Cancelled') return;
+    owed[o.outletId] = (owed[o.outletId] || 0) + _orderAmountDue(o);
+    if (o.date && (!oldest[o.outletId] || o.date < oldest[o.outletId])) oldest[o.outletId] = o.date; });
+  colD.forEach(d => { const c = d.data(); if (c.outletId) paid[c.outletId] = (paid[c.outletId] || 0) + (Number(c.amount) || 0); });
+  const mine = isAdmin() ? allOutlets : allOutlets.filter(o => o.createdBy === CU.uid || o.assignedRepId === CU.uid);
+  const rows = mine.map(o => ({ o, due: Math.round(Math.max(0, (owed[o.id] || 0) - (paid[o.id] || 0) + (o.balanceStatus === 'approved' ? Number(o.openingBalance) || 0 : 0)) * 100) / 100 }))
+    .filter(r => r.due > 0).sort((a, b) => b.due - a.due);
+  if (!rows.length) { box.innerHTML = '<div class="dues-box dues-clear">✅ No outlet dues — everything is collected.</div>'; return; }
+  const total = rows.reduce((s, r) => s + r.due, 0);
+  const shown = _duesShowAll ? rows : rows.slice(0, 5);
+  const days = d => d ? Math.max(0, Math.round((Date.now() - Date.parse(d)) / 86400e3)) : null;
+  box.innerHTML = `<div class="dues-box">
+    <div class="dues-hd"><div><div class="dues-t">🧾 Outlet dues</div><div class="dues-s">${rows.length} outlet${rows.length > 1 ? 's' : ''} to collect from</div></div><div class="dues-tot">${fmt(total)}</div></div>
+    ${shown.map(({ o, due }) => { const age = days(oldest[o.id]); return `<div class="dues-row">
+      <div class="dues-info"><div class="dues-n">${escH(o.name)}</div>
+        <div class="dues-m">${isAdmin() ? escH(userName(o.assignedRepId || o.createdBy)) + ' · ' : ''}${age != null ? `since ${age} day${age === 1 ? '' : 's'}` : ''}${o.phone ? ` · <a href="tel:${escH(o.phone)}">📞 Call</a>` : ''}</div></div>
+      <div class="dues-amt">${fmt(due)}</div>
+      <button class="btn btn-primary btn-xs" onclick="openNewCollection('${o.id}')">Collect</button></div>`; }).join('')}
+    ${rows.length > 5 ? `<button class="btn btn-ghost btn-sm dues-more" onclick="_duesShowAll=!_duesShowAll;loadOutletDues()">${_duesShowAll ? 'Show less' : `Show all ${rows.length}`}</button>` : ''}
+  </div>`;
 }
 
 // Pending balance state

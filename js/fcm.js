@@ -139,6 +139,10 @@ function _navigateToScreen(screen) {
     showPage(screen);
     return;
   }
+  if (typeof goPage === 'function' && CU) {
+    try { goPage(screen); } catch (e) { console.warn('[FCM] goPage', screen, e.message); }
+    return;
+  }
   // Fallback: check ?screen= on page URL (app closed → reopened)
   const url = new URL(window.location.href);
   if (url.searchParams.get('screen')) {
