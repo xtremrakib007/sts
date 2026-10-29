@@ -868,7 +868,7 @@ async function autoFillAddress() {
     try {
       // zoom=18 = building level; addressdetails=1 gives structured fields; namedetails=1 gives building name
       const url=`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&namedetails=1&zoom=18`;
-      const resp=await fetch(url,{headers:{'Accept-Language':'en','User-Agent':'STFM-App'}});
+      const resp=await fetch(url,{headers:{'Accept-Language':'en','User-Agent':'STSB-App'}});
       const json=await resp.json();
       if(json&&json.address){
         const a=json.address;

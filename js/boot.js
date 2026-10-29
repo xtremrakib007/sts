@@ -305,7 +305,7 @@ async function exportOrders() {
       o.status||'', o._zoneName||zoneLabel
     ]);
   });
-  _downloadCSV(rows, `STFM_Orders_${zoneLabel}_${todayStr()}.csv`);
+  _downloadCSV(rows, `STSB_Orders_${zoneLabel}_${todayStr()}.csv`);
 }
 
 async function exportOutlets() {
@@ -320,7 +320,7 @@ async function exportOutlets() {
       o.lat||'', o.lng||'', o._zoneName||zoneLabel
     ]);
   });
-  _downloadCSV(rows, `STFM_Outlets_${zoneLabel}_${todayStr()}.csv`);
+  _downloadCSV(rows, `STSB_Outlets_${zoneLabel}_${todayStr()}.csv`);
 }
 
 async function exportCollections() {
@@ -336,7 +336,7 @@ async function exportCollections() {
       c._zoneName||zoneLabel
     ]);
   });
-  _downloadCSV(rows, `STFM_Collections_${zoneLabel}_${todayStr()}.csv`);
+  _downloadCSV(rows, `STSB_Collections_${zoneLabel}_${todayStr()}.csv`);
 }
 
 async function exportReport() {
@@ -355,7 +355,7 @@ async function exportReport() {
   orders.forEach(o=> ordRows.push(['Order', o.id||'', outletName(o.outletId), userName(o.createdBy), (o.total||0).toFixed(2), o.date||'', o.status||'', o._zoneName||zoneLabel]));
   cols.forEach(c=> ordRows.push(['Collection', c.id||'', outletName(c.outletId), userName(c.createdBy), (c.amount||0).toFixed(2), c.date||'', c.mode||'', c._zoneName||zoneLabel]));
 
-  _downloadCSV(ordRows, `STFM_Report_${activeRpt}_${zoneLabel}_${todayStr()}.csv`);
+  _downloadCSV(ordRows, `STSB_Report_${activeRpt}_${zoneLabel}_${todayStr()}.csv`);
 }
 
 async function exportMonitoring() {
@@ -368,7 +368,7 @@ async function exportMonitoring() {
   visits.forEach(v=>{
     rows.push([v.date||'', v.createdByName||'', v.outletName||outletName(v.outletId), v.reason||'', v.notes||'', v._zoneName||zoneLabel]);
   });
-  _downloadCSV(rows, `STFM_NPVisits_Today_${zoneLabel}_${todayStr()}.csv`);
+  _downloadCSV(rows, `STSB_NPVisits_Today_${zoneLabel}_${todayStr()}.csv`);
 }
 
 // ── Smart cache: skip Firestore if data is < TTL ms old ─────────────────────

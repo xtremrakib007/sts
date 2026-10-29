@@ -4,7 +4,7 @@
 #   and attaches it to the run (Actions → this run → Artifacts).
 # - With the signing secrets set (see BUILD-GUIDE.md), builds are signed
 #   release APKs, and merges to main also publish a GitHub Release with
-#   stfm-sales.apk. Without them, a debug APK is built for testing.
+#   STSB.apk. Without them, a debug APK is built for testing.
 # - Day-to-day code changes reach phones over the air; a new APK is only
 #   needed for native changes (new plugin, permission or Android code).
 name: Android APK
@@ -82,17 +82,17 @@ jobs:
           chmod +x gradlew
           if [ -n "${STFM_KEYSTORE_FILE:-}" ]; then
             ./gradlew --no-daemon assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk ../stfm-sales.apk
+            cp app/build/outputs/apk/release/app-release.apk ../STSB.apk
           else
             ./gradlew --no-daemon assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk ../stfm-sales-debug.apk
+            cp app/build/outputs/apk/debug/app-debug.apk ../STSB-debug.apk
           fi
 
       - name: Attach APK to this run
         uses: actions/upload-artifact@v4
         with:
-          name: stfm-sales-apk
-          path: stfm-sales*.apk
+          name: STSB-apk
+          path: STSB*.apk
           retention-days: 30
 
       - name: Publish release (signed builds of main only)
@@ -102,7 +102,7 @@ jobs:
         run: |
           version=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
           code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
-          gh release create "apk-v${version}-${{ github.run_number }}" stfm-sales.apk \
+          gh release create "apk-v${version}-${{ github.run_number }}" STSB.apk \
             --title "STSB ${version} (build ${code}, run ${{ github.run_number }})" \
             --notes "Android app built from ${GITHUB_SHA::7}. Install over the existing app; later code updates arrive over the air." \
             --latest

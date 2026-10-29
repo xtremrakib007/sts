@@ -39,7 +39,7 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[SW] Background push received:', payload);
 
-  const title = payload.notification?.title || payload.data?.title || 'STFM';
+  const title = payload.notification?.title || payload.data?.title || 'STSB';
   const body  = payload.notification?.body  || payload.data?.body  || '';
   const icon  = payload.notification?.icon  || '/icon-192.png';
   const data  = payload.data || {};

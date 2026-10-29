@@ -1,6 +1,6 @@
 @echo off
 echo ╔══════════════════════════════════════════════╗
-echo ║     STFM Sales - Android APK Setup           ║
+echo ║     STSB - Android APK Setup                 ║
 echo ╚══════════════════════════════════════════════╝
 echo.
 

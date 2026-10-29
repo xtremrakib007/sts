@@ -243,15 +243,15 @@ Use your STFM green logo on dark background (#0f172a).
 
 - **Every merge to `main`** (and every PR that touches the app) builds an APK.
   Download it from **GitHub → Actions → Android APK → the run → Artifacts →
-  `stfm-sales-apk`**. You can also start a build by hand: **Actions → Android
+  `STSB-apk`**. You can also start a build by hand: **Actions → Android
   APK → Run workflow**.
-- **Without signing secrets** it builds `stfm-sales-debug.apk` — fine for
+- **Without signing secrets** it builds `STSB-debug.apk` — fine for
   testing, but a debug APK cannot replace a release-signed app already on a
   phone (Android asks to uninstall first).
-- **With signing secrets** it builds a signed `stfm-sales.apk`, and merges to
+- **With signing secrets** it builds a signed `STSB.apk`, and merges to
   `main` also publish it as a **GitHub Release**. Staff can then always get
   the latest app from
-  `https://github.com/xtremrakib007/sts/releases/latest/download/stfm-sales.apk`
+  `https://github.com/xtremrakib007/sts/releases/latest/download/STSB.apk`
   (put this link in `package.json` → `stfm.apkUrl` so the in-app "install
   the new app" banner shows a Download button). The repository is public,
   so anyone with the link can download the APK.
