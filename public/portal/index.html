@@ -592,7 +592,7 @@ body.store-mode .adm-only{display:none!important}
 <script defer src="/vendor/write-excel-file.js"></script>
 <script type="module">
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs as _fsGetDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ═══════════════════════════════════════════
@@ -807,6 +807,8 @@ window.doLogin = async function() {
     } catch(e) { err.textContent = 'Firebase init error: ' + e.message; return; }
   }
   try {
+    // Stay signed in until the user signs out (no expiry on close/reload).
+    await setPersistence(_auth, browserLocalPersistence).catch(() => {});
     await signInWithEmailAndPassword(_auth, email, pwd);
   } catch(ex) {
     err.textContent = ex.message.replace('Firebase: ','');
