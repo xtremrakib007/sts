@@ -150,3 +150,37 @@
 .oc-searchrow{display:flex;gap:8px;padding:8px 14px;background:var(--s1);border-bottom:1px solid var(--bdr);flex-shrink:0}
 .oc-searchrow #ocSearch{flex:1 1 auto;min-width:0}
 .oc-searchrow #ocCatSel{flex:0 1 42%;min-width:0;margin:0;font-size:13px;padding:9px 8px}
+
+/* Fit the phone screen: the page area fills the width beside the sidebar
+   (it used to shrink to its content), and nothing pushes it wider. */
+#app>.main{flex:1 1 0;min-width:0}
+.pcontent,.page{min-width:0;max-width:100%}
+@media (max-width:600px){
+  .page-hdr{flex-wrap:wrap}
+  .page-hdr>.page-hdr-info~div{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-end}
+  .fbar{flex-direction:column;align-items:stretch}
+  .fbar>*{width:100%!important;min-width:0!important;max-width:100%}
+  .col-sum{grid-template-columns:1fr!important;gap:8px}
+  .col-sum .cs-card{display:flex;justify-content:space-between;align-items:center;text-align:left;padding:12px 14px}
+  .col-sum .cs-v{font-size:18px;margin-bottom:0}
+}
+/* Phone: table rows become cards (label on the left, value on the right),
+   so lists fit the screen instead of scrolling sideways. js/ui.js copies
+   each column heading onto its cells as data-label. */
+@media (max-width:600px){
+  .twrap{overflow-x:visible}
+  .twrap table,.twrap tbody{display:block;width:100%}
+  .twrap thead{display:none}
+  .twrap tr{display:block;border:1px solid var(--bdr);border-radius:12px;padding:6px 12px;margin-bottom:10px;background:var(--s1)}
+  .twrap td{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px 8px;width:auto!important;max-width:none!important;padding:7px 0!important;border:0!important;border-bottom:1px dashed var(--bdr2)!important;text-align:right;white-space:normal;min-width:0}
+  .twrap td:last-child{border-bottom:0!important}
+  .twrap td::before{content:attr(data-label);flex-shrink:0;margin-right:auto;text-align:left;font-size:11px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.4px}
+  .twrap td[colspan]{display:block;text-align:center}
+  .twrap td[colspan]::before,.twrap td:not([data-label])::before,.twrap td[data-label=""]::before{content:none}
+  .twrap td>*{max-width:100%}
+}
+@media (max-width:400px){
+  .olx-actions{gap:4px;flex-wrap:nowrap}
+  .olx-btn{padding:0 6px;font-size:11.5px;height:36px;border-radius:10px}
+  .olx-btn.del,.olx-btn.more{flex:0 0 34px}
+}
