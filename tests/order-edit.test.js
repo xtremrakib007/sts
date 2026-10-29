@@ -76,7 +76,9 @@ test('top sheet: COD detection is case-insensitive and printing uses its own lig
   assert.doesNotMatch(portal, /payTerms === 'cod'|payTerms !== 'cod'/);
   assert.doesNotMatch(portal, /#tsBody > div:first-child \{ display:none/, 'old print CSS hid the whole sheet');
   const pr = portal.slice(portal.indexOf('window.printTopSheet'), portal.indexOf('window.reloadTopSheet = async function() {\n  const date'));
-  assert.match(pr, /@page\{size:A4 landscape/);
+  assert.match(pr, /@page\{size:A4 portrait/);
   assert.match(pr, /background:#fff/);
-  assert.match(pr, /Loading list/);
+  assert.match(pr, /LOADING SUMMARY/);
+  assert.match(pr, /column-count:3/, 'products summary packed in three columns');
+  assert.doesNotMatch(pr, /<th>Items<\/th>/, 'outlet list shows no products');
 });
