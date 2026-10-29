@@ -3120,7 +3120,20 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
       <div>No orders scheduled for ${_esc(dateStr)}. Assign drivers and dates in the Delivery Planner.</div></div>`;
     return;
   }
-  body.innerHTML = ids.map(dm => {
+  // Several drivers: one products summary for all their orders, on top.
+  let sumCard = '';
+  if (ids.length > 1) {
+    const pending = ids.map(dm => ({ dm, orders: groups[dm].filter(v => v.status !== 'delivered') }));
+    const all = _loadingList(pending.flatMap(p => p.orders));
+    const per = pending.map(p => { const m = {}; _loadingList(p.orders).forEach(l => { m[l.sku || l.name] = l; }); return m; });
+    const names = ids.map(dm => dm === 'unassigned' ? 'No driver' : (dmMap[dm] || groups[dm][0].deliveryManName || dm));
+    if (all.length) sumCard = `<div class="card" style="margin-bottom:16px;padding:14px">
+      <div style="font-weight:800;font-size:15px;margin-bottom:2px">📦 Products summary — all drivers</div>
+      <div style="font-size:11px;color:var(--tx3);margin-bottom:10px">${all.length} products · ${_loadTotals(all)} to load for ${pending.reduce((s, p) => s + p.orders.length, 0)} undelivered order(s)</div>
+      <div class="twrap"><table><thead><tr><th>Product</th>${names.map(n => `<th style="text-align:right">${_esc(n)}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
+      <tbody>${all.map(l => `<tr><td>${_esc(l.name)}</td>${per.map(m => `<td style="text-align:right;white-space:nowrap">${m[l.sku || l.name] ? _qtyText(m[l.sku || l.name]) : '—'}</td>`).join('')}<td style="text-align:right;white-space:nowrap"><strong>${_qtyText(l)}</strong></td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  body.innerHTML = sumCard + ids.map(dm => {
     const orders = groups[dm], name = dm === 'unassigned' ? '— No driver assigned —' : (dmMap[dm] || orders[0].deliveryManName || dm);
     let total = 0, cod = 0, delivered = 0;
     const rows = orders.map((v, i) => {
@@ -3140,9 +3153,28 @@ async function _buildTopSheetBody(dateStr, repFilterUid, dmMap) {
         <div><div style="font-weight:800;font-size:15px">🚚 ${_esc(name)}</div><div style="font-size:11px;color:var(--tx3)">${orders.length} order(s) · ${fmt(total)} · COD to collect ${fmt(cod)} · ${delivered} delivered</div></div>
         <button class="btn btn-primary" onclick="printTopSheet('${_esc(dm)}')">🖨️ Print this driver</button></div>
       <div class="twrap"><table><thead><tr><th>#</th><th>Invoice / Order</th><th>Customer</th><th>Terms</th><th style="text-align:right">Amount</th><th style="text-align:right">COD</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
-      ${load.length ? `<div style="font-size:11px;color:var(--tx3);margin-top:8px"><strong>Load (${load.length} products · ${_loadTotals(load)}):</strong> ${load.map(l => `${_esc(l.name)} <b>${_qtyText(l)}</b>`).join(' · ')}</div>` : ''}
+      ${load.length && ids.length === 1 ? `<div style="font-size:11px;color:var(--tx3);margin-top:8px"><strong>Load (${load.length} products · ${_loadTotals(load)}):</strong> ${load.map(l => `${_esc(l.name)} <b>${_qtyText(l)}</b>`).join(' · ')}</div>` : ''}
     </div>`;
   }).join('');
+}
+
+// All drivers' products in one table: product, each driver's quantity,
+// and the total to pick. With many drivers only the total is shown.
+function _combinedLoadHtml(drivers, c, day) {
+  const all = _loadingList(drivers.flatMap(d => d.orders));
+  const per = drivers.map(d => { const m = {}; _loadingList(d.orders).forEach(l => { m[l.sku || l.name] = l; }); return m; });
+  const showPer = drivers.length <= 5;
+  const nOrders = drivers.reduce((s, d) => s + d.orders.length, 0);
+  const head = `<tr><th></th><th>Product</th>${showPer ? drivers.map(d => `<th class="r">${_esc(d.name)}</th>`).join('') : ''}<th class="r">Total</th></tr>`;
+  const rows = all.map(l => `<tr><td class="tk2"><span class="tk"></span></td><td>${_esc(l.name)}</td>${showPer ? per.map(m => `<td class="q">${m[l.sku || l.name] ? _qtyText(m[l.sku || l.name]) : '—'}</td>`).join('') : ''}<td class="q tot">${_qtyText(l)}</td></tr>`).join('');
+  const table = `<table class="sum"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  return `<section>
+    <div class="hd"><div><div class="co">${_esc(c.name || 'SAIRAH TRADING SDN BHD')}</div><div class="m">${_esc([c.addr1, c.city, c.phone].filter(Boolean).join(' · '))}</div></div>
+      <div class="r"><div class="ti">LOADING SUMMARY</div><div><b>${_esc(day)}</b></div></div></div>
+    <div class="meta"><div>All assigned orders: <b>${nOrders}</b></div><div>Drivers: <b>${drivers.length}</b></div><div>Products: <b>${all.length}</b></div><div>Total: <b>${_loadTotals(all)}</b></div></div>
+    ${showPer ? table : `<div class="sum2">${table}</div>`}
+    <div class="foot"><div class="panel"><div class="sig">Picked by</div></div><div class="panel"><div class="sig">Checked by (store) / time</div></div></div>
+  </section>`;
 }
 
 window.printTopSheet = function(onlyDm) {
@@ -3152,6 +3184,11 @@ window.printTopSheet = function(onlyDm) {
   if (!w) { showToast('Allow pop-ups to print', 'warn'); return; }
   const day = new Date(t.dateStr + 'T00:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const ids = Object.keys(t.groups).filter(dm => !onlyDm || dm === onlyDm);
+  // Printing every driver: one combined products summary for all assigned
+  // orders (with each driver's share), instead of one per driver page.
+  const combined = ids.length > 1;
+  const dmName = dm => dm === 'unassigned' ? 'No driver' : (t.dmMap[dm] || t.groups[dm][0].deliveryManName || dm);
+  const summary = combined ? _combinedLoadHtml(ids.map(dm => ({ name: dmName(dm), orders: t.groups[dm] })), c, day) : '';
   const pages = ids.map(dm => {
     const orders = t.groups[dm], name = dm === 'unassigned' ? 'NO DRIVER ASSIGNED' : (t.dmMap[dm] || orders[0].deliveryManName || dm);
     let total = 0, cod = 0, credit = 0;
@@ -3173,8 +3210,8 @@ window.printTopSheet = function(onlyDm) {
       <table class="ol"><thead><tr><th>#</th><th>Invoice</th><th>Outlet / Address</th><th>Terms</th><th class="r">Amount</th><th class="r">COD</th><th>Cash recv.</th><th>Sign / chop</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr><td colspan="4" class="r"><b>TOTAL</b></td><td class="r"><b>${fmt(total)}</b></td><td class="r"><b>${fmt(cod)}</b></td><td></td><td></td></tr></tfoot></table>
-      <div class="load"><div class="lh"><b>LOADING SUMMARY</b> — ${load.length} product${load.length === 1 ? '' : 's'} · ${_loadTotals(load)} <span class="m">(tick when loaded)</span></div>
-        <div class="cols">${load.map(l => `<div class="li"><span class="tk"></span><span class="ln2">${_esc(l.name)}</span><b>${_qtyText(l)}</b></div>`).join('')}</div></div>
+      ${!combined ? `<div class="load"><div class="lh"><b>LOADING SUMMARY</b> — ${load.length} product${load.length === 1 ? '' : 's'} · ${_loadTotals(load)} <span class="m">(tick when loaded)</span></div>
+        <div class="cols">${load.map(l => `<div class="li"><span class="tk"></span><span class="ln2">${_esc(l.name)}</span><b>${_qtyText(l)}</b></div>`).join('')}</div></div>` : ''}
       <div class="foot">
 
         <div class="panel"><b>Cash reconciliation</b>
@@ -3194,10 +3231,12 @@ window.printTopSheet = function(onlyDm) {
     td.box{width:72px;height:24px}
     .load{border:1px solid #444;margin-top:8px;padding:5px 6px;page-break-inside:avoid}.lh{font-size:11px;margin-bottom:4px}
     .cols{column-count:3;column-gap:12px;font-size:10px}.li{display:flex;gap:4px;align-items:center;break-inside:avoid;border-bottom:1px dotted #bbb;padding:1.5px 0}
-    .li .ln2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tk{width:9px;height:9px;border:1px solid #444;flex-shrink:0}
+    .li .ln2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tk{display:inline-block;width:9px;height:9px;border:1px solid #444;flex-shrink:0}
     .foot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;page-break-inside:avoid}.panel{border:1px solid #444;padding:5px 6px}
     .ln{display:flex;justify-content:space-between;border-bottom:1px dotted #888;padding:3px 0}.sig{border-bottom:1px solid #000;height:22px;margin-top:4px;font-size:9.5px;padding-top:12px}
-    </style></head><body>${pages}<script>window.onload=()=>window.print()<\/script></body></html>`);
+    .sum th,.sum td{padding:2.5px 4px;font-size:10px}.sum td.q{text-align:right;white-space:nowrap}.sum td.tot{font-weight:bold;background:#f2f2f2}.sum td.tk2{width:16px}
+    .sum2{column-count:2;column-gap:14px}.sum2 table{break-inside:auto}
+    </style></head><body>${summary}${pages}<script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close();
 };
 

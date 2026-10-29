@@ -81,4 +81,8 @@ test('top sheet: COD detection is case-insensitive and printing uses its own lig
   assert.match(pr, /LOADING SUMMARY/);
   assert.match(pr, /column-count:3/, 'products summary packed in three columns');
   assert.doesNotMatch(pr, /<th>Items<\/th>/, 'outlet list shows no products');
+  const portal2 = read('public/portal/index.html');
+  assert.match(pr, /const combined = ids\.length > 1;/, 'all drivers: one combined products summary');
+  assert.match(pr, /\$\{!combined \? `<div class="load">/, 'no per-driver summary when printing all');
+  assert.match(portal2, /function _combinedLoadHtml\(drivers, c, day\)/);
 });
