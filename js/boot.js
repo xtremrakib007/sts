@@ -99,7 +99,7 @@ async function bootApp() {
     // NEW: start real-time broadcast listener + location tracking + sales target
     startBroadcastListener();
     startOrdersLiveListener();
-    startLocationTracking();
+    try { startLocationTracking(); } catch (e) { console.warn('[Location] tracking failed to start:', e); }
     loadSalesTarget();
     if(isStrictAdmin()) updateDeleteRequestBadge();
     if(isAdmin()) updateDeviceRequestBadge();

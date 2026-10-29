@@ -70,3 +70,34 @@ test('a Firebase config without this app id disables push instead of failing the
   assert.match(read('android/app/build.gradle'), /servicesJSON\.text\.contains\("\\"package_name\\": \\"\$\{appId\}\\""\)/);
   assert.match(read('.github/workflows/android-apk.yml'), /::warning title=Push notifications disabled::/);
 });
+
+// The Capacitor native bridge returns the callback id straight from
+// Geolocation.watchPosition (no promise); calling .then on it crashed the
+// app on sign-in for sales reps and delivery men.
+test('field-staff location tracking works when watchPosition returns the id directly', async () => {
+  const vm = require('node:vm');
+  const saved = [];
+  const pos = { coords: { latitude: 4.6, longitude: 101.1, accuracy: 5 } };
+  for (const mode of ['id', 'promise']) {
+    const ctx = {
+      console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout, setInterval: () => 1, clearInterval() {},
+      navigator: {}, localStorage: { getItem: () => null, setItem() {} }, document: { getElementById: () => null, addEventListener() {} }, addEventListener() {},
+      CU: { uid: 'rep1', role: 'sales_rep' }, isAdmin: () => false, showToast() {},
+    };
+    ctx.window = ctx;
+    ctx.Capacitor = { isNativePlatform: () => true, Plugins: { Geolocation: {
+      getCurrentPosition: async () => pos,
+      watchPosition: (o, cb) => { setTimeout(() => cb(pos), 0); return mode === 'id' ? 'cb-1' : Promise.resolve('cb-1'); },
+      clearWatch: () => undefined,
+    } } };
+    vm.createContext(ctx);
+    vm.runInContext(read('js/tracking.js'), ctx);
+    vm.runInContext('saveUserLocation = p => __saved.push(p); _captureAndSaveLocation = () => {}; _registerPeriodicLocationSync = () => {}; _requestNotificationPermission = () => {}; _showTrackingIndicator = () => {}; _dismissTrackingNotification = () => {};', Object.assign(ctx, { __saved: saved }));
+    assert.doesNotThrow(() => vm.runInContext('startLocationTracking()', ctx), mode);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(vm.runInContext('_locationWatcher', ctx), 'cb-1', mode);
+    assert.doesNotThrow(() => vm.runInContext('stopLocationTracking()', ctx), mode);
+  }
+  assert.equal(saved.length, 2, 'each watcher delivered a position');
+  assert.match(read('js/boot.js'), /try \{ startLocationTracking\(\); \} catch/);
+});

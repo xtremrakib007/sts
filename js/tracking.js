@@ -128,10 +128,14 @@ function startLocationTracking() {
     const { Geolocation } = window.Capacitor.Plugins;
     // Clear previous watcher
     if (_locationWatcher !== null) {
-      Geolocation.clearWatch({ id: _locationWatcher }).catch(() => {});
+      try { Promise.resolve(Geolocation.clearWatch({ id: _locationWatcher })).catch(() => {}); } catch (e) {}
       _locationWatcher = null;
     }
-    Geolocation.watchPosition(
+    // The native bridge returns the watch id directly for callback methods,
+    // the npm wrapper returns a promise of it: accept either.
+    let watch;
+    try {
+      watch = Promise.resolve(Geolocation.watchPosition(
       { enableHighAccuracy: true, timeout: 15000 },
       (pos, err) => {
         if (err) {
@@ -144,7 +148,9 @@ function startLocationTracking() {
         _gpsGranted = true;
         saveUserLocation(pos);
       }
-    ).then(watchId => {
+    ));
+    } catch (e) { watch = Promise.reject(e); }
+    watch.then(watchId => {
       _locationWatcher = watchId;
       console.log('[Location] Native watcher started, id:', watchId);
     }).catch(e => {
@@ -210,7 +216,7 @@ function stopLocationTracking() {
   // Stop native Capacitor watcher
   if (_locationWatcher !== null) {
     if (_isCapacitor() && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-      window.Capacitor.Plugins.Geolocation.clearWatch({ id: _locationWatcher }).catch(() => {});
+      try { Promise.resolve(window.Capacitor.Plugins.Geolocation.clearWatch({ id: _locationWatcher })).catch(() => {}); } catch (e) {}
     } else if (navigator.geolocation) {
       navigator.geolocation.clearWatch(_locationWatcher);
     }
