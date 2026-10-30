@@ -1343,7 +1343,7 @@ async function cancelOrder(id) {
 // LHDN e-Invoice request QR for an invoiced order (token set by the ERP).
 function _einvoiceQrSvg(o) {
   if (!o.invoiceNo || !o.einvoiceToken || typeof qrcode !== 'function') return '';
-  const url = `https://stfm-sales.web.app/einvoice.html?i=${encodeURIComponent(o.invoiceNo)}&t=${encodeURIComponent(o.einvoiceToken)}`;
+  const url = `${PUBLIC_APP_URL}/einvoice.html?i=${encodeURIComponent(o.invoiceNo)}&t=${encodeURIComponent(o.einvoiceToken)}`;
   const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
   return qr.createSvgTag({ cellSize: 3, margin: 2, scalable: true });
 }

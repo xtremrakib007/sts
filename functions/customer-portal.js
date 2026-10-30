@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Customer portal: what one outlet sees on its private link
-// (https://stfm-sales.web.app/customer?t=TOKEN). Pure logic, tested in
+// (https://sales.stfreshmart.my/customer?t=TOKEN). Pure logic, tested in
 // tests/customer-portal.test.js; the HTTP function is in index.js.
 //
 // The outlet's portalToken (random, 32 hex characters) is the only key:

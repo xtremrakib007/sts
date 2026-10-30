@@ -10,6 +10,8 @@
          ═══════════════════════════════════════════════════════ -->
     <meta http-equiv="Content-Security-Policy"
         content="default-src 'self' https://*.googleapis.com https://*.gstatic.com https://*.firebaseapp.com https://*.firebaseio.com https://*.firebase.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.googleapis.com https://*.gstatic.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.firebasestorage.googleapis.com https://*.firebaseapp.com; connect-src 'self' https://stfm-sales.web.app https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com wss://*.firebaseio.com; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'none';">
+    <!-- erp.stfreshmart.my is the same site: send it straight to the ERP -->
+    <script>if (/^erp\./i.test(location.hostname) && !/^\/portal(\/|$)/.test(location.pathname)) location.replace('/portal' + location.search + location.hash);</script>
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta http-equiv="X-Frame-Options" content="DENY">
     <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
@@ -3802,10 +3804,11 @@
         }
     };
 
-    // Each shop's private link: https://stfm-sales.web.app/customer?t=TOKEN
+    // Each shop's private link: https://sales.stfreshmart.my/customer?t=TOKEN
     // (public page public/customer.html, data from the customerPortal
     // function). The token is made the first time and kept on the outlet.
-    const PORTAL_BASE = 'https://stfm-sales.web.app/customer?t=';
+    // read when a link is made: this script runs before the app bundle defines PUBLIC_APP_URL
+    const portalBase = () => (typeof PUBLIC_APP_URL !== 'undefined' ? PUBLIC_APP_URL : 'https://sales.stfreshmart.my') + '/customer?t=';
     window.stsbOutletPortalUrl = async function(outletId) {
         const o = (typeof allOutlets !== 'undefined' ? allOutlets : []).find(x => x.id === outletId);
         if (!o) throw new Error('Choose a shop first');
@@ -3816,7 +3819,7 @@
             await sfUpdate('outlets', outletId, { portalToken: token, portalCreatedAt: new Date().toISOString(), portalCreatedBy: CU.uid });
             o.portalToken = token;
         }
-        return PORTAL_BASE + token;
+        return portalBase() + token;
     };
     window.stsbSharePortalLink = async function(outletId, how) {
         try {

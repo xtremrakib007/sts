@@ -969,7 +969,7 @@ function openDirections(outletId) {
 // Outlet QR: made on the phone (no internet needed). It links to the web
 // app, which opens the order form for this outlet (?oc=ID, js/boot.js);
 // the in-app scanner (js/misc.js) reads the same link.
-const OUTLET_QR_BASE = 'https://stfm-sales.web.app/';
+const OUTLET_QR_BASE = PUBLIC_APP_URL + '/';
 function _outletQrUrl(outletId) { return `${OUTLET_QR_BASE}?oc=${encodeURIComponent(outletId)}`; }
 function _outletQr(url) { const qr = qrcode(0, 'M'); qr.addData(url); qr.make(); return qr; }
 

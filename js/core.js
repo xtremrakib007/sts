@@ -8,6 +8,12 @@ let CU = null; // current user
 function _getDeviceGate()      { return sessionStorage.getItem('stfm_device_gate'); }
 function _setDeviceGate(state) { sessionStorage.setItem('stfm_device_gate', state); }
 function _clearDeviceGate()    { sessionStorage.removeItem('stfm_device_gate'); }
+// Public addresses (custom domains on the stfm-sales Firebase site).
+// Links customers and staff open — outlet QR, customer portal, e-Invoice,
+// "Open the ERP" — use these. App updates (OTA_BASE, js/boot.js) stay on
+// stfm-sales.web.app, which always works, so phones are never cut off.
+const PUBLIC_APP_URL = 'https://sales.stfreshmart.my';
+const PUBLIC_ERP_URL = 'https://erp.stfreshmart.my';
 const COLORS=['#22c55e','#3b82f6','#22c55e','#a855f7','#f59e0b','#ef4444','#06b6d4','#ec4899'];
 const MONTHLY_TARGET = 500000;
 

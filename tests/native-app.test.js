@@ -146,7 +146,7 @@ test('outlet statement: delivered value, order-tied payments first, then oldest 
   const vm = require('node:vm');
   const ctx = { console, window: {}, document: { getElementById: () => null, querySelectorAll: () => [], addEventListener: () => {} } };
   vm.createContext(ctx);
-  vm.runInContext(read('js/outlets.js') + '\nthis.L=outletLedger;', ctx);
+  vm.runInContext("const PUBLIC_APP_URL='https://sales.stfreshmart.my';\n" + read('js/outlets.js') + '\nthis.L=outletLedger;', ctx);
   const J = (x) => JSON.parse(JSON.stringify(x));
   const orders = [
     { _docId: 'a', id: 'A', status: 'Delivered', total: 100, date: '2026-10-01' },
@@ -215,4 +215,12 @@ test('background location (APK 1.5+): foreground service watcher, native saves i
   assert.match(t, /document\.visibilityState === 'hidden' && _isCapacitor\(\) && await _saveLocationNative\(fields\)/);
   assert.match(t, /BG\.removeWatcher\(\{ id: _bgWatcherId \}\)/, 'stops on sign out');
   assert.match(read('android/app/src/main/AndroidManifest.xml'), /ACCESS_BACKGROUND_LOCATION/);
+});
+
+test('custom domains: erp.* opens the ERP, customer links use sales.stfreshmart.my, updates stay on web.app', () => {
+  const html = read('index.html');
+  assert.match(html, /if \(\/\^erp\\\.\/i\.test\(location\.hostname\) && !\/\^\\\/portal\(\\\/\|\$\)\/\.test\(location\.pathname\)\) location\.replace\('\/portal'/);
+  assert.match(read('js/core.js'), /const PUBLIC_ERP_URL = 'https:\/\/erp\.stfreshmart\.my';/);
+  assert.match(read('js/orders.js'), /\$\{PUBLIC_APP_URL\}\/einvoice\.html\?i=/);
+  assert.match(read('js/boot.js'), /const OTA_BASE = 'https:\/\/stfm-sales\.web\.app\/ota\/';/, 'phones keep updating from the default domain');
 });
