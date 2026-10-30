@@ -225,3 +225,11 @@
 .od-stat.on{border-color:var(--acc);background:rgba(34,197,94,.08)}
 .od-row{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--bdr);font-size:12px;cursor:pointer}
 .od-row:active{background:var(--s2)}.od-sub{font-size:11px;color:var(--tx3)}.od-empty{color:var(--tx3);font-size:12px;padding:8px 0}
+.oc-row.oc-out .oc-row-photo,.oc-row.oc-out .oc-row-name,.oc-row.oc-out .oc-row-price{opacity:.55}
+.oc-reqbtn{flex-shrink:0;border:1px dashed var(--ylw);background:rgba(245,158,11,.08);color:var(--ylw);border-radius:10px;padding:7px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}
+.oc-incart.oc-req{border-color:var(--ylw);color:var(--ylw);background:rgba(245,158,11,.1)}
+.oc-req-note{font-size:11px;color:var(--ylw);background:rgba(245,158,11,.08);border-radius:8px;padding:7px 9px;margin:6px 0}
+.oc-addcart.oc-addreq{background:var(--ylw)}
+.oc-req-box{border:1px dashed var(--ylw);background:rgba(245,158,11,.06);border-radius:var(--r);padding:10px 12px;margin-top:6px}
+.oc-req-head{font-weight:700;font-size:13px;color:var(--ylw);margin-bottom:6px}.oc-req-head span{display:block;font-weight:400;font-size:11px;color:var(--tx3)}
+.oc-req-line{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bdr)}

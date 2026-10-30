@@ -176,13 +176,13 @@ async function openNewOrder(preselectedOutletId=null) {
     }
   }
   if(!allProducts.length || !allOutlets.length) await loadCachedData();
-  const available=allProducts.filter(p=>p.stockStatus!=='out_of_stock');
-  if(!available.length){showToast('No products in stock. Add products first.','warn');return;}
+  if(!allProducts.length){showToast('No products yet. Add products first.','warn');return;}
 
   // Load stock from ERP inventory
   await _loadStock();
 
   ordItems=[];
+  ordRequests=[];
   _ocDraft={};
 
   const routeSel=document.getElementById('ordRoute');
@@ -288,13 +288,12 @@ function ocSetCat(cat) {
 function ocSearchProducts() {
   const q = (document.getElementById('ocSearch')?.value || '').toLowerCase().trim();
   if (!q) { ocRenderCatalog(); return; }
-  const matches = allProducts.filter(p =>
-    p.stockStatus !== 'out_of_stock' &&
+  const matches = _ocSortStock(allProducts.filter(p =>
     (!_ocCatFilter || (p.category || 'Other') === _ocCatFilter) &&
     (p.name?.toLowerCase().includes(q) ||
      p.category?.toLowerCase().includes(q) ||
      p.unit?.toLowerCase().includes(q))
-  );
+  ));
   const list = document.getElementById('ocProductList');
   list.innerHTML = matches.length
     ? `<div class="oc-prod-list" style="padding-top:4px">${matches.map(p => ocProductCard(p)).join('')}</div>`
@@ -304,10 +303,19 @@ function ocSearchProducts() {
   if (window._ocObserver) window._ocObserver.disconnect();
 }
 
+// Out of stock: switched off in Products, or none left in the ERP stock.
+// Shown so reps know the range, but only as a request (see ordRequests).
+function _ocIsOut(p){
+  if(p.stockStatus==='out_of_stock')return true;
+  const a=_availableQty(_getStock(p));
+  return a!==null&&a<=0;
+}
+const _ocSortStock=list=>[...list].sort((a,b)=>_ocIsOut(a)-_ocIsOut(b));
+
 function ocRenderCatalog(){
-  const available=allProducts.filter(p=>p.stockStatus!=='out_of_stock');
+  const available=allProducts;
   const grouped={};
-  available.forEach(p=>{
+  _ocSortStock(available).forEach(p=>{
     const c=p.category||'Other';
     if(!grouped[c])grouped[c]=[];
     grouped[c].push(p);
@@ -369,7 +377,8 @@ let _ocDraft = {}; // pid → { ctnQty, pcsQty, discount: {type, value} } being 
 function _ocCtnSize(p) { return Number(p.ctnSize ?? p.ctn_size) || 1; }
 
 function ocProductCard(p){
-  const item = ordItems.find(x=>x.pid===p.id);
+  const out = _ocIsOut(p);
+  const item = (out ? ordRequests : ordItems).find(x=>x.pid===p.id);
   const draft = _ocDraft[p.id];
   const photo = p.photo
     ? `<img src="${escH(p.photo)}" alt="" loading="lazy"><button class="oc-zoom" onclick="event.stopPropagation();ocZoomPhoto('${p.id}')" aria-label="View photo">🔍</button>`
@@ -379,7 +388,8 @@ function ocProductCard(p){
   const stock = _getStock(p);
   const avail = _availableQty(stock);
   let stockTag = '';
-  if (avail !== null) {
+  if (out) stockTag = '<span class="oc-stock out">Out of stock</span>';
+  else if (avail !== null) {
     const cls = avail <= 0 ? 'out' : avail <= (stock.minStock || 5) ? 'low' : 'ok';
     stockTag = `<span class="oc-stock ${cls}">${avail <= 0 ? 'Out of stock' : avail + ' ' + escH(stock.unit || p.unit || 'pcs') + ' left'}</span>`;
   }
@@ -387,9 +397,10 @@ function ocProductCard(p){
   const subPrice = ctnSz > 0 && ctnPr
     ? `<div class="oc-sub">${fmt(p.price)} / pcs · ${ctnSz} pcs per ctn</div>` : '';
   const action = draft ? ''
-    : item ? `<button class="oc-incart" onclick="ocOpenDraft('${p.id}')" aria-label="Edit ${escH(p.name)} in cart">✓ ${escH(item.qtyDisplay)}<span>Edit</span></button>`
+    : item ? `<button class="oc-incart${out ? ' oc-req' : ''}" onclick="ocOpenDraft('${p.id}')" aria-label="Edit ${escH(p.name)}">${out ? '🔔' : '✓'} ${escH(item.qtyDisplay)}<span>Edit</span></button>`
+    : out ? `<button class="oc-reqbtn" onclick="ocOpenDraft('${p.id}')" aria-label="Request ${escH(p.name)} if restocked">🔔 Request</button>`
     : `<button class="oc-plus" onclick="ocOpenDraft('${p.id}')" aria-label="Add ${escH(p.name)}">+</button>`;
-  return `<div class="oc-row${item ? ' oc-in-cart' : ''}${draft ? ' oc-drafting' : ''}" id="ocProd-${p.id}">
+  return `<div class="oc-row${out ? ' oc-out' : ''}${item ? ' oc-in-cart' : ''}${draft ? ' oc-drafting' : ''}" id="ocProd-${p.id}">
     <div class="oc-row-main">
       <div class="oc-row-photo">${photo}</div>
       <div class="oc-row-info">
@@ -400,7 +411,7 @@ function ocProductCard(p){
       </div>
       ${action}
     </div>
-    ${draft ? _ocCardEditor(p, draft, !!item) : ''}
+    ${draft ? (out ? _ocRequestEditor(p, draft, !!item) : _ocCardEditor(p, draft, !!item)) : ''}
   </div>`;
 }
 
@@ -436,6 +447,23 @@ function _ocCardEditor(p, draft, inCart) {
       ${inCart ? `<button class="oc-del" onclick="ocRemovePid('${p.id}')" aria-label="Remove from cart">🗑 Remove</button>` : ''}
       <button class="oc-cancel" onclick="ocCancelDraft('${p.id}')">Cancel</button>
       <button class="oc-addcart" id="ocAdd-${p.id}" onclick="ocAddToCart('${p.id}')" ${line ? '' : 'disabled'}>🛒 ${inCart ? 'Update cart' : 'Add to cart'}</button>
+    </div>
+  </div>`;
+}
+
+// Out-of-stock product: quantity only; not charged on this order.
+function _ocRequestEditor(p, draft, inList) {
+  return `<div class="oc-edit">
+    <div class="oc-edit-qty">
+      ${_ocStepper(p.id, 'ctn', draft.ctnQty, 'CTN')}
+      ${_ocStepper(p.id, 'pcs', draft.pcsQty, 'PCS')}
+    </div>
+    <div class="oc-req-note">🔔 Out of stock — sent with the order as a <strong>request, not charged</strong>. The office adds it to the invoice if it is restocked.</div>
+    <div class="oc-edit-total"><span id="ocSum-${p.id}"></span><strong id="ocLine-${p.id}"></strong></div>
+    <div class="oc-edit-actions">
+      ${inList ? `<button class="oc-del" onclick="ocRemovePid('${p.id}')" aria-label="Remove request">🗑 Remove</button>` : ''}
+      <button class="oc-cancel" onclick="ocCancelDraft('${p.id}')">Cancel</button>
+      <button class="oc-addcart oc-addreq" id="ocAdd-${p.id}" onclick="ocAddToCart('${p.id}')">🔔 ${inList ? 'Update request' : 'Add request'}</button>
     </div>
   </div>`;
 }
@@ -500,11 +528,11 @@ function _ocRefreshCard(pid) {
   if (!p || !dr) return;
   const it = _ocBuildItem(p, dr.ctnQty, dr.pcsQty, dr.discount);
   const set = (id, html) => { const e = document.getElementById(id + pid); if (e) e.innerHTML = html; };
-  set('ocLine-', it ? _ocLineText(it) : fmt(0));
+  set('ocLine-', !it ? fmt(0) : _ocIsOut(p) ? 'not charged' : _ocLineText(it));
   set('ocSum-', it ? `1 ctn = ${_ocCtnSize(p)} pcs · total ${it.qty} pcs` : 'Enter a quantity');
   const avail = _availableQty(_getStock(p));
   const w = document.getElementById('ocWarn-' + pid);
-  if (w) {
+  if (w && !_ocIsOut(p)) {
     w.hidden = !(it && avail !== null && it.qty > avail);
     w.textContent = w.hidden ? '' : `⚠️ Only ${avail} pcs in stock — the shortfall goes to back-order`;
   }
@@ -515,7 +543,7 @@ function _ocRefreshCard(pid) {
 // + (or Edit): open the entry panel, starting from the cart line or 1 unit.
 function ocOpenDraft(pid) {
   const p = allProducts.find(x => x.id === pid); if (!p) return;
-  const it = ordItems.find(x => x.pid === pid);
+  const it = (_ocIsOut(p) ? ordRequests : ordItems).find(x => x.pid === pid);
   _ocDraft[pid] = it
     ? { ctnQty: it.ctnQty || 0, pcsQty: it.pcsQty || 0, discount: it.discount ? { type: it.discount.type, value: it.discount.value } : { type: '', value: 0 } }
     : { ctnQty: _ocCtnSize(p) > 1 ? 1 : 0, pcsQty: _ocCtnSize(p) > 1 ? 0 : 1, discount: { type: '', value: 0 } };
@@ -555,6 +583,17 @@ function ocCardDiscVal(pid, val) {
 function ocAddToCart(pid) {
   const p = allProducts.find(x => x.id === pid), dr = _ocDraft[pid];
   if (!p || !dr) return;
+  if (_ocIsOut(p)) {
+    const i = ordRequests.findIndex(x => x.pid === pid);
+    const it = _ocBuildItem(p, dr.ctnQty, dr.pcsQty);
+    if (!it) { showToast('Enter a quantity in CTN or PCS', 'warn'); return; }
+    const req = _ocRequestLine(it);
+    if (i >= 0) ordRequests[i] = req; else ordRequests.push(req);
+    delete _ocDraft[pid];
+    _ocRedrawCard(pid);
+    showToast(`${p.name} — ${it.qtyDisplay} requested 🔔 (not charged)`, 'success');
+    return;
+  }
   const wasIn = ordItems.some(x => x.pid === pid);
   const it = _ocSetItem(p, dr.ctnQty, dr.pcsQty, dr.discount);
   if (!it) { showToast('Enter a quantity in CTN or PCS', 'warn'); return; }
@@ -568,9 +607,15 @@ function ocCancelDraft(pid) {
   _ocRedrawCard(pid);
 }
 
+// What is kept of a requested product: quantity and list prices for the office.
+const _ocRequestLine = it => ({ pid: it.pid, name: it.name, sku: it.sku, unit: it.unit, ctnSize: it.ctnSize,
+  ctnQty: it.ctnQty, pcsQty: it.pcsQty, qty: it.qty, qtyDisplay: it.qtyDisplay, price: it.price, ctnPrice: it.ctnPrice });
+
 function ocRemovePid(pid) {
   const i = ordItems.findIndex(x => x.pid === pid);
   if (i >= 0) ordItems.splice(i, 1);
+  const r = ordRequests.findIndex(x => x.pid === pid);
+  if (r >= 0) ordRequests.splice(r, 1);
   delete _ocDraft[pid];
   _ocRedrawCard(pid);
 }
@@ -605,15 +650,15 @@ function ocScrollToAll(){
 
 function ocUpdateCartBtn(){
   const btn=document.getElementById('ocCartBtn');
-  const lines=ordItems.length;
+  const lines=ordItems.length, reqs=ordRequests.length;
   const total=ordItems.reduce((s,x)=>s+(x._lineTotal??x.price*x.qty)-(x.discount?.amount||0),0);
-  document.getElementById('ocCartCount').textContent=lines;
-  btn.style.display=lines?'inline-flex':'none';
+  document.getElementById('ocCartCount').textContent=lines+reqs;
+  btn.style.display=lines||reqs?'inline-flex':'none';
   const bar=document.getElementById('ocBottomBar');
   if(bar){
-    bar.style.display=lines?'flex':'none';
+    bar.style.display=lines||reqs?'flex':'none';
     const t=document.getElementById('ocBarText');
-    if(t)t.textContent=`${lines} item${lines===1?'':'s'} · ${fmt(total)}`;
+    if(t)t.textContent=`${lines} item${lines===1?'':'s'} · ${fmt(total)}${reqs?` · 🔔 ${reqs} requested`:''}`;
   }
 }
 
@@ -810,10 +855,24 @@ function qpAddToCart(){
 }
 
 // ── Cart Review ──────────────────────────────────────────────────────────────
+function _ocRequestsHtml(){
+  if(!ordRequests.length)return '';
+  return `<div class="oc-req-box">
+    <div class="oc-req-head">🔔 Requested if restocked <span>not charged · the office adds them to the invoice when in stock</span></div>
+    ${ordRequests.map(r=>`<div class="oc-req-line"><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(r.name)}</div>
+      <div style="font-size:11px;color:var(--tx3)">${escH(r.qtyDisplay)} · list ${fmt(r.price)}/pcs</div></div>
+      <button onclick="ocRemoveRequest('${r.pid}')" aria-label="Remove request" style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);border-radius:6px;padding:5px 9px;color:var(--red);font-size:12px;cursor:pointer">🗑</button></div>`).join('')}
+  </div>`;
+}
+function ocRemoveRequest(pid){
+  const r=ordRequests.findIndex(x=>x.pid===pid); if(r>=0)ordRequests.splice(r,1);
+  ocRenderCart(); ocUpdateCartBtn();
+}
+
 function ocRenderCart(){
   const list=document.getElementById('ocCartList');
   if(!ordItems.length){
-    list.innerHTML='<div style="text-align:center;padding:40px;color:var(--tx3)">🛒 Cart is empty</div>';
+    list.innerHTML=(ordRequests.length?'<div style="text-align:center;padding:24px 10px;color:var(--ylw);font-size:13px">Add at least one in-stock product to place the order — requests go with an order.</div>':'<div style="text-align:center;padding:40px;color:var(--tx3)">🛒 Cart is empty</div>')+_ocRequestsHtml();
     document.getElementById('ocCartTotal').textContent=fmt(0);
     document.getElementById('ocSubtotalAmt').textContent=fmt(0);
     return;
@@ -857,7 +916,7 @@ function ocRenderCart(){
         </div>
       </div>
     </div>`;
-  }).join('');
+  }).join('')+_ocRequestsHtml();
   ocUpdateCartTotals();
 }
 
@@ -920,7 +979,10 @@ function ocRemoveItem(i){
 async function saveOrder() {
   const outletId=document.getElementById('ordOutlet').value;
   if(!outletId){showToast('Select an outlet','error');return;}
-  if(!ordItems.length){showToast('Add at least one item','error');return;}
+  if(!ordItems.length){showToast(ordRequests.length?'Add at least one in-stock product — out-of-stock items can only be requested with an order':'Add at least one item','error');return;}
+  // Stock may have run out while the cart was open.
+  const nowOut=ordItems.filter(x=>{const p=allProducts.find(q=>q.id===x.pid);return p&&_ocIsOut(p);});
+  if(nowOut.length){showToast(`Out of stock: ${nowOut.map(x=>x.name).join(', ')} — remove ${nowOut.length>1?'them':'it'} or add as a request`,'error');return;}
 
   const subtotal=ordItems.reduce((s,x)=>s+(x._lineTotal??x.price*x.qty),0);
   const totalDiscountAmt=ordItems.reduce((s,x)=>s+(x.discount?.amount||0),0);
@@ -962,6 +1024,7 @@ async function saveOrder() {
     // ── 1. Save to app Firestore ─────────────────────────────────────────
     await sfAdd('orders',{
       id:ordId, outletId, items:[...ordItems], subtotal, total,
+      requestedItems:ordRequests.map(r=>({...r})),
       discount:discountRequest||null,
       date:orderDate,
       status:initialStatus,
@@ -1323,7 +1386,8 @@ async function viewOrder(docId) {
     <span class="bdg ${sBadge[o.status]||'bdg-gry'}">${escH(o.status||'')}</span>
     ${o.erpSynced?'<span class="bdg bdg-grn">✓ Synced to ERP</span>':'<span class="bdg bdg-ylw">⏳ Pending ERP sync</span>'}
     ${discountInfo&&discountInfo.status!=='approved'?`<span class="bdg ${discountInfo.status==='rejected'?'bdg-red':'bdg-ylw'}">🏷️ Discount ${fmt(discountInfo.amount)} ${escH(discountInfo.status)}</span>`:''}
-  </div>`;
+  </div>${(o.requestedItems||[]).length?`<div class="oc-req-box" style="margin-bottom:10px"><div class="oc-req-head">🔔 Requested if restocked <span>not on this invoice unless the office added it</span></div>
+    ${o.requestedItems.map(r=>`<div style="font-size:12px;padding:3px 0">${escH(r.name)} — ${escH(r.qtyDisplay||String(r.qty))}</div>`).join('')}</div>`:''}`;
   const invoiceHtml=`${statusBar}<div id="invoiceContent" style="background:#fff">${sheet}</div>`;
   window.__currentInvoiceSheet=sheet;
   document.getElementById('mOrdDetTitle').textContent='Invoice — '+(o.invoiceNo||o.id||o._docId);

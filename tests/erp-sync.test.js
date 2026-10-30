@@ -210,3 +210,12 @@ test('partial deliveries reach the ERP with delivered quantities and value', () 
   assert.equal(p.deliveredItems[0].qty, 5);
   assert.equal(p.receiverName, 'Ali');
 });
+
+test('requested out-of-stock products reach the ERP order, not charged', () => {
+  const p = erp.buildErpOrder({ order: order({ requestedItems: [{ pid: 'p9', name: 'Milo', sku: 'M1', qty: 20, ctnQty: 2, pcsQty: 0, ctnSize: 10, ctnPrice: 28, price: 3, unit: 'pcs' }] }), docId: 'd1', nowIso: NOW });
+  assert.equal(p.requestedItems.length, 1);
+  assert.equal(p.requestedItems[0].productId, 'p9');
+  assert.equal(p.requestedItems[0].ctnQty, 2);
+  assert.equal(p.total, order().total, 'requests are not in the total');
+  assert.equal(erp.buildErpOrder({ order: order(), docId: 'd1', nowIso: NOW }).requestedItems, undefined);
+});

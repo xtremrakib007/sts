@@ -143,6 +143,10 @@ function buildErpOrder({order: o, erpCurrent = null, docId, zoneId, outlet = {},
     repId: o.createdBy || '',
     repName: o.createdByName || '',
     items: Array.isArray(o.items) ? o.items.map(mapItem) : [],
+    // Out-of-stock products the rep asked for (not charged); the ERP adds
+    // them to the order if restocked.
+    requestedItems: Array.isArray(o.requestedItems) && o.requestedItems.length ?
+      o.requestedItems.map(mapItem) : undefined,
     subtotal: num(o.subtotal != null ? o.subtotal : o.total),
     discount: discountAmt,
     discountStatus: o.discount ? (o.discount.status || 'pending') : 'not_required',
