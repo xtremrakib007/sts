@@ -1,10 +1,12 @@
-# Builds the STSB Android APK on GitHub — no Android Studio needed.
+# Builds the STSB Android app on GitHub — no Android Studio needed.
 #
-# - Every PR that touches the app, and every merge to main, builds an APK
-#   and attaches it to the run (Actions → this run → Artifacts).
-# - With the signing secrets set (see BUILD-GUIDE.md), builds are signed
-#   release APKs, and merges to main also publish a GitHub Release with
-#   STSB.apk. Without them, a debug APK is built for testing.
+# - Runs only when the native app changes (android/, Capacitor config,
+#   plugins in package.json) on a PR or a merge to main, or by hand:
+#   Actions → Android APK → Run workflow. Web code changes reach phones
+#   over the air and need no new APK.
+# - With the signing secrets set (see BUILD-GUIDE.md), builds are a signed
+#   release APK plus a Play Store bundle (STSB.aab), and merges to main
+#   also publish a GitHub Release. Without them, a debug APK is built.
 # - Day-to-day code changes reach phones over the air; a new APK is only
 #   needed for native changes (new plugin, permission or Android code).
 name: Android APK
@@ -12,15 +14,18 @@ name: Android APK
 on:
   push:
     branches: [main]
+    paths:
+      - 'android/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android-apk.yml'
   pull_request:
     paths:
       - 'android/**'
       - 'capacitor.config.json'
       - 'package.json'
       - 'package-lock.json'
-      - 'index.html'
-      - 'js/**'
-      - 'build.js'
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 
@@ -81,8 +86,9 @@ jobs:
         run: |
           chmod +x gradlew
           if [ -n "${STFM_KEYSTORE_FILE:-}" ]; then
-            ./gradlew --no-daemon assembleRelease
+            ./gradlew --no-daemon assembleRelease bundleRelease
             cp app/build/outputs/apk/release/app-release.apk ../STSB.apk
+            cp app/build/outputs/bundle/release/app-release.aab ../STSB.aab
           else
             ./gradlew --no-daemon assembleDebug
             cp app/build/outputs/apk/debug/app-debug.apk ../STSB-debug.apk
@@ -92,7 +98,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: STSB-apk
-          path: STSB*.apk
+          path: |
+            STSB*.apk
+            STSB.aab
+          if-no-files-found: error
           retention-days: 30
 
       - name: Publish release (signed builds of main only)
@@ -102,7 +111,7 @@ jobs:
         run: |
           version=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
           code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
-          gh release create "apk-v${version}-${{ github.run_number }}" STSB.apk \
+          gh release create "apk-v${version}-${{ github.run_number }}" STSB.apk STSB.aab \
             --title "STSB ${version} (build ${code}, run ${{ github.run_number }})" \
             --notes "Android app built from ${GITHUB_SHA::7}. Install over the existing app; later code updates arrive over the air." \
             --latest
