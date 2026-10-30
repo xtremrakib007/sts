@@ -194,7 +194,9 @@ async function loadOutlets() {
   }
 
   // Admin: rep → route → outlets (3 levels)
-  const reps=allUsers.filter(u=>u.role==='sales_rep');
+  // Owner with a zone picked: only that zone's reps.
+  const reps=allUsers.filter(u=>u.role==='sales_rep'&&u.status!=='disabled'&&(!isOwner()||!_ownerZoneFilter||u.zoneId===_ownerZoneFilter));
+  const repIds=new Set(reps.map(u=>u.uid));
   const allSrchOutlets=allOutlets.filter(o=>!srch||o.name.toLowerCase().includes(srch)||(o.route||'').toLowerCase().includes(srch));
 
   let html=reps.map((rep,ri)=>{
@@ -238,17 +240,17 @@ async function loadOutlets() {
     </div>`;
   }).join('');
 
-  // Truly unassigned outlets: no assignedRepId AND no createdBy
-  // (Sales rep outlets are excluded — they auto-get assignedRepId on save)
-  const orphans=allSrchOutlets.filter(o=>!o.assignedRepId&&!o.createdBy);
+  // Outlets under no listed rep: none assigned, added by an admin, or the
+  // rep is in another zone / no longer active. Listed so none go missing.
+  const orphans=allSrchOutlets.filter(o=>!repIds.has(o.assignedRepId)&&!repIds.has(o.createdBy));
   if(orphans.length){
     const isOrphanOpen=_outletOpen.rep==='__orphan__';
     html+=`<div class="tree-node" id="otrep-__orphan__">
       <div class="tree-hdr ${isOrphanOpen?'open':''}" onclick="toggleOutletRep('__orphan__')">
         <span class="tree-chevron">▶</span><span style="font-size:16px">⚠️</span>
         <div style="flex:1">
-          <div style="font-size:13px;font-weight:700;color:var(--ylw)">Unassigned Outlets (${orphans.length})</div>
-          <div style="font-size:10px;color:var(--tx3)">No rep assigned — tap Assign to set one</div>
+          <div style="font-size:13px;font-weight:700;color:var(--ylw)">Outlets without a rep (${orphans.length})</div>
+          <div style="font-size:10px;color:var(--tx3)">No sales rep of this zone assigned — tap Assign to set one</div>
         </div>
         <span class="bdg bdg-ylw" style="font-size:10px">${orphans.length}</span>
       </div>
@@ -433,7 +435,7 @@ async function openNewOutlet() {
 
 function _populateOutletRepDropdown(selectedUid) {
   const el=document.getElementById('oAssignedRep');if(!el)return;
-  const reps=allUsers.filter(u=>u.role==='sales_rep'&&u.status!=='disabled');
+  const reps=allUsers.filter(u=>u.role==='sales_rep'&&u.status!=='disabled'&&(!isOwner()||!_ownerZoneFilter||u.zoneId===_ownerZoneFilter||u.uid===selectedUid));
   el.innerHTML='<option value="">Unassigned</option>'+
     reps.map(u=>`<option value="${u.uid}" ${u.uid===selectedUid?'selected':''}>${u.name}</option>`).join('');
 }
