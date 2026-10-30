@@ -189,7 +189,39 @@
     return moves;
   }
 
-  const api = { productField, packSize, priceFromCost, buildImportPlan, repriceByMargin, stockMovesFor };
+  // ── Bulk photos: match each image file to a product by its file name ──
+  // "100P-500.jpg" (SKU), "9555012345678.png" (barcode) or
+  // "100 PLUS 500ML.jpeg" (product name). Case, spaces and punctuation are
+  // ignored; a trailing copy number like "(1)" or "_2" is dropped.
+  const photoKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const fileBase = (f) => String(f || '').replace(/\.[A-Za-z0-9]{2,5}$/, '');
+  function matchPhotoFiles(fileNames, products) {
+    const by = { sku: new Map(), barcode: new Map(), name: new Map() };
+    const put = (kind, v, p) => { const k = photoKey(v); if (k && !by[kind].has(k)) by[kind].set(k, p); };
+    for (const p of products) {
+      put('sku', p.sku, p); put('sku', p.singleSku, p);
+      put('barcode', p.barcode, p); put('barcode', p.singleBarcode, p);
+      put('name', p.name, p);
+    }
+    const used = new Set();
+    return fileNames.map((file) => {
+      const base = fileBase(file);
+      // exact name first; then without a copy number ("x (1)", "x_2")
+      const keys = [photoKey(base), photoKey(base.replace(/\s*\(\d+\)$|[_ ]\d$/, ''))];
+      for (const k of keys) {
+        for (const kind of ['sku', 'barcode', 'name']) {
+          const p = k && by[kind].get(k);
+          if (p) {
+            const dup = used.has(p.id); used.add(p.id);
+            return { file, productId: p.id, matchedBy: kind, duplicate: dup };
+          }
+        }
+      }
+      return { file, productId: null, matchedBy: null, duplicate: false };
+    });
+  }
+
+  const api = { productField, packSize, priceFromCost, buildImportPlan, repriceByMargin, stockMovesFor, photoKey, matchPhotoFiles };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ProductImport = api;
 })(typeof window !== 'undefined' ? window : globalThis);

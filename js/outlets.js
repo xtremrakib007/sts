@@ -962,31 +962,63 @@ function openDirections(outletId) {
   window.open(`https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}&destination_place_id=${label}&travelmode=driving`,'_blank');
 }
 
+// Outlet QR: made on the phone (no internet needed). It links to the web
+// app, which opens the order form for this outlet (?oc=ID, js/boot.js);
+// the in-app scanner (js/misc.js) reads the same link.
+const OUTLET_QR_BASE = 'https://stfm-sales.web.app/';
+function _outletQrUrl(outletId) { return `${OUTLET_QR_BASE}?oc=${encodeURIComponent(outletId)}`; }
+function _outletQr(url) { const qr = qrcode(0, 'M'); qr.addData(url); qr.make(); return qr; }
+
 function viewOutletQR(outletId) {
   const o=allOutlets.find(x=>x.id===outletId);if(!o)return;
-  const base=window.location.origin+window.location.pathname.replace(/\/$/,'');
-  const url=`${base}?oc=${outletId}`;
-  const qrImg=`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=0d1117&margin=12&ecc=M`;
+  const url=_outletQrUrl(outletId);
   document.getElementById('mQRTitle').textContent=`📷 ${o.name}`;
   document.getElementById('mQRSubtitle').textContent=`Scan to open order for ${o.name}`;
-  document.getElementById('mQRCode').innerHTML=`<img src="${qrImg}" style="width:220px;height:220px;border-radius:8px;display:block" alt="QR Code" onerror="this.alt='QR load failed — check internet'">`;
+  const box=document.getElementById('mQRCode');
+  if(typeof qrcode!=='function'){box.innerHTML='<div style="padding:30px;color:var(--red)">QR maker not loaded — update the app</div>';}
+  else box.innerHTML=`<div style="width:220px;height:220px;background:#fff;border-radius:8px;padding:6px;box-sizing:border-box">${_outletQr(url).createSvgTag({cellSize:4,margin:2,scalable:true})}</div>`;
   document.getElementById('mQRUrl').textContent=url;
-  window.__currentQROutlet={id:outletId,name:o.name,url};
+  window.__currentQROutlet={id:outletId,name:o.name,route:o.route||'',url};
   openM('mOutletQR');
 }
 
-function downloadOutletQR() {
+// A printable PNG card: outlet name, the QR and a short instruction.
+function _outletQrCard(q) {
+  const qr=_outletQr(q.url), n=qr.getModuleCount(), cell=Math.floor(560/(n+4)), size=cell*(n+4);
+  const W=size+80, H=size+190, c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d');
+  g.fillStyle='#fff'; g.fillRect(0,0,W,H);
+  g.fillStyle='#0d1117'; g.textAlign='center';
+  g.font='bold 30px Arial, sans-serif'; g.fillText(String(q.name).slice(0,34),W/2,52);
+  if(q.route){g.font='20px Arial, sans-serif'; g.fillStyle='#555'; g.fillText(String(q.route).slice(0,40),W/2,82);}
+  const x0=40, y0=100;
+  g.fillStyle='#0d1117';
+  for(let r=0;r<n;r++)for(let col=0;col<n;col++) if(qr.isDark(r,col)) g.fillRect(x0+(col+2)*cell,y0+(r+2)*cell,cell,cell);
+  g.fillStyle='#333'; g.font='20px Arial, sans-serif';
+  g.fillText('Scan to order · Sairah Trading (STSB)',W/2,y0+size+45);
+  return c.toDataURL('image/png');
+}
+
+async function downloadOutletQR() {
   const q=window.__currentQROutlet;if(!q)return;
-  const qrHigh=`https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(q.url)}&bgcolor=ffffff&color=0d1117&margin=20&ecc=M`;
-  // Open in new tab so user can long-press save (mobile) or right-click save (desktop)
-  const w=window.open('','_blank');
-  if(w){
-    w.document.write(`<!DOCTYPE html><html><head><title>QR – ${q.name}</title>
-    <style>body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f5;font-family:sans-serif;gap:14px}
-    img{border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.15);max-width:90vw}
-    p{font-size:13px;color:#666;text-align:center;max-width:320px}
-    h2{font-size:16px;font-weight:700;margin:0}</style></head>
-    <body><h2>${q.name}</h2><img src="${qrHigh}" alt="QR Code"><p>Long-press (mobile) or right-click → Save image to download.<br><small>${q.url}</small></p></body></html>`);
+  if(typeof qrcode!=='function'){showToast('QR maker not loaded — update the app','error');return;}
+  const png=_outletQrCard(q);
+  const name=`QR-${String(q.name).replace(/[^A-Za-z0-9_-]+/g,'-').replace(/^-|-$/g,'')||q.id}.png`;
+  if(!_invNative()){ const a=document.createElement('a'); a.href=png; a.download=name; a.click(); return; }
+  const fs=_invPlugin('Filesystem');
+  if(!fs){_invNeedsUpdate('Saving the QR');return;}
+  const data=png.split(',')[1];
+  try {
+    await fs.writeFile({path:'STSB/'+name,data,directory:'DOCUMENTS',recursive:true});
+    showToast(`QR saved: Documents/STSB/${name}`,'success');
+  } catch(e) {
+    // Some Android versions block shared Documents: offer it via the share sheet.
+    try {
+      const r=await fs.writeFile({path:name,data,directory:'CACHE',recursive:true});
+      const sh=_invPlugin('Share');
+      if(sh) await sh.share({title:name,files:[r.uri],dialogTitle:'Save or send the QR'});
+      else throw e;
+    } catch(e2){ showToast('Could not save the QR: '+(e2.message||e2),'error'); }
   }
 }
 

@@ -134,3 +134,23 @@ test('ERP invoice form: product/outlet dropdowns, walk-in, salesman, pcs/ctn/kg/
   assert.match(portal, /window\.__invCatalog = prods\.filter\(p => p\.name\)/, 'all products loaded');
   assert.match(portal, /customerPhone: document\.getElementById\('invPhone'\)\.value\.trim\(\), customerAddress: document\.getElementById\('invAddr'\)\.value\.trim\(\)/);
 });
+
+test('bulk photos: files match products by SKU, barcode or name; copy numbers and case ignored', () => {
+  const prods = [{ id: 'a', sku: '100P-500', name: '100 PLUS 500ML' }, { id: 'b', barcode: '9555012345678', name: 'Milo' },
+    { id: 'c', sku: 'SUG1', name: 'Sugar' }, { id: 'd', sku: 'PD-BEV-2' }, { id: 'e', sku: 'PD-BEV-3' }];
+  const m = P.matchPhotoFiles(['100p-500.JPG', '9555012345678.png', '100 Plus 500ml (1).jpeg', 'nothing.jpg', 'sug1_2.jpg', 'PD-BEV-3.jpg'], prods);
+  assert.deepEqual(m.map((x) => [x.productId, x.matchedBy, x.duplicate]), [
+    ['a', 'sku', false], ['b', 'barcode', false], ['a', 'name', true], [null, null, false], ['c', 'sku', false], ['e', 'sku', false]]);
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /<input type="file" id="prodPhotoFiles" accept="image\/\*" multiple/);
+  assert.match(portal, /window\.ProductImport\.matchPhotoFiles\(files\.map\(f => f\.name\), prods\)/);
+  assert.match(portal, /batch\.set\(doc\(_db, 'products', id\), patch, \{ merge: true \}\)/, 'saved where the Sales App reads it');
+});
+
+test('outlet QR is drawn on the device and links to the web app', () => {
+  const js = read('js/outlets.js');
+  assert.doesNotMatch(js, /api\.qrserver\.com/, 'no online QR service');
+  assert.match(js, /const OUTLET_QR_BASE = 'https:\/\/stfm-sales\.web\.app\/';/);
+  assert.match(js, /_outletQr\(url\)\.createSvgTag/);
+  assert.match(js, /fs\.writeFile\(\{path:'STSB\/'\+name,data,directory:'DOCUMENTS',recursive:true\}\)/);
+});
