@@ -132,3 +132,12 @@ test('Live Locations reads the GPS the app saves on each user profile, live', ()
   assert.match(rules, /'fcmToken','lastSeen','pushEnabled','name','phone','avatar',\s+'lastLat','lastLng','lastLocationAt','lastAccuracy'/, 'self-update of these fields is allowed');
   assert.match(read('js/boot.js'), /liveLocations: \(\)=>window\.__llReload&&window\.__llReload\(\),/);
 });
+
+test('Sync button: reloads data from the server, redraws the page, applies a waiting app update', () => {
+  assert.match(read('index.html'), /id="syncBtn" onclick="syncApp\(\)"/);
+  const boot = read('js/boot.js');
+  const fn = boot.slice(boot.indexOf('async function syncApp()'));
+  for (const step of ['invalidateCache();', 'await loadCachedData(true);', '_reloadActivePage();', '_captureAndSaveLocation();', '_otaCheck(true);'])
+    assert.ok(fn.slice(0, 1200).includes(step), step);
+  assert.match(fn, /if \(!navigator\.onLine\)/, 'offline: says so instead of failing');
+});
