@@ -626,7 +626,7 @@ function showStoremanScreen() {
     '<div style="font-size:44px;margin-bottom:12px">🏬</div>' +
     '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:800;margin-bottom:8px;color:var(--tx)">Storeman account</div>' +
     '<div style="font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:18px">Picking, packing and stock are in the ERP. Sign in there with the same email and password.</div>' +
-    '<a class="btn btn-primary" style="width:100%;display:block;margin-bottom:8px" href="https://stfm-sales.web.app/portal" target="_system">Open the ERP</a>' +
+    '<a class="btn btn-primary" style="width:100%;display:block;margin-bottom:8px" href="' + PUBLIC_ERP_URL + '" target="_system">Open the ERP</a>' +
     '<button class="btn btn-ghost" style="width:100%" onclick="location.reload()">Back to sign in</button></div>';
   document.body.appendChild(el);
 }

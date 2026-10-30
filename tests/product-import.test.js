@@ -150,7 +150,7 @@ test('bulk photos: files match products by SKU, barcode or name; copy numbers an
 test('outlet QR is drawn on the device and links to the web app', () => {
   const js = read('js/outlets.js');
   assert.doesNotMatch(js, /api\.qrserver\.com/, 'no online QR service');
-  assert.match(js, /const OUTLET_QR_BASE = 'https:\/\/stfm-sales\.web\.app\/';/);
+  assert.match(js, /const OUTLET_QR_BASE = PUBLIC_APP_URL \+ '\/';/);
   assert.match(js, /_outletQr\(url\)\.createSvgTag/);
   assert.match(js, /fs\.writeFile\(\{path:'STSB\/'\+name,data,directory:'DOCUMENTS',recursive:true\}\)/);
 });

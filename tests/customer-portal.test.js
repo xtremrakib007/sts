@@ -34,7 +34,8 @@ test('statement: delivered value, order-tied payments first, oldest first, cance
 
 test('the app shares the hosted link (never the app address); hosting serves page + function', () => {
   const html = read('index.html');
-  assert.match(html, /const PORTAL_BASE = 'https:\/\/stfm-sales\.web\.app\/customer\?t=';/);
+  assert.match(html, /const portalBase = \(\) => \(typeof PUBLIC_APP_URL !== 'undefined' \? PUBLIC_APP_URL : 'https:\/\/sales\.stfreshmart\.my'\) \+ '\/customer\?t=';/);
+  assert.match(read('js/core.js'), /const PUBLIC_APP_URL = 'https:\/\/sales\.stfreshmart\.my';/);
   assert.doesNotMatch(html, /window\.location\.origin \+ window\.location\.pathname \+ '\?portal=1'/);
   const fb = JSON.parse(read('firebase.json'));
   assert.deepEqual(fb.hosting.rewrites.slice(0, 2), [{ source: '/api/customer-portal', function: 'customerPortal' }, { source: '/customer', destination: '/customer.html' }]);
