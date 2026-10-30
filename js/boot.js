@@ -424,7 +424,7 @@ async function _bootLoad(source) {
   const [snaps, prSnap, uSnap, ovMap] = await Promise.all([
     Promise.all(names.map(n => get(colR(n)))),
     get(rootCol('products')),   // always the root global catalog
-    get(_usersRef()),           // zone-filtered for non-owners
+    isAdmin() ? get(_usersRef()) : Promise.resolve(_selfOnly()), // field staff may only read themselves
     fromCache ? Promise.resolve({}) : _loadZoneProductOverrides(),
   ]);
   const [ouDocs, ordDocs, colDocs, attDocs, rtDocs, znDocs] = snaps.map(s => s.docs);
@@ -451,17 +451,24 @@ async function _bootLoad(source) {
   return true;
 }
 
+// Field staff may read only their own user profile (rules), so their
+// user list is just themselves.
+const _selfOnly = () => ({ docs: [{ id: CU.uid, data: () => ({ ...CU }) }] });
+
 async function loadCachedData(force = false) {
   const now = Date.now();
   if (!force && _cacheTs && (now - _cacheTs) < _CACHE_TTL) return; // cache hit
   // Products ALWAYS from root global catalog — never zone subcollection
   // Other collections use zone-scoped reads via colR (respects _ownerZoneFilter)
+  // Each read stands alone (as at start-up): one the rules refuse — field
+  // staff may not list other users — must not fail the whole refresh.
+  const none = e => { console.warn('[loadCachedData]', e.message); return { docs: [] }; };
   const [ouDocs, prDocs, rtDocs, znDocs, uSnap, _ovMap2] = await Promise.all([
     sfGet('outlets'),
-    window.__SF.getDocs(rootCol('products')), // always root — zone overrides applied below
+    window.__SF.getDocs(rootCol('products')).catch(none), // always root — zone overrides applied below
     sfGet('routes'),
     sfGet('zones'),
-    _fetchUsers(),                          // zone-filtered for non-owners
+    isAdmin() ? _fetchUsers().catch(none) : Promise.resolve(_selfOnly()),
     _loadZoneProductOverrides(),              // loads for active zone (owner filter or CU.zoneId)
   ]);
   allZones   = znDocs.map(d=>({id:d.id,...d.data()}));
