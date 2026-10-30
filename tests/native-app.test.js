@@ -196,3 +196,9 @@ test('delivery man: working outlets only until the office closes his day', () =>
   assert.match(read('public/portal/index.html'), /window\.closeDriverDay = async function\(dmId\)/);
   assert.match(read('js/collections.js'), /\.\.\.\(isDeliveryMan\(\)\?\{source:'delivery'\}:\{\}\)/);
 });
+
+test('Audit / Error / Data Export pages live in the app page area (open at the top)', () => {
+  const html = read('index.html');
+  assert.match(html, /\['pageAuditLog', 'pageErrorLog', 'pageDataExport'\]\.forEach\(id => \{\n            const el = document\.getElementById\(id\);\n            if \(el && el\.parentNode !== host\) host\.appendChild\(el\);/);
+  assert.match(read('js/ui.js'), /auditLog:\{title:'Audit Log'/);
+});

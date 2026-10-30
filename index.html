@@ -3898,7 +3898,18 @@
 
     /* ──────────────────────────────────────────────────────────────
        11. Register new pages with goPage so sidebar nav works
+       These pages are written at the end of the body; move them into the
+       app's page area so they open at the top like every other page
+       (outside it they rendered below a full-height empty screen).
     ────────────────────────────────────────────────────────────── */
+    (function() {
+        const host = document.getElementById('pageLiveLocations')?.parentNode;
+        if (!host) return;
+        ['pageAuditLog', 'pageErrorLog', 'pageDataExport'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.parentNode !== host) host.appendChild(el);
+        });
+    })();
     // Pages are already registered as .page divs in the DOM.
     // goPage() uses getElementById('page' + capitalize(name))
     // so pageAuditLog and pageDataExport will be found automatically.
