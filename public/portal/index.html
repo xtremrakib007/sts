@@ -4698,6 +4698,71 @@ window.runDuesReminderNow = async function() {
     setTimeout(() => window.loadDuesReminder(), 8000);
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 };
+// ═══════════════════════════════════════════
+//  ONLINE SHOP LINK (stfreshmart.my, project stfreshperak)
+//  Saved to stsb_config/shopSync. Cloud Functions copy products, photos,
+//  price (+ markup) and sellable stock to the shop, and bring shop orders
+//  in as Sales Orders (WEB-…). The result of the last run shows here.
+// ═══════════════════════════════════════════
+const _shopRef = () => doc(_db, C('config'), 'shopSync');
+window.loadShopSync = async function() {
+  const card = document.getElementById('shopCard'); if (!card) return;
+  let c = {};
+  try { const d = await getDoc(_shopRef()); if (d.exists()) c = d.data(); } catch (e) { card.innerHTML = `<div style="color:var(--red)">${_esc(e.message)}</div>`; return; }
+  const st = c.status;
+  card.innerHTML = `
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px">🛒 Online shop (stfreshmart.my)</div>
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:16px">The shop shows your products, photos and the stock you can still sell, at the Sales App price plus your markup. Shop orders arrive here as Sales Orders (numbers start with WEB-) and are reserved, invoiced and delivered like any other order. The customer sees the progress on the shop.</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:14px"><input type="checkbox" id="shopOn" ${c.enabled ? 'checked' : ''}> Link the shop to this ERP</label>
+    <div class="frow">
+      <div class="fgrp"><label class="flbl">Shop markup on Sales App price (%)</label><input class="finp" id="shopMarkup" type="number" min="0" max="500" step="0.5" value="${n_(c.markupPct, 0)}" oninput="document.getElementById('shopEx').textContent='RM 10.00 → '+(Math.round(10*(1+(Number(this.value)||0)/100)*100)/100).toFixed(2)"></div>
+      <div class="fgrp"><label class="flbl">Shop Firebase project</label><input class="finp" id="shopProject" value="${_esc(c.projectId || 'stfreshperak')}"></div>
+    </div>
+    <div style="font-size:12px;color:var(--tx3);margin:-6px 0 14px" id="shopEx">RM 10.00 → ${(Math.round(10 * (1 + n_(c.markupPct, 0) / 100) * 100) / 100).toFixed(2)}</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:16px"><input type="checkbox" id="shopOrders" ${c.ordersEnabled !== false ? 'checked' : ''}> Bring shop orders into the ERP</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="saveShopSync()">Save</button>
+      <button class="btn btn-ghost" onclick="runShopSyncNow()">🔄 Sync now</button>
+    </div>
+    <div style="font-size:12px;color:var(--tx3);margin-top:16px;border-top:1px solid var(--bdr);padding-top:12px">${st
+      ? (st.ok === false ? `<span style="color:var(--red)">Problem (${_esc(new Date(st.at).toLocaleString())}): ${_esc(st.error || '')}</span>${/PERMISSION_DENIED|permission/i.test(st.error || '') ? '<br>The shop project has not given this ERP access yet — see the setup steps.' : ''}`
+        : `Last sync ${_esc(new Date(st.at).toLocaleString())} (${_esc(st.reason || '')}): ${st.products || 0} products, ${st.changed || 0} updated${st.hidden ? `, ${st.hidden} removed` : ''}.`)
+      : 'Not synced yet.'}</div>
+    <details style="margin-top:12px;font-size:12px;color:var(--tx2)"><summary style="cursor:pointer;font-weight:600">Setup (once)</summary>
+      <ol style="padding-left:18px;line-height:1.6">
+        <li>Sign in to Google Cloud console with the account that owns <strong>${_esc(c.projectId || 'stfreshperak')}</strong> → IAM &amp; Admin → IAM → <strong>Grant access</strong>.</li>
+        <li>New principal: <code>stfm-sales@appspot.gserviceaccount.com</code> · Role: <strong>Cloud Datastore User</strong> → Save.</li>
+        <li>Tick "Link the shop" above, set the markup and Save. Products appear in the shop within a minute.</li>
+      </ol>No key or password is needed or stored.</details>`;
+};
+window.saveShopSync = async function(silent) {
+  let prev = {};
+  try { const d = await getDoc(_shopRef()); if (d.exists()) prev = d.data(); } catch (e) {}
+  const enabled = document.getElementById('shopOn').checked;
+  const cfg = {
+    enabled,
+    markupPct: Math.min(500, Math.max(0, Number(document.getElementById('shopMarkup').value) || 0)),
+    projectId: document.getElementById('shopProject').value.trim() || 'stfreshperak',
+    ordersEnabled: document.getElementById('shopOrders').checked,
+    updatedBy: uid(), updatedAt: new Date().toISOString(),
+  };
+  // Orders placed in the shop before the link was switched on stay there.
+  if (enabled && !prev.ordersSince) cfg.ordersSince = new Date().toISOString();
+  try {
+    await setDoc(_shopRef(), cfg, { merge: true });
+    if (!silent) showToast(enabled ? 'Saved — the shop is linked ✓' : 'Saved — the shop link is off', 'success');
+    setTimeout(() => window.loadShopSync(), 6000);
+  } catch (e) { showToast('Error: ' + e.message, 'error'); throw e; }
+};
+window.runShopSyncNow = async function() {
+  if (!document.getElementById('shopOn').checked) { showToast('Tick "Link the shop" first', 'error'); return; }
+  try {
+    await window.saveShopSync(true);
+    await setDoc(_shopRef(), { runNowAt: new Date().toISOString() }, { merge: true });
+    showToast('Syncing… the result shows below in a few seconds', 'info');
+    setTimeout(() => window.loadShopSync(), 8000);
+  } catch (e) {}
+};
 // This page script is an ES module, so its functions are not global. Expose
 // the ones called from inline onclick/onchange handlers.
 Object.assign(window, { prepModal, myOrders, deliveryPlanner, deliveryReport, reports, _pickRender, einvoiceRequests, staffAdvances });
@@ -4737,6 +4802,7 @@ async function settings() {
       <div class="rtab" onclick="switchTab('settProducts','settTabs',this)">📦 Products</div>
       <div class="rtab" onclick="switchTab('settSystem','settTabs',this)">⚙️ System</div>
       <div class="rtab" onclick="switchTab('settDues','settTabs',this);loadDuesReminder()">🔔 Dues reminder</div>
+      <div class="rtab" onclick="switchTab('settShop','settTabs',this);loadShopSync()">🛒 Online shop</div>
     </div>
     <div id="settCompany" style="max-width:900px">
       <div class="card" style="padding:22px">
@@ -4798,6 +4864,7 @@ async function settings() {
       <tbody>${prodRows||'<tr><td colspan="7" style="text-align:center;color:var(--tx3);padding:30px">No products yet</td></tr>'}</tbody></table></div></div>
     </div>
     <div id="settDues" style="display:none;max-width:620px"><div class="card" style="padding:22px" id="duesCard">Loading…</div></div>
+    <div id="settShop" style="display:none;max-width:620px"><div class="card" style="padding:22px" id="shopCard">Loading…</div></div>
     <div id="settSystem" style="display:none;max-width:560px">
       <div class="card" style="padding:20px;margin-bottom:14px">
         <div style="font-size:13px;font-weight:700;margin-bottom:6px">⬇️ Past Sales App data</div>
@@ -4822,7 +4889,7 @@ async function settings() {
   window.switchTab = function(showId, tabsId, el) {
     document.querySelectorAll(`#${tabsId} .rtab`).forEach(t=>t.classList.remove('active'));
     el.classList.add('active');
-    ['settCompany','settProducts','settSystem','settDues'].forEach(id=>{
+    ['settCompany','settProducts','settSystem','settDues','settShop'].forEach(id=>{
       const el2 = document.getElementById(id);
       if(el2) el2.style.display = id===showId?'block':'none';
     });

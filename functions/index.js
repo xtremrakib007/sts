@@ -1001,3 +1001,235 @@ exports.customerPortal = functions.https.onRequest(async (req, res) => {
     res.status(500).json({ error: 'Something went wrong. Please try again later.' });
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ONLINE SHOP LINK — stfreshmart.my (Firebase project stfreshperak)
+// The ERP feeds the shop its products, photos, prices (+ markup %) and
+// sellable stock; shop orders come back as Sales App orders (source
+// 'shop') and their status goes back to the shop. Settings and the last
+// result live in stsb_config/shopSync (ERP → Settings → Online shop).
+//
+// No key is stored anywhere: the shop project grants this project's
+// functions service account (stfm-sales@appspot.gserviceaccount.com) the
+// "Cloud Datastore User" role, and the second app below uses that.
+// ═══════════════════════════════════════════════════════════════
+const shop = require('./shop-sync');
+const SHOP_CFG = () => db().doc(`${erp.erpCol('config')}/shopSync`);
+// Shop orders newer than this are checked for import / counted as held.
+const SHOP_PULL_WINDOW_MS = 2 * 24 * 3600 * 1000;
+const SHOP_HOLD_WINDOW_MS = 30 * 60 * 1000;
+
+async function _shopCfg() {
+  const s = await SHOP_CFG().get();
+  return { ...shop.DEFAULT_CONFIG, ...(s.exists ? s.data() : {}) };
+}
+
+function _shopDb(projectId) {
+  const name = `shop-${projectId}`;
+  const app = admin.apps.find(a => a && a.name === name) || admin.initializeApp({ projectId }, name);
+  return app.firestore();
+}
+
+async function _shopStatus(patch) {
+  await SHOP_CFG().set({ status: { at: new Date().toISOString(), ...patch } }, { merge: true });
+}
+
+// Pieces in recent shop orders the ERP has not imported yet, by shop SKU.
+async function _shopHeld(sdb, cfg) {
+  const since = admin.firestore.Timestamp.fromMillis(Date.now() - SHOP_HOLD_WINDOW_MS);
+  const snap = await sdb.collection('orders').where('createdAt', '>=', since).get();
+  return shop.pendingShopReservations(snap.docs.map(d => d.data()).filter(o => shop.shouldImport(o, cfg)));
+}
+
+async function _inventoryById() {
+  const snap = await db().collection(erp.erpCol('inventory')).get();
+  const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return { index: ctl.inventoryIndex(list), byId: Object.fromEntries(list.map(v => [v.id, v])) };
+}
+
+// Writes the given ERP products to the shop (only those that changed).
+// `removedIds` are ERP products that no longer exist: hidden in the shop.
+async function _pushShopProducts(cfg, products, removedIds = [], inv = null) {
+  const sdb = _shopDb(cfg.projectId);
+  const nowIso = new Date().toISOString();
+  inv = inv || await _inventoryById();
+  const held = await _shopHeld(sdb, cfg);
+  const writes = [];
+  const refs = products.map(p => sdb.doc(`products/${shop.shopSku(p)}`));
+  const cur = refs.length ? await sdb.getAll(...refs) : [];
+  products.forEach((p, i) => {
+    const sku = shop.shopSku(p);
+    const stock = Math.max(0, shop.availableStock(p, inv.index, inv.byId) - (held[sku] || 0));
+    const next = shop.shopProduct(p, stock, cfg, nowIso);
+    // A product the shop added itself under the same SKU is taken over.
+    const c = cur[i].exists ? cur[i].data() : null;
+    if (!shop.sameShopProduct(c, next)) writes.push([refs[i], next]);
+  });
+  if (removedIds.length) {
+    const gone = await sdb.collection('products').where('erpProductId', 'in', removedIds.slice(0, 30)).get();
+    gone.docs.forEach(d => { if (d.data().status !== 'hidden' || d.data().stock) writes.push([d.ref, shop.removedShopProduct(nowIso)]); });
+  }
+  for (let i = 0; i < writes.length; i += 400) {
+    const b = sdb.batch();
+    writes.slice(i, i + 400).forEach(([ref, data]) => b.set(ref, data, { merge: true }));
+    await b.commit();
+  }
+  return writes.length;
+}
+
+async function _fullShopSync(cfg, reason) {
+  const sdb = _shopDb(cfg.projectId);
+  const [prods, inv, shopSnap] = await Promise.all([
+    db().collection('products').get(), _inventoryById(),
+    sdb.collection('products').where('erpManaged', '==', true).get(),
+  ]);
+  const products = prods.docs.map(d => ({ id: d.id, ...d.data() }));
+  const ids = new Set(products.map(p => p.id));
+  const removed = [...new Set(shopSnap.docs.map(d => d.data().erpProductId).filter(id => id && !ids.has(id)))];
+  let changed = await _pushShopProducts(cfg, products, [], inv);
+  for (let i = 0; i < removed.length; i += 30) changed += await _pushShopProducts(cfg, [], removed.slice(i, i + 30), inv);
+  await _shopStatus({ ok: true, reason, products: products.length, changed, hidden: removed.length, error: '' });
+  return changed;
+}
+
+// Shop orders → Sales App orders. Idempotent: the app order id is fixed per
+// shop order, and the shop order is marked only after the app order exists.
+async function _importShopOrders(cfg) {
+  const sdb = _shopDb(cfg.projectId);
+  const since = admin.firestore.Timestamp.fromMillis(Date.now() - SHOP_PULL_WINDOW_MS);
+  const snap = await sdb.collection('orders').where('createdAt', '>=', since).get();
+  const todo = snap.docs.filter(d => shop.shouldImport(d.data(), cfg));
+  let imported = 0;
+  for (const d of todo) {
+    try {
+      const o = d.data();
+      const skus = [...new Set((o.items || []).map(it => String(it.sku || '').trim().toUpperCase()).filter(Boolean))];
+      const sp = skus.length ? await sdb.getAll(...skus.map(s => sdb.doc(`products/${s}`))) : [];
+      const shopProducts = Object.fromEntries(sp.filter(s => s.exists).map(s => [s.id, s.data()]));
+      const appOrder = shop.appOrderFromShop({ shopOrderId: d.id, order: o, shopProducts, nowMs: Date.now() });
+      const appRef = db().doc(`orders/shop_${d.id}`);
+      await appRef.create({ ...appOrder, createdAt: FieldValue.serverTimestamp() }).catch((e) => {
+        if (e.code !== 6) throw e; // ALREADY_EXISTS: imported before, mark the shop order below
+      });
+      // The ERP now holds the stock, so the shop's own reservation is
+      // consumed (no expiry, no second release).
+      const cancelledMeanwhile = await sdb.runTransaction(async (tx) => {
+        const cur = await tx.get(d.ref);
+        if (!cur.exists || cur.data().erpOrderId) return false;
+        if (cur.data().status === 'Cancelled') {
+          tx.update(d.ref, { erpOrderId: appOrder.id, erpImportedAt: new Date().toISOString() });
+          return true;
+        }
+        tx.update(d.ref, {
+          erpOrderId: appOrder.id, erpImportedAt: new Date().toISOString(), erpStatus: appOrder.status,
+          status: 'Accepted', stockReserved: false, stockDeducted: true,
+          reservationExpiresAt: FieldValue.delete(),
+        });
+        tx.set(sdb.collection('orderStatusHistory').doc(), {
+          orderId: d.id, from: cur.data().status, to: 'Accepted', changedBy: 'erp', actorRole: 'system',
+          reason: `Sent to the ERP as ${appOrder.id}`, at: FieldValue.serverTimestamp(),
+        });
+        return false;
+      });
+      // Cancelled in the shop while it was being imported: release the ERP stock too.
+      if (cancelledMeanwhile) await appRef.update({ status: 'Cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'Online shop' });
+      imported++;
+      console.log(`[shop→ERP] ${d.id} → ${appOrder.id}`);
+    } catch (e) {
+      console.error(`[shop→ERP] ${d.id} failed:`, e.message);
+      await _shopStatus({ ok: false, error: `Order ${d.id}: ${e.message}` }).catch(() => {});
+    }
+  }
+  return imported;
+}
+
+exports.shopPullOrders = functions.pubsub.schedule('every 2 minutes').timeZone('Asia/Kuala_Lumpur').onRun(async () => {
+  const cfg = await _shopCfg();
+  if (!cfg.enabled || cfg.ordersEnabled === false) return null;
+  try { await _importShopOrders(cfg); }
+  catch (e) { console.error('[shop→ERP]', e.message); await _shopStatus({ ok: false, error: e.message }); }
+  return null;
+});
+
+// Safety net: a full product pass every hour (also hides products deleted
+// in the ERP).
+exports.shopSyncHourly = functions.runWith({ timeoutSeconds: 300, memory: '512MB' })
+  .pubsub.schedule('every 60 minutes').timeZone('Asia/Kuala_Lumpur').onRun(async () => {
+    const cfg = await _shopCfg();
+    if (!cfg.enabled) return null;
+    try { await _fullShopSync(cfg, 'hourly'); }
+    catch (e) { console.error('[ERP→shop]', e.message); await _shopStatus({ ok: false, error: e.message }); }
+    return null;
+  });
+
+// Switching the link on, changing the markup or "Sync now" in the ERP.
+exports.shopSyncConfig = functions.runWith({ timeoutSeconds: 300, memory: '512MB' })
+  .firestore.document(`${erp.erpCol('config')}/shopSync`).onWrite(async (change) => {
+    const before = change.before.exists ? change.before.data() : {};
+    const after = change.after.exists ? change.after.data() : null;
+    if (!after) return null;
+    const keys = ['enabled', 'markupPct', 'projectId', 'runNowAt'];
+    if (keys.every(k => JSON.stringify(before[k]) === JSON.stringify(after[k]))) return null;
+    const cfg = { ...shop.DEFAULT_CONFIG, ...after };
+    if (!cfg.enabled) return null;
+    try {
+      await _fullShopSync(cfg, before.runNowAt !== after.runNowAt ? 'manual' : 'settings');
+      if (cfg.ordersEnabled !== false) await _importShopOrders(cfg);
+    } catch (e) {
+      console.error('[ERP→shop]', e.message);
+      await _shopStatus({ ok: false, error: e.message });
+    }
+    return null;
+  });
+
+exports.shopSyncProduct = functions.firestore.document('products/{productId}').onWrite(async (change, ctx) => {
+  const cfg = await _shopCfg();
+  if (!cfg.enabled) return null;
+  try {
+    if (!change.after.exists) await _pushShopProducts(cfg, [], [ctx.params.productId]);
+    else await _pushShopProducts(cfg, [{ id: ctx.params.productId, ...change.after.data() }]);
+  } catch (e) { console.error('[ERP→shop] product', ctx.params.productId, e.message); await _shopStatus({ ok: false, error: e.message }); }
+  return null;
+});
+
+// Every reservation, delivery and stock movement changes what is left to sell.
+exports.shopSyncStock = functions.firestore.document(`${erp.erpCol('inventory')}/{invId}`).onWrite(async (change) => {
+  const b = change.before.exists ? change.before.data() : {};
+  const a = change.after.exists ? change.after.data() : {};
+  if (_num(a.qty) - _num(a.reservedQty) === _num(b.qty) - _num(b.reservedQty) && a.sku === b.sku && a.name === b.name) return null;
+  const cfg = await _shopCfg();
+  if (!cfg.enabled) return null;
+  try {
+    const found = new Map();
+    for (const v of [a, b]) {
+      if (v.sku) (await db().collection('products').where('sku', '==', v.sku).get()).docs.forEach(d => found.set(d.id, { id: d.id, ...d.data() }));
+      if (v.name) (await db().collection('products').where('name', '==', v.name).get()).docs.forEach(d => found.set(d.id, { id: d.id, ...d.data() }));
+    }
+    if (found.size) await _pushShopProducts(cfg, [...found.values()]);
+  } catch (e) { console.error('[ERP→shop] stock', e.message); await _shopStatus({ ok: false, error: e.message }); }
+  return null;
+});
+
+// ERP / Sales App progress → the shop order the customer sees.
+exports.shopOrderStatus = functions.firestore.document('orders/{orderId}').onUpdate(async (change) => {
+  const before = change.before.data(), after = change.after.data();
+  if (after.source !== 'shop' || !after.shopOrderId || before.status === after.status) return null;
+  const cfg = await _shopCfg();
+  if (!cfg.enabled) return null;
+  const sdb = _shopDb(cfg.projectId);
+  const ref = sdb.doc(`orders/${after.shopOrderId}`);
+  try {
+    await sdb.runTransaction(async (tx) => {
+      const cur = await tx.get(ref);
+      if (!cur.exists) return;
+      const patch = shop.shopStatusPatch(after, cur.data());
+      if (!patch) return;
+      tx.update(ref, patch);
+      tx.set(sdb.collection('orderStatusHistory').doc(), {
+        orderId: ref.id, from: cur.data().status, to: patch.status, changedBy: 'erp', actorRole: 'system',
+        reason: `ERP: ${after.status}`, at: FieldValue.serverTimestamp(),
+      });
+    });
+  } catch (e) { console.error('[ERP→shop] status', after.shopOrderId, e.message); await _shopStatus({ ok: false, error: e.message }); }
+  return null;
+});
