@@ -82,6 +82,10 @@ const PAGE_META={
   zones:{title:'Zone Management',sub:'Manage zones — scope data access by region or territory'},
   outletstructure:{title:'Outlet Structure',sub:'Sales rep → route → outlets hierarchy'},
   advances:{title:'My Advances',sub:'Salary / cash advances and staff loans'},
+  liveLocations:{title:'Live Locations',sub:'Where field staff are now'},
+  auditLog:{title:'Audit Log',sub:'Who did what, and when'},
+  errorLog:{title:'Error Log',sub:'Errors staff hit in the app'},
+  dataExport:{title:'Data Export',sub:'Download data as CSV or Excel'},
 };
 function goPage(pg) {
   if((pg==='users'||pg==='products')&&!isAdmin()){showToast('Access denied','error');return;}

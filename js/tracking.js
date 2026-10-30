@@ -126,6 +126,13 @@ function startLocationTracking() {
   // Immediate fix on start (asks for location permission in the APK first)
   _ensureNativePermission().then(_captureAndSaveLocation);
 
+  // ── APK 1.5+: background tracking (a foreground service keeps sending
+  // the location with the app closed or the phone locked; Android shows a
+  // "sharing location" notification while it runs). Older APKs fall back
+  // to the in-app watch below.
+  if (_bgGeo()) {
+    _startBackgroundWatch();
+  } else
   // ── Capacitor APK: use native watch ─────────────────────────────────────
   if (_isCapacitor() && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
     const { Geolocation } = window.Capacitor.Plugins;
@@ -201,6 +208,79 @@ async function _ensureNativePermission() {
   } catch (e) { console.warn('[Location] permission check failed:', e.message); }
 }
 
+// ── Background tracking (APK 1.5+: @capacitor-community/background-geolocation)
+let _bgWatcherId = null, _bgStarting = false, _bgStopAsked = false;
+function _bgGeo() {
+  const C = window.Capacitor;
+  if (!C || !C.isNativePlatform || !C.isNativePlatform() || !C.isPluginAvailable || !C.isPluginAvailable('BackgroundGeolocation')) return null;
+  return C.Plugins.BackgroundGeolocation || (C.registerPlugin ? C.registerPlugin('BackgroundGeolocation') : null);
+}
+function _startBackgroundWatch() {
+  const BG = _bgGeo(); if (!BG || _bgWatcherId || _bgStarting) return;
+  _bgStarting = true; _bgStopAsked = false;
+  BG.addWatcher({
+    backgroundTitle: 'STSB is sharing your location',
+    backgroundMessage: 'Your office sees your location while you work. It stops when you sign out.',
+    requestPermissions: true,
+    stale: false,
+    distanceFilter: 20, // metres between updates
+  }, (loc, err) => {
+    if (err) {
+      if (err.code === 'NOT_AUTHORIZED' && !_gpsWarned) {
+        _gpsWarned = true;
+        if (confirm('STSB needs your location to share it with the office while you work.\n\nOpen settings and allow Location?')) BG.openSettings();
+      } else console.warn('[Location] background watch error:', err.message || err.code);
+      return;
+    }
+    if (!loc) return;
+    const pos = { coords: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy }, timestamp: loc.time || Date.now() };
+    _userLat = pos.coords.latitude; _userLng = pos.coords.longitude; _gpsGranted = true;
+    saveUserLocation(pos);
+  }).then(id => {
+    _bgStarting = false;
+    if (_bgStopAsked) { Promise.resolve(BG.removeWatcher({ id })).catch(() => {}); return; } // signed out meanwhile
+    _bgWatcherId = id; console.log('[Location] background watcher started');
+  }).catch(e => { _bgStarting = false; console.warn('[Location] background watch failed, using in-app watch:', e.message); _startNativeWatchFallback(); });
+}
+function _startNativeWatchFallback() {
+  const G = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation;
+  if (!G) { _startBrowserWatch(); return; }
+  try {
+    Promise.resolve(G.watchPosition({ enableHighAccuracy: true, timeout: 15000 }, (pos, err) => {
+      if (err || !pos) return;
+      _userLat = pos.coords.latitude; _userLng = pos.coords.longitude; _gpsGranted = true;
+      saveUserLocation(pos);
+    })).then(id => { _locationWatcher = id; }).catch(() => _startBrowserWatch());
+  } catch (e) { _startBrowserWatch(); }
+}
+
+// With the app in the background Android slows the WebView's own network
+// requests, so locations are then saved through the native HTTP client
+// (Firestore REST, same rules: the user's own lastLat/lastLng fields).
+let _idTok = null, _idTokAt = 0;
+async function _idToken() {
+  const u = window.__SF && window.__SF.auth && window.__SF.auth.currentUser;
+  if (!u) return null;
+  if (_idTok && Date.now() - _idTokAt < 45 * 60 * 1000) return _idTok;
+  try { _idTok = await u.getIdToken(); _idTokAt = Date.now(); } catch (e) { /* keep the last one */ }
+  return _idTok;
+}
+async function _saveLocationNative(fields) {
+  const H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
+  const tok = await _idToken();
+  if (!H || !tok) return false;
+  const project = (window.__SF.db && window.__SF.db.app && window.__SF.db.app.options && window.__SF.db.app.options.projectId) || 'stfm-sales';
+  const mask = Object.keys(fields).map(k => 'updateMask.fieldPaths=' + k).join('&');
+  const val = v => typeof v === 'number' ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }) : { stringValue: String(v) };
+  const r = await H.request({
+    method: 'PATCH',
+    url: `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/users/${CU.uid}?${mask}&currentDocument.exists=true`,
+    headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
+    data: { fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, val(v)])) },
+  });
+  return r && r.status >= 200 && r.status < 300;
+}
+
 function _startBrowserWatch() {
   if (!navigator.geolocation) return;
   if (_locationWatcher !== null) {
@@ -237,6 +317,13 @@ function _startBrowserWatch() {
 }
 
 function stopLocationTracking() {
+  // Background watcher (APK 1.5+): removing it ends the notification
+  if (_bgStarting) _bgStopAsked = true;
+  if (_bgWatcherId) {
+    const BG = _bgGeo();
+    if (BG) Promise.resolve(BG.removeWatcher({ id: _bgWatcherId })).catch(() => {});
+    _bgWatcherId = null;
+  }
   // Stop native Capacitor watcher
   if (_locationWatcher !== null) {
     if (_isCapacitor() && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
@@ -336,13 +423,16 @@ async function saveUserLocation(pos) {
   }
 
   try {
-    await window.__SF.updateDoc(rootDocRef('users', CU.uid), {
+    const fields = {
       lastLat: lat,
       lastLng: lng,
       lastLocationAt: new Date().toISOString(),
       lastAccuracy: Math.round(pos.coords.accuracy || 0),
       lastSeen: new Date().toISOString(),
-    });
+    };
+    if (document.visibilityState !== 'hidden') _idToken(); // keep a fresh token for background saves
+    const nativeDone = document.visibilityState === 'hidden' && _isCapacitor() && await _saveLocationNative(fields).catch(() => false);
+    if (!nativeDone) await window.__SF.updateDoc(rootDocRef('users', CU.uid), fields);
     _lastSavedLat = lat;
     _lastSavedLng = lng;
     _lastSavedTs  = now;

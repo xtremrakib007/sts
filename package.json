@@ -24,6 +24,7 @@
     "test:customer-portal": "node --test tests/customer-portal.test.js"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "1.2.26",
     "@capacitor/android": "^6.2.1",
     "@capacitor/app": "^6.0.3",
     "@capacitor/camera": "^6.1.3",

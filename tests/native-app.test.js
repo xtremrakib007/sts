@@ -196,3 +196,23 @@ test('delivery man: working outlets only until the office closes his day', () =>
   assert.match(read('public/portal/index.html'), /window\.closeDriverDay = async function\(dmId\)/);
   assert.match(read('js/collections.js'), /\.\.\.\(isDeliveryMan\(\)\?\{source:'delivery'\}:\{\}\)/);
 });
+
+test('Audit / Error / Data Export pages live in the app page area (open at the top)', () => {
+  const html = read('index.html');
+  assert.match(html, /\['pageAuditLog', 'pageErrorLog', 'pageDataExport'\]\.forEach\(id => \{\n            const el = document\.getElementById\(id\);\n            if \(el && el\.parentNode !== host\) host\.appendChild\(el\);/);
+  assert.match(read('js/ui.js'), /auditLog:\{title:'Audit Log'/);
+});
+
+test('background location (APK 1.5+): foreground service watcher, native saves in the background', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.equal(pkg.dependencies['@capacitor-community/background-geolocation'], '1.2.26');
+  assert.equal(JSON.parse(read('capacitor.config.json')).android.useLegacyBridge, true, 'updates keep coming after 5 min in the background');
+  assert.match(read('android/capacitor.settings.gradle'), /include ':capacitor-community-background-geolocation'/);
+  assert.match(read('android/app/src/main/res/values/strings.xml'), /capacitor_background_geolocation_notification_icon">drawable\/ic_stat_location</);
+  const t = read('js/tracking.js');
+  assert.match(t, /backgroundTitle: 'STSB is sharing your location'/);
+  assert.match(t, /if \(_bgGeo\(\)\) \{\n    _startBackgroundWatch\(\);/);
+  assert.match(t, /document\.visibilityState === 'hidden' && _isCapacitor\(\) && await _saveLocationNative\(fields\)/);
+  assert.match(t, /BG\.removeWatcher\(\{ id: _bgWatcherId \}\)/, 'stops on sign out');
+  assert.match(read('android/app/src/main/AndroidManifest.xml'), /ACCESS_BACKGROUND_LOCATION/);
+});
