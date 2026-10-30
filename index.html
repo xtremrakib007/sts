@@ -229,7 +229,7 @@
                 <button type="button" class="lg-eye" id="lpwdEye" aria-label="Show password" onclick="var i=document.getElementById('lpwd'),s=i.type==='password';i.type=s?'text':'password';this.setAttribute('aria-label',s?'Hide password':'Show password');this.classList.toggle('on',s)"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
             </div>
             <div class="lg-row">
-                <label class="lg-check"><input type="checkbox" id="rememberMe"> <span>Remember me</span></label>
+                <label class="lg-check"><input type="checkbox" id="rememberMe" checked> <span>Keep me signed in</span></label>
                 <button type="button" class="lg-link" onclick="openForgotPassword()">Forgot password?</button>
             </div>
             <button class="lg-btn" id="loginBtn" onclick="doLogin()">Sign In →</button>
@@ -2983,17 +2983,6 @@
         </div>
     </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════
-         SECURITY: Session timeout warning banner
-         ═══════════════════════════════════════════════════════════════ -->
-    <div id="stsbSessionWarning">
-        ⚠️ Your session will expire in <span id="stsbSessionCountdown">5:00</span> due to inactivity.
-        <button onclick="stsbResetSessionTimer()"
-            style="margin-left:12px;background:rgba(255,255,255,.25);border:none;color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:700">
-            Stay Logged In
-        </button>
-    </div>
-
     <!-- SECURITY: Login rate-limit indicator (shown inside login card) -->
     <div id="stsbLoginLock">
         🔒 Too many failed attempts. Please wait <span id="stsbLockCountdown">30</span>s before trying again.
@@ -3226,56 +3215,14 @@
     'use strict';
 
     /* ──────────────────────────────────────────────────────────────
-       1. SECURITY — Session Inactivity Timeout
-       Auto-logout after 30 minutes of inactivity with a 5-min warning.
+       1. Sessions stay signed in — no automatic logout on inactivity.
+       Users sign out themselves (Sign Out). Kept as a no-op so older
+       callers of stsbResetSessionTimer() keep working.
     ────────────────────────────────────────────────────────────── */
-    const SESSION_TIMEOUT_MS   = 30 * 60 * 1000;   // 30 min
-    const SESSION_WARNING_MS   = 25 * 60 * 1000;   // warn at 25 min
-    let _sessionTimer = null, _sessionWarningTimer = null, _countdownInterval = null;
-
     window.stsbResetSessionTimer = function() {
-        clearTimeout(_sessionTimer);
-        clearTimeout(_sessionWarningTimer);
-        clearInterval(_countdownInterval);
         const banner = document.getElementById('stsbSessionWarning');
         if (banner) banner.style.display = 'none';
-
-        // Only arm timer if user is logged in
-        if (!window.__currentUser) return;
-
-        _sessionWarningTimer = setTimeout(() => {
-            const b = document.getElementById('stsbSessionWarning');
-            if (!b) return;
-            b.style.display = 'block';
-            let remaining = (SESSION_TIMEOUT_MS - SESSION_WARNING_MS) / 1000;
-            const cd = document.getElementById('stsbSessionCountdown');
-            _countdownInterval = setInterval(() => {
-                remaining--;
-                const m = Math.floor(remaining / 60), s = remaining % 60;
-                if (cd) cd.textContent = m + ':' + String(s).padStart(2, '0');
-                if (remaining <= 0) clearInterval(_countdownInterval);
-            }, 1000);
-        }, SESSION_WARNING_MS);
-
-        _sessionTimer = setTimeout(() => {
-            if (window.__currentUser) {
-                stsbAuditLog('logout', { reason: 'session_timeout' });
-                if (window.__SF && window.__SF.signOut && window.__SF.auth)
-                    window.__SF.signOut(window.__SF.auth);
-            }
-        }, SESSION_TIMEOUT_MS);
     };
-
-    // Activity events reset the timer
-    ['click','keydown','touchstart','mousemove','scroll'].forEach(ev => {
-        document.addEventListener(ev, window.stsbResetSessionTimer, { passive: true });
-    });
-
-    // Start when user logs in
-    const _origBootApp = window.bootApp;
-    window.addEventListener('appReady', () => {
-        if (window.__currentUser) window.stsbResetSessionTimer();
-    });
 
     /* ──────────────────────────────────────────────────────────────
        2. SECURITY — Login Rate Limiting (client-side enforcement)

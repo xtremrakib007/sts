@@ -108,3 +108,13 @@ test('owner (super_admin) gets the admin home tiles and alerts', () => {
   assert.match(html, /\['admin','sub_admin','super_admin'\]\.includes\(role\)/, 'low stock alert');
   assert.match(html, /\{ page:'advances',\s+ico:'💵', lbl:'Advances',\s+roles:\[\.\.\.R_ALL\]/);
 });
+
+test('no automatic logout: no inactivity timer, logins are kept', () => {
+  const html = read('index.html');
+  assert.doesNotMatch(html, /SESSION_TIMEOUT_MS|session_timeout'\s*\}\)|stsbSessionCountdown/, 'Sales App inactivity logout removed');
+  assert.match(html, /id="rememberMe" checked/, 'Keep me signed in is on by default');
+  assert.match(read('js/auth.js'), /getElementById\('rememberMe'\)\?\.checked!==false/);
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /await setPersistence\(_auth, browserLocalPersistence\)/, 'ERP keeps its login');
+  assert.doesNotMatch(portal, /setTimeout\([^)]*signOut/, 'ERP has no timed sign-out');
+});

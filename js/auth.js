@@ -201,7 +201,9 @@ async function doLogin() {
   btn.disabled=true;btn.textContent='Signing in...';
   const safeReset=setTimeout(()=>{btn.disabled=false;btn.textContent='Sign In →';},10000);
   try {
-    const rememberMe=document.getElementById('rememberMe')?.checked;
+    // Stay signed in (also after the app is closed) unless the user unticks
+    // "Keep me signed in", e.g. on a shared computer.
+    const rememberMe=document.getElementById('rememberMe')?.checked!==false;
     const {setPersistence,browserLocalPersistence,browserSessionPersistence}=window.__SF;
     await setPersistence(window.__SF.auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
     const cred = await window.__SF.signInWithEmailAndPassword(window.__SF.auth,e,p);
