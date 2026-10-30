@@ -271,3 +271,23 @@ test('Outlets by rep: zone reps only, and outlets with no listed rep are shown, 
   assert.match(js, /u\.role==='sales_rep'&&u\.status!=='disabled'&&\(!isOwner\(\)\|\|!_ownerZoneFilter\|\|u\.zoneId===_ownerZoneFilter\)/);
   assert.match(js, /const orphans=allSrchOutlets\.filter\(o=>!repIds\.has\(o\.assignedRepId\)&&!repIds\.has\(o\.createdBy\)\);/);
 });
+
+test('outlet list per role: rep own, delivery man assigned, admin all', () => {
+  const list = [
+    { id: 'a', createdBy: 'r1' }, { id: 'b', createdBy: 'r2', assignedRepId: 'r2' },
+    { id: 'c', createdBy: 'r1', assignedRepId: 'r2' }, { id: 'd', createdBy: 'adm', assignedRepId: 'r1' },
+  ];
+  const run = (user, orders) => {
+    const ctx = { console, window: {}, document: { getElementById: () => null } };
+    vm.createContext(ctx);
+    vm.runInContext(read('js/core.js').replace(/^"use strict";/, '') + `\nCU=${JSON.stringify(user)};this.r=_scopeOutlets(${JSON.stringify(list)},${JSON.stringify(orders)}).map(o=>o.id).join();`, ctx);
+    return ctx.r;
+  };
+  assert.equal(run({ uid: 'r1', role: 'sales_rep' }, []), 'a,d', 'own + assigned to me; not one reassigned away');
+  assert.equal(run({ uid: 'dm', role: 'delivery_man' }, [{ outletId: 'b', deliveryManId: 'dm' }, { outletId: 'c', deliveryManId: 'x' }]), 'b');
+  assert.equal(run({ uid: 'z', role: 'admin' }, []), 'a,b,c,d');
+  assert.equal(run({ uid: 's', role: 'storeman' }, []), '');
+  const rules = read('firestore.rules');
+  assert.match(rules, /allow read:   if isSignedIn\(\) && \(_isZoneAdmin\(ud\(\), zoneId\) \|\| \(_isFieldUser\(ud\(\)\) && _inZone\(ud\(\), zoneId\)\)\);/);
+  assert.match(rules, /_inZone\(ud\(\), zoneId\) && subCol != 'outlets';/);
+});
