@@ -119,12 +119,18 @@ test('on-hand stock: single units for carton + single, cartons × size for carto
   assert.equal(P.productField('On Hand Unit'), null);
 });
 
-test('ERP invoice form: searchable products and outlets, customer mobile + address saved', () => {
+test('ERP invoice form: product/outlet dropdowns, walk-in, salesman, pcs/ctn/kg/bag, mobile + address saved', () => {
   const portal = read('public/portal/index.html');
-  assert.match(portal, /id="invCust" list="invCustList"/);
+  assert.match(portal, /id="invCust" autocomplete="off"/);
+  assert.doesNotMatch(portal, /<datalist id="inv/, 'own dropdown, datalist does not open on phones');
+  assert.match(portal, /function _combo\(input, source, onPick\)/);
+  assert.match(portal, /const INV_UNITS = \['pcs', 'ctn', 'kg', 'bag'\]/);
+  assert.match(portal, /const INV_WALKIN = 'Walk-in customer'/);
+  assert.match(portal, /id="invRep"/);
+  assert.match(portal, /repId: document\.getElementById\('invRep'\)\.value/);
   assert.match(portal, /id="invPhone"/);
   assert.match(portal, /id="invAddr"/);
-  assert.match(portal, /class="finp il-prod" list="invProdList"/);
+  assert.match(portal, /class="finp il-prod" autocomplete="off"/);
   assert.match(portal, /window\.__invCatalog = prods\.filter\(p => p\.name\)/, 'all products loaded');
   assert.match(portal, /customerPhone: document\.getElementById\('invPhone'\)\.value\.trim\(\), customerAddress: document\.getElementById\('invAddr'\)\.value\.trim\(\)/);
 });
