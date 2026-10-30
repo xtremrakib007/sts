@@ -107,6 +107,23 @@ function _applyProductOverrides(prDocs, overrideMap) {
   }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
+// Which outlets each role sees in the Sales App (every page uses
+// allOutlets): admins all; a sales rep only their own (assigned to them,
+// or created by them when no one is assigned); a delivery man only the
+// outlets on orders assigned to him. Storemen don't use the Sales App.
+function _scopeOutlets(list, orders) {
+  if (!CU || isAdmin()) return list;
+  const me = CU.uid;
+  if (CU.role === 'sales_rep') {
+    return list.filter(o => o.assignedRepId ? o.assignedRepId === me : (o.createdBy === me || o.repId === me || o.assignedTo === me));
+  }
+  if (CU.role === 'delivery_man') {
+    const ids = new Set((orders || []).filter(o => o.deliveryManId === me).map(o => o.outletId));
+    return list.filter(o => ids.has(o.id));
+  }
+  return [];
+}
+
 // Write path — owner always writes to root; zone users write to their zone
 function _zonePath(c) {
   if(SHARED_COLS.has(c)) return c;

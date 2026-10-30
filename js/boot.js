@@ -398,7 +398,7 @@ async function _bootLoad(source) {
   if (fromCache && !ouDocs.length && !prSnap.docs.length) return false;
 
   allZones    = znDocs.map(d=>({id:d.id,...d.data()}));
-  allOutlets  = ouDocs.map(d=>({id:d.id,...d.data()}));
+  allOutlets  = _scopeOutlets(ouDocs.map(d=>({id:d.id,...d.data()})), ordDocs.map(d=>d.data()));
   allUsers    = isOwner()
     ? uSnap.docs.map(d=>({...d.data()}))
     : uSnap.docs.map(d=>({...d.data()})).filter(u=>u.isOwner||u.zoneId===CU.zoneId||u.uid===CU.uid);
@@ -432,7 +432,9 @@ async function loadCachedData(force = false) {
     _loadZoneProductOverrides(),              // loads for active zone (owner filter or CU.zoneId)
   ]);
   allZones   = znDocs.map(d=>({id:d.id,...d.data()}));
-  allOutlets = ouDocs.map(d=>({id:d.id,...d.data()}));
+  const _dmOrders = isDeliveryMan()
+    ? (await sfGet('orders', [window.__SF.where('deliveryManId', '==', CU.uid)])).map(d => d.data()) : [];
+  allOutlets = _scopeOutlets(ouDocs.map(d=>({id:d.id,...d.data()})), _dmOrders);
   allUsers   = isOwner()
     ? uSnap.docs.map(d=>({...d.data()}))
     : uSnap.docs.map(d=>({...d.data()})).filter(u=>u.isOwner||u.zoneId===CU.zoneId||u.uid===CU.uid);

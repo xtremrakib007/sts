@@ -230,7 +230,8 @@ service cloud.firestore {
       }
 
       match /outlets/{outletId} {
-        allow read:   if isSignedIn() && _inZone(ud(), zoneId);
+        // Zone admins and the zone's field staff; storemen don't need outlets.
+        allow read:   if isSignedIn() && (_isZoneAdmin(ud(), zoneId) || (_isFieldUser(ud()) && _inZone(ud(), zoneId)));
         allow create,
               update: if isSignedIn() && (
                   _isZoneAdmin(ud(), zoneId)
@@ -341,7 +342,8 @@ service cloud.firestore {
       }
 
       match /{subCol}/{docId} {
-        allow read:  if isSignedIn() && _inZone(ud(), zoneId);
+        // outlets have their own read rule above (no storemen)
+        allow read:  if isSignedIn() && _inZone(ud(), zoneId) && subCol != 'outlets';
         allow write: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
       }
     }
