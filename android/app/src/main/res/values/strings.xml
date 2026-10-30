@@ -4,4 +4,7 @@
     <string name="title_activity_main">STSB</string>
     <string name="package_name">com.sairah.stfm</string>
     <string name="custom_url_scheme">com.sairah.stfm</string>
+    <!-- Background location (js/tracking.js): the persistent notification -->
+    <string name="capacitor_background_geolocation_notification_channel_name">Location sharing</string>
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_stat_location</string>
 </resources>

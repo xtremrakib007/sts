@@ -9,7 +9,8 @@
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": false
+    "webContentsDebuggingEnabled": false,
+    "useLegacyBridge": true
   },
   "plugins": {
     "SplashScreen": {
