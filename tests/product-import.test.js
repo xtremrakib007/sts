@@ -118,3 +118,13 @@ test('on-hand stock: single units for carton + single, cartons × size for carto
   assert.equal(P.stockMovesFor(plan, Object.fromEntries(plan.map((p) => [p.id, p.onHand || 0])), 'n').length, 0, 're-import of the same sheet changes nothing');
   assert.equal(P.productField('On Hand Unit'), null);
 });
+
+test('ERP invoice form: searchable products and outlets, customer mobile + address saved', () => {
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /id="invCust" list="invCustList"/);
+  assert.match(portal, /id="invPhone"/);
+  assert.match(portal, /id="invAddr"/);
+  assert.match(portal, /class="finp il-prod" list="invProdList"/);
+  assert.match(portal, /window\.__invCatalog = prods\.filter\(p => p\.name\)/, 'all products loaded');
+  assert.match(portal, /customerPhone: document\.getElementById\('invPhone'\)\.value\.trim\(\), customerAddress: document\.getElementById\('invAddr'\)\.value\.trim\(\)/);
+});
