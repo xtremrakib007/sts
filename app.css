@@ -220,3 +220,8 @@
 .cd-pay-opts span{display:block;text-align:center;padding:8px 4px;border:1px solid var(--bdr);border-radius:10px;font-size:12px;font-weight:700;background:var(--s1)}
 .cd-pay-opts input:checked+span{border-color:var(--acc);background:rgba(34,197,94,.12);color:var(--acc)}
 @media(max-width:380px){.cd-pay-opts{grid-template-columns:repeat(2,1fr)}}
+.od-stat{background:var(--s2);border:1.5px solid transparent;border-radius:var(--r2);padding:11px 6px;text-align:center;cursor:pointer;font:inherit;color:inherit}
+.od-stat div{font-family:'Syne',sans-serif;font-size:16px;font-weight:800}.od-stat span{font-size:10px;color:var(--tx3)}
+.od-stat.on{border-color:var(--acc);background:rgba(34,197,94,.08)}
+.od-row{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--bdr);font-size:12px;cursor:pointer}
+.od-row:active{background:var(--s2)}.od-sub{font-size:11px;color:var(--tx3)}.od-empty{color:var(--tx3);font-size:12px;padding:8px 0}

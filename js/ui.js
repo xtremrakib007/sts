@@ -123,7 +123,10 @@ function goPage(pg) {
   closeSidebar();
 }
 
-function openM(id){const el=document.getElementById(id);if(!el)return;el.style.removeProperty('display');el.classList.add('show');}
+// The window opened last always sits on top (e.g. an invoice opened from
+// the outlet details), whatever its place in the page.
+let _mTop=1000;
+function openM(id){const el=document.getElementById(id);if(!el)return;if(!document.querySelector('.moverlay.show'))_mTop=1000;el.style.removeProperty('display');el.style.zIndex=String(++_mTop);el.classList.add('show');}
 function closeM(id){const el=document.getElementById(id);if(!el)return;el.classList.remove('show');el.style.setProperty('display','none');}
 
 function openSidebar(){
