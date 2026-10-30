@@ -1024,11 +1024,11 @@ async function _shopCfg() {
   return { ...shop.DEFAULT_CONFIG, ...(s.exists ? s.data() : {}) };
 }
 
-function _shopDb(projectId) {
+function _shopApp(projectId) {
   const name = `shop-${projectId}`;
-  const app = admin.apps.find(a => a && a.name === name) || admin.initializeApp({ projectId }, name);
-  return app.firestore();
+  return admin.apps.find(a => a && a.name === name) || admin.initializeApp({ projectId }, name);
 }
+const _shopDb = (projectId) => _shopApp(projectId).firestore();
 
 async function _shopStatus(patch) {
   await SHOP_CFG().set({ status: { at: new Date().toISOString(), ...patch } }, { merge: true });
@@ -1056,7 +1056,8 @@ async function _pushShopProducts(cfg, products, removedIds = [], inv = null) {
   const held = await _shopHeld(sdb, cfg);
   const writes = [];
   const refs = products.map(p => sdb.doc(`products/${shop.shopSku(p)}`));
-  const cur = refs.length ? await sdb.getAll(...refs) : [];
+  const memberRefs = products.map(p => sdb.doc(`memberPrices/${shop.shopSku(p)}`));
+  const [cur, curMember] = refs.length ? await Promise.all([sdb.getAll(...refs), sdb.getAll(...memberRefs)]) : [[], []];
   products.forEach((p, i) => {
     const sku = shop.shopSku(p);
     const stock = Math.max(0, shop.availableStock(p, inv.index, inv.byId) - (held[sku] || 0));
@@ -1064,6 +1065,9 @@ async function _pushShopProducts(cfg, products, removedIds = [], inv = null) {
     // A product the shop added itself under the same SKU is taken over.
     const c = cur[i].exists ? cur[i].data() : null;
     if (!shop.sameShopProduct(c, next)) writes.push([refs[i], next]);
+    // Registered customers' price, readable only by logged-in customers.
+    const mp = shop.memberPrice(p, cfg);
+    if (!curMember[i].exists || curMember[i].data().price !== mp) writes.push([memberRefs[i], { price: mp, erpSyncedAt: nowIso }]);
   });
   if (removedIds.length) {
     const gone = await sdb.collection('products').where('erpProductId', 'in', removedIds.slice(0, 30)).get();
@@ -1106,7 +1110,17 @@ async function _importShopOrders(cfg) {
       const skus = [...new Set((o.items || []).map(it => String(it.sku || '').trim().toUpperCase()).filter(Boolean))];
       const sp = skus.length ? await sdb.getAll(...skus.map(s => sdb.doc(`products/${s}`))) : [];
       const shopProducts = Object.fromEntries(sp.filter(s => s.exists).map(s => [s.id, s.data()]));
-      const appOrder = shop.appOrderFromShop({ shopOrderId: d.id, order: o, shopProducts, nowMs: Date.now() });
+      // A logged-in registered customer orders for their outlet.
+      let outlet = null;
+      if (o.customerUid) {
+        const u = await sdb.doc(`users/${o.customerUid}`).get();
+        const oid = u.exists && u.data().role === 'customer' ? u.data().erpOutletId : '';
+        if (oid) {
+          const os = await db().doc(`outlets/${oid}`).get();
+          if (os.exists) outlet = { id: os.id, ...os.data() };
+        }
+      }
+      const appOrder = shop.appOrderFromShop({ shopOrderId: d.id, order: o, shopProducts, nowMs: Date.now(), outlet });
       const appRef = db().doc(`orders/shop_${d.id}`);
       await appRef.create({ ...appOrder, createdAt: FieldValue.serverTimestamp() }).catch((e) => {
         if (e.code !== 6) throw e; // ALREADY_EXISTS: imported before, mark the shop order below
@@ -1168,19 +1182,73 @@ exports.shopSyncConfig = functions.runWith({ timeoutSeconds: 300, memory: '512MB
     const before = change.before.exists ? change.before.data() : {};
     const after = change.after.exists ? change.after.data() : null;
     if (!after) return null;
-    const keys = ['enabled', 'markupPct', 'projectId', 'runNowAt'];
+    const keys = ['enabled', 'markupPct', 'memberMarkupPct', 'projectId', 'runNowAt', 'registerCustomers'];
     if (keys.every(k => JSON.stringify(before[k]) === JSON.stringify(after[k]))) return null;
     const cfg = { ...shop.DEFAULT_CONFIG, ...after };
     if (!cfg.enabled) return null;
     try {
       await _fullShopSync(cfg, before.runNowAt !== after.runNowAt ? 'manual' : 'settings');
       if (cfg.ordersEnabled !== false) await _importShopOrders(cfg);
+      if (cfg.registerCustomers) await _registerAllShopCustomers(cfg);
     } catch (e) {
       console.error('[ERP→shop]', e.message);
       await _shopStatus({ ok: false, error: e.message });
     }
     return null;
   });
+
+// Sales App outlet → shop customer account (login: mobile number,
+// first password ST1234, changed at first login). Staff and admin
+// accounts in the shop are never touched; an existing password is kept.
+async function _registerShopCustomer(cfg, outlet, nowIso) {
+  const digits = shop.normalizePhone(outlet.phone);
+  if (!digits) return 'no_mobile';
+  const app = _shopApp(cfg.projectId);
+  const sdb = app.firestore();
+  const uid = shop.customerUid(digits);
+  const ref = sdb.doc(`users/${uid}`);
+  const cur = await ref.get();
+  if (cur.exists && cur.data().role && cur.data().role !== 'customer') return 'skipped';
+  let created = false;
+  try {
+    await app.auth().getUser(uid);
+  } catch (e) {
+    if (e.code !== 'auth/user-not-found') throw e;
+    try {
+      await app.auth().createUser({ uid, email: shop.customerEmail(digits), password: shop.DEFAULT_PASSWORD, displayName: String(outlet.name || '').slice(0, 120) });
+      created = true;
+    } catch (e2) {
+      if (e2.code === 'auth/email-already-exists' || e2.code === 'auth/uid-already-exists') return 'skipped';
+      throw e2;
+    }
+  }
+  await ref.set(shop.customerUserDoc(outlet, cur.exists ? cur.data() : null, nowIso), { merge: true });
+  return created ? 'created' : 'updated';
+}
+
+async function _registerAllShopCustomers(cfg) {
+  const snap = await db().collection('outlets').get();
+  const nowIso = new Date().toISOString();
+  const count = { created: 0, updated: 0, no_mobile: 0, skipped: 0, failed: 0 };
+  for (const d of snap.docs) {
+    try { count[await _registerShopCustomer(cfg, { id: d.id, ...d.data() }, nowIso)]++; }
+    catch (e) { count.failed++; console.error('[shop customers]', d.id, e.message); if (count.failed === 1) await _shopStatus({ ok: false, error: `Customer accounts: ${e.message}` }); }
+  }
+  await SHOP_CFG().set({ customers: { at: nowIso, ...count } }, { merge: true });
+  return count;
+}
+
+exports.shopRegisterCustomer = functions.firestore.document('outlets/{outletId}').onWrite(async (change, ctx) => {
+  if (!change.after.exists) return null;
+  const b = change.before.exists ? change.before.data() : {};
+  const a = change.after.data();
+  if (change.before.exists && b.phone === a.phone && b.name === a.name) return null;
+  const cfg = await _shopCfg();
+  if (!cfg.enabled || !cfg.registerCustomers) return null;
+  try { await _registerShopCustomer(cfg, { id: ctx.params.outletId, ...a }, new Date().toISOString()); }
+  catch (e) { console.error('[shop customers]', ctx.params.outletId, e.message); await _shopStatus({ ok: false, error: `Customer account: ${e.message}` }); }
+  return null;
+});
 
 exports.shopSyncProduct = functions.firestore.document('products/{productId}').onWrite(async (change, ctx) => {
   const cfg = await _shopCfg();

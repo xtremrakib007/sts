@@ -17,7 +17,12 @@ const r2 = (v) => Math.round(v * 100) / 100;
 const clean = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 const key = (v) => String(v || '').trim().toLowerCase();
 
-const DEFAULT_CONFIG = {enabled: false, projectId: 'stfreshperak', markupPct: 0, ordersEnabled: true};
+// markupPct is the guest price markup; memberMarkupPct is for registered
+// customers (0 = the sales rep price).
+const DEFAULT_CONFIG = {
+  enabled: false, projectId: 'stfreshperak', markupPct: 0, memberMarkupPct: 0,
+  ordersEnabled: true, registerCustomers: false,
+};
 
 /**
  * The shop document id for an ERP product: its SKU (the shop keys products
@@ -84,6 +89,63 @@ function shopProduct(p, stock, cfg, nowIso) {
     erpSku: String(p.sku || ''),
     erpSyncedAt: nowIso,
   };
+}
+
+/**
+ * Price for a registered (logged-in) customer: the Sales App price plus the
+ * member markup. Kept out of the public product (shop memberPrices/{SKU}).
+ * @param {object} p
+ * @param {object} cfg
+ * @return {number}
+ */
+const memberPrice = (p, cfg) => shopPrice(p.price, cfg.memberMarkupPct);
+
+// ── Customer accounts ──────────────────────────────────────────
+// Every Sales App outlet with a mobile number gets a shop login: the number
+// is the username (an internal e-mail is built from it), the first
+// password is DEFAULT_PASSWORD and the shop asks for a new one at first login.
+const DEFAULT_PASSWORD = 'ST1234';
+const CUSTOMER_EMAIL_DOMAIN = 'customer.stfreshmart.my';
+
+/**
+ * Malaysian mobile number as 60XXXXXXXXX digits, or '' when it is not one.
+ * @param {string} phone
+ * @return {string}
+ */
+function normalizePhone(phone) {
+  let d = String(phone || '').replace(/\D/g, '');
+  if (d.startsWith('0')) d = '6' + d;
+  else if (d.startsWith('1')) d = '60' + d;
+  return /^601\d{8,9}$/.test(d) ? d : '';
+}
+const customerEmail = (digits) => `${digits}@${CUSTOMER_EMAIL_DOMAIN}`;
+const customerUid = (digits) => `m${digits}`;
+
+/**
+ * Shop users/{uid} fields for an outlet's customer account. An account
+ * shared by several outlets with one number keeps them all.
+ * @param {object} outlet Sales App outlet (with id).
+ * @param {object|null} cur Existing shop user doc.
+ * @param {string} nowIso
+ * @return {object}
+ */
+function customerUserDoc(outlet, cur, nowIso) {
+  const ids = new Set([...(cur && Array.isArray(cur.erpOutletIds) ? cur.erpOutletIds : []), String(outlet.id)]);
+  const doc = {
+    role: (cur && cur.role) || 'customer',
+    active: cur && cur.active === false ? false : true,
+    name: String(outlet.name || (cur && cur.name) || '').slice(0, 120),
+    phone: normalizePhone(outlet.phone),
+    erpOutletId: (cur && cur.erpOutletId) || String(outlet.id),
+    erpOutletIds: [...ids],
+    erpManaged: true,
+    updatedAt: nowIso,
+  };
+  if (!cur) {
+    doc.createdAt = nowIso;
+    doc.mustChangePassword = true;
+  }
+  return doc;
 }
 
 /** What a shop product the ERP no longer has becomes (kept for old orders). */
@@ -154,9 +216,10 @@ const myDate = (ms) => new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10)
  * @param {object} p.order Shop order.
  * @param {Object<string, object>} p.shopProducts shop products by SKU (for erpProductId).
  * @param {number} p.nowMs
+ * @param {object|null} [p.outlet] The customer's Sales App outlet (registered customers).
  * @return {object}
  */
-function appOrderFromShop({shopOrderId, order: o, shopProducts = {}, nowMs}) {
+function appOrderFromShop({shopOrderId, order: o, shopProducts = {}, nowMs, outlet = null}) {
   const c = o.customer || {};
   const d = o.delivery || {};
   const pickup = o.method === 'SELF PICKUP';
@@ -182,8 +245,10 @@ function appOrderFromShop({shopOrderId, order: o, shopProducts = {}, nowMs}) {
     id: 'WEB-' + String(shopOrderId).slice(0, 10).toUpperCase(),
     source: 'shop',
     shopOrderId,
-    outletId: '',
-    outletName: '🛒 ' + String(c.name || 'Online customer').slice(0, 120),
+    // A registered customer's order goes on their outlet's account.
+    outletId: outlet ? String(outlet.id) : '',
+    outletName: outlet ? String(outlet.name || '') : '🛒 ' + String(c.name || 'Online customer').slice(0, 120),
+    zoneId: outlet && (outlet.zoneId || outlet._zoneId) || undefined,
     customer: {name: String(c.name || ''), phone: String(c.phone || ''), company: String(c.company || ''), email: String(c.email || '')},
     deliveryMethod: o.method || '',
     deliveryAddress: address,
@@ -231,6 +296,7 @@ function shopStatusPatch(appOrder, shopOrder) {
 }
 
 module.exports = {
-  DEFAULT_CONFIG, shopSku, shopPrice, availableStock, shopProduct, removedShopProduct, sameShopProduct,
+  DEFAULT_CONFIG, shopSku, shopPrice, memberPrice, DEFAULT_PASSWORD, CUSTOMER_EMAIL_DOMAIN,
+  normalizePhone, customerEmail, customerUid, customerUserDoc, availableStock, shopProduct, removedShopProduct, sameShopProduct,
   pendingShopReservations, shouldImport, appOrderFromShop, shopStatusPatch, SHOP_STATUS, toMillis,
 };

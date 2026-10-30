@@ -139,3 +139,37 @@ test('ERP settings card for the shop link', () => {
   assert.match(html, /doc\(_db, C\('config'\), 'shopSync'\)/);
   assert.match(html, /shopMarkup/);
 });
+
+test('registered customer price: sales rep price by default, optional markup', () => {
+  assert.equal(S.memberPrice({price: 10}, {markupPct: 20}), 10, 'default: the Sales App price');
+  assert.equal(S.memberPrice({price: 10}, {markupPct: 20, memberMarkupPct: 5}), 10.5);
+  assert.equal(S.DEFAULT_CONFIG.memberMarkupPct, 0);
+  assert.equal(S.DEFAULT_CONFIG.registerCustomers, false, 'customer logins are opt-in');
+});
+
+test('outlet mobile numbers become shop logins', () => {
+  assert.equal(S.normalizePhone('012-345 6789'), '60123456789');
+  assert.equal(S.normalizePhone('+60 11-2345 6789'), '601123456789');
+  assert.equal(S.normalizePhone('60123456789'), '60123456789');
+  assert.equal(S.normalizePhone('05-254 1234'), '', 'landline: no login');
+  assert.equal(S.normalizePhone(''), '');
+  assert.equal(S.customerEmail('60123456789'), '60123456789@customer.stfreshmart.my');
+  assert.equal(S.customerUid('60123456789'), 'm60123456789');
+  assert.equal(S.DEFAULT_PASSWORD, 'ST1234');
+  const fresh = S.customerUserDoc({id: 'o1', name: 'Kedai A', phone: '0123456789'}, null, 't');
+  assert.deepEqual(fresh, {role: 'customer', active: true, name: 'Kedai A', phone: '60123456789', erpOutletId: 'o1', erpOutletIds: ['o1'],
+    erpManaged: true, updatedAt: 't', createdAt: 't', mustChangePassword: true});
+  const again = S.customerUserDoc({id: 'o2', name: 'Kedai A2', phone: '0123456789'}, {...fresh, mustChangePassword: false, active: false}, 'u');
+  assert.equal(again.erpOutletId, 'o1', 'first outlet stays the ordering account');
+  assert.deepEqual(again.erpOutletIds, ['o1', 'o2']);
+  assert.equal(again.active, false, 'a blocked customer stays blocked');
+  assert.ok(!('mustChangePassword' in again) && !('createdAt' in again), 'existing password state kept');
+});
+
+test('a registered customer\'s shop order goes on their outlet', () => {
+  const a = S.appOrderFromShop({shopOrderId: 's9', nowMs: 0, outlet: {id: 'o1', name: 'Kedai A', zoneId: 'z1'},
+    order: {customer: {name: 'Ali', phone: '1'}, method: 'SELF PICKUP', delivery: {}, items: [{sku: 'A', qty: 1, price: 2}], total: 2}});
+  assert.equal(a.outletId, 'o1');
+  assert.equal(a.outletName, 'Kedai A');
+  assert.equal(a.zoneId, 'z1');
+});
