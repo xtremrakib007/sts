@@ -291,3 +291,14 @@ test('outlet list per role: rep own, delivery man assigned, admin all', () => {
   assert.match(rules, /allow read:   if isSignedIn\(\) && \(_isZoneAdmin\(ud\(\), zoneId\) \|\| \(_isFieldUser\(ud\(\)\) && _inZone\(ud\(\), zoneId\)\)\);/);
   assert.match(rules, /_inZone\(ud\(\), zoneId\) && subCol != 'outlets';/);
 });
+
+test('out-of-stock products: shown, requestable, never on the charged order', () => {
+  const js = read('js/orders.js');
+  assert.match(js, /function _ocIsOut\(p\)\{\n  if\(p\.stockStatus==='out_of_stock'\)return true;/);
+  assert.match(js, /requestedItems:ordRequests\.map\(r=>\(\{\.\.\.r\}\)\),/);
+  assert.match(js, /if\(nowOut\.length\)\{showToast\(`Out of stock:/);
+  assert.doesNotMatch(js, /const available=allProducts\.filter\(p=>p\.stockStatus!=='out_of_stock'\);/);
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /window\.addRequestedToOrder = async function\(i\)/);
+  assert.match(portal, /const reqHtml = await _requestedItemsHtml\(orderId, o\);/);
+});

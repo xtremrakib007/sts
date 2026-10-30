@@ -2581,6 +2581,7 @@ window.viewErpOrder = async function(orderId) {
   const snap = await getDoc(doc(_db, C('orders'), orderId));
   if (!snap.exists()) { showToast('Order not found', 'error'); return; }
   const o = snap.data();
+  const reqHtml = await _requestedItemsHtml(orderId, o);
   const delivered = Array.isArray(o.deliveredItems) ? o.deliveredItems : null;
   const returned = o.returnedQty || {};
   const lines = (o.items || []).map((it, i) => `<tr>
@@ -2624,6 +2625,7 @@ window.viewErpOrder = async function(orderId) {
       ${o.deliveredTotal != null ? `<div style="display:flex;justify-content:space-between"><span>Delivered value</span><span>${fmt(o.deliveredTotal)}</span></div>` : ''}
       ${_n(o.returnedTotal) ? `<div style="display:flex;justify-content:space-between;color:var(--red)"><span>Returned (credit)</span><span>− ${fmt(o.returnedTotal)}</span></div>` : ''}
     </div></div>
+    ${reqHtml}
     ${o.notes ? `<div style="background:var(--s2);border-radius:8px;padding:8px 10px;font-size:12px;margin-top:8px">📝 ${_esc(o.notes)}</div>` : ''}
     ${o.failureReason ? `<div style="color:var(--red);font-size:12px;margin-top:8px">❌ ${_esc(o.failureReason)}</div>` : ''}
     <div style="margin-top:12px"><div style="color:var(--tx3);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">History</div>
@@ -2754,6 +2756,56 @@ function _salesInvoiceHtml(v, c, outlet, qrSvg, invoiceId) {
 const _ctnPriceOf = it => _n(it.ctnPrice) || (_n(it.ctnQty) && _n(it.ctnSize)
   ? ((_n(it.total) + _n(it.discount)) - _n(it.pcsQty) * _n(it.price)) / _n(it.ctnQty) : _n(it.price) * _n(it.ctnSize));
 const _lineValue = l => Math.round(((_n(l.ctnSize) ? _n(l.ctnQty) * _n(l.ctnPrice) : 0) + _n(l.pcsQty) * _n(l.price)) * 100) / 100;
+
+// ── Requested out-of-stock products (sent with a Sales App order, not
+// charged). Each shows the stock now; "Add to order" opens the order editor
+// with the line added, so the order, its stock and the invoice follow.
+async function _requestedOf(o) {
+  if (Array.isArray(o.requestedItems)) return o.requestedItems;
+  if (!o.appDocId) return [];
+  // orders synced before requests were copied to the ERP: read the app order
+  const a = await getDoc(doc(_db, 'orders', o.appDocId)).catch(() => null);
+  return a && a.exists() && Array.isArray(a.data().requestedItems)
+    ? a.data().requestedItems.map(r => ({ ...r, productId: r.productId || r.pid || '' })) : [];
+}
+async function _requestedItemsHtml(orderId, o) {
+  const req = await _requestedOf(o);
+  if (!req.length) return '';
+  const inv = await getDocs(collection(_db, C('inventory'))).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))).catch(() => []);
+  const onOrder = r => (o.items || []).some(it => (r.productId && it.productId === r.productId) || (r.sku && it.sku === r.sku));
+  const canEdit = !_orderEditBlock(o);
+  window.__reqItems = { orderId, req };
+  return `<div style="border:1px dashed var(--ylw);background:rgba(245,166,35,.06);border-radius:10px;padding:10px 12px;margin-top:12px">
+    <div style="font-weight:700;color:var(--ylw);margin-bottom:6px">🔔 Requested if restocked <span style="font-weight:400;font-size:11px;color:var(--tx3)">— out of stock when ordered, not charged</span></div>
+    ${req.map((r, i) => {
+      const st = inv.find(x => x.id === r.productId) || _matchInventory(inv, r.sku) || _matchInventory(inv, r.name);
+      const avail = st ? _n(st.qty) - _n(st.reservedQty) : null;
+      const need = _n(r.qty);
+      const stockTxt = avail == null ? '<span style="color:var(--tx3)">not stocked</span>'
+        : `<span style="color:${avail >= need ? 'var(--acc)' : avail > 0 ? 'var(--ylw)' : 'var(--red)'}">${_qty(avail)} available</span>`;
+      const act = onOrder(r) ? '<span class="badge badge-green">✓ On the order</span>'
+        : !canEdit ? `<span style="font-size:11px;color:var(--tx3)">${_esc(_orderEditBlock(o))}</span>`
+        : `<button class="btn ${avail != null && avail >= need ? 'btn-primary' : 'btn-ghost'}" style="padding:4px 10px;font-size:11px" onclick="addRequestedToOrder(${i})">＋ Add to order</button>`;
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--bdr);font-size:12px">
+        <div style="flex:1;min-width:0"><strong>${_esc(r.name)}</strong> <span style="color:var(--tx3)">${_esc(r.sku || '')}</span>
+          <div style="color:var(--tx2)">Asked: ${_esc(r.qtyDisplay || _qty(need) + ' ' + (r.unit || 'pcs'))} · ${stockTxt}</div></div>${act}</div>`;
+    }).join('')}</div>`;
+}
+window.addRequestedToOrder = async function(i) {
+  const { orderId, req } = window.__reqItems || {}, r = req && req[i];
+  if (!r) return;
+  closeModal('mErpOrder');
+  await editErpOrder(orderId);
+  if (!window.__editLines) return;
+  const ctnSize = _n(r.ctnSize) > 1 ? _n(r.ctnSize) : 0;
+  window.__editLines.push({ productId: r.productId || r.pid || '', name: r.name, sku: r.sku || '', unit: r.unit || 'pcs', ctnSize,
+    ctnQty: ctnSize ? _n(r.ctnQty) : 0, pcsQty: ctnSize ? _n(r.pcsQty) : _n(r.qty), price: _n(r.price),
+    ctnPrice: ctnSize ? (_n(r.ctnPrice) || _n(r.price) * ctnSize) : 0, discount: 0 });
+  const rs = document.getElementById('eoReason');
+  if (rs && !rs.value) rs.value = `Requested item restocked: ${r.name}`;
+  _eoRender();
+  showToast(`${r.name} added — check the quantity and Save`, 'info');
+};
 
 function _orderEditBlock(o) {
   if (o.status === 'cancelled') return 'Order is cancelled';

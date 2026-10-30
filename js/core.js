@@ -15,6 +15,7 @@ const MONTHLY_TARGET = 500000;
 let _ownerZoneFilter = null;
 
 let ordItems = [];
+let ordRequests = []; // out-of-stock products asked for with an order (not charged)
 let selfieMode = null;
 let selfieData = null;
 let selfieTimestamp = null;
