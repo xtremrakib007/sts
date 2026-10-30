@@ -646,6 +646,23 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Error log: each signed-in user records their own app errors; admins read.
+    match /error_log/{entryId} {
+      allow read: if isSignedIn() && _isAdminOrSub(ud());
+      allow create: if isSignedIn() && isStfmUser()
+        && request.resource.data.keys().hasOnly(['kind','message','stack','page','appVersion','platform','userAgent',
+                                                  'userId','userName','userRole','timestamp','ts_client'])
+        && request.resource.data.get('userId', '') == request.auth.uid
+        && request.resource.data.get('kind', '') in ['error','promise','console','toast']
+        && request.resource.data.get('message', '') is string
+        && request.resource.data.get('message', '').size() <= 1000
+        && request.resource.data.get('stack', '') is string
+        && request.resource.data.get('stack', '').size() <= 2000
+        && request.resource.data.get('timestamp', null) is timestamp;
+      allow update: if false;
+      allow delete: if isSignedIn() && _isOwner(ud());
+    }
+
     match /audit_log/{entryId} {
       allow read: if isSignedIn() && _isAdminOrSub(ud());
       allow create: if isSignedIn() && isStfmUser()

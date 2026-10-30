@@ -62,7 +62,7 @@ test('ERP portal has the Delivery Report page; the Sales App records payment and
   assert.match(d, /source:'delivery'/, 'payment becomes a collection');
   assert.match(d, /function _dmDirections\(ordDocId\)/);
   assert.match(d, /function _dmWhatsApp\(ordDocId\)/);
-  assert.match(read('js/dashboard.js'), /if\(isDeliveryMan\(\)\)\{ _renderDeliveryDashboard\(ordDocs, attDocs\); return; \}/);
+  assert.match(read('js/dashboard.js'), /if\(isDeliveryMan\(\)\)\{ _renderDeliveryDashboard\(ordDocs, attDocs, colDocs\); return; \}/);
   assert.match(read('index.html'), /page:'outlets',\s+ico:'🏪', lbl:'Outlets',\s+roles:\[\.\.\.R_ADMIN,\.\.\.R_SALES,\.\.\.R_DELIV\]/);
   const rules = read('firestore.rules');
   assert.equal((rules.match(/'paymentMethod','paymentAmount','paymentStatus','paymentAt',\s+'paymentRef','chequeBank','chequeDate'/g) || []).length, 2, 'zone + root order rules');

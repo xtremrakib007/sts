@@ -125,6 +125,25 @@ function _scopeOutlets(list, orders) {
   return [];
 }
 
+// Delivery man's working outlets: stops still to deliver, plus stops he
+// finished since the office last closed his day (ERP → Delivery Report →
+// Close day; users/{uid}.deliveryClosedAt). Before any close, today's.
+// Everything else drops off his outlet list until a new assignment;
+// outlets that still owe money stay in his dues list.
+function _dmActiveOutletIds(orders) {
+  const closed = CU && CU.deliveryClosedAt || '';
+  const today = (d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date());
+  const localDay = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const ids = new Set();
+  for (const o of orders) {
+    if (o.deliveryManId !== CU.uid) continue;
+    if (!['Delivered', 'Failed', 'Cancelled'].includes(o.status)) { ids.add(o.outletId); continue; } // still to deliver
+    const done = (o.status === 'Delivered' || o.status === 'Failed') && (o.deliveredAt || o.failedAt || '');
+    if (done && (closed ? done > closed : localDay(done) === today)) ids.add(o.outletId);
+  }
+  return ids;
+}
+
 // Write path — owner always writes to root; zone users write to their zone
 function _zonePath(c) {
   if(SHARED_COLS.has(c)) return c;

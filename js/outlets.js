@@ -129,7 +129,11 @@ async function loadOutlets() {
 
   if(_outletView==='near'){
     const q=srch.trim();
-    const list=allOutlets.filter(o=>!q||[o.name,o.area,o.route,o.address,o.phone,o.type].some(v=>String(v||'').toLowerCase().includes(q)));
+    let base=allOutlets;
+    if(isDeliveryMan()){ // only today's working stops (see _dmActiveOutletIds)
+      try{const myO=await sfGet('orders',[window.__SF.where('deliveryManId','==',CU.uid)]);const ids=_dmActiveOutletIds(myO.map(d=>d.data()));base=allOutlets.filter(o=>ids.has(o.id));}catch(e){}
+    }
+    const list=base.filter(o=>!q||[o.name,o.area,o.route,o.address,o.phone,o.type].some(v=>String(v||'').toLowerCase().includes(q)));
     const withKm=list.map(o=>({o,km:distKm(o)})).sort((x,y)=>(x.km-y.km)||String(x.o.name||'').localeCompare(String(y.o.name||'')));
     const shown=withKm.slice(0,_outletNearLimit);
     tree.innerHTML=viewBar+(shown.length
@@ -152,11 +156,11 @@ async function loadOutlets() {
   if(isDeliveryMan()){
     const {where:wdm}=window.__SF;
     let allowedIds=new Set();
-    try{const myO=await sfGet('orders',[wdm('deliveryManId','==',CU.uid)]);allowedIds=new Set(myO.map(d=>d.data().outletId));}catch(e){}
+    try{const myO=await sfGet('orders',[wdm('deliveryManId','==',CU.uid)]);allowedIds=_dmActiveOutletIds(myO.map(d=>d.data()));}catch(e){}
     const myOutlets=sortByDist(allOutlets.filter(o=>allowedIds.has(o.id)));
-    tree.innerHTML=viewBar+myOutlets.length
+    tree.innerHTML=viewBar+(myOutlets.length
       ?`<div class="ol-grid">${myOutlets.map((o,i)=>buildOutletCard(o,i)).join('')}</div>`
-      :'<div style="text-align:center;padding:30px;color:var(--tx3)">No outlets assigned to your deliveries</div>';
+      :'<div style="text-align:center;padding:30px;color:var(--tx3)">No deliveries assigned right now.<br><span style="font-size:12px">Outlets that still owe money are in your dashboard’s dues list.</span></div>');
     return;
   }
 
@@ -1097,6 +1101,7 @@ async function viewOutlet(id) {
       ${hasPhone?`<button class="btn btn-grn btn-sm" style="flex:1;min-width:90px" onclick="openWhatsApp('${o.id}')">💬 WhatsApp</button>`:''}
       <button class="btn btn-blu btn-sm" style="flex:1;min-width:90px" onclick="openDirections('${o.id}')" title="${hasPinned?'Open directions':'No location pinned'}">🗺️ Direction</button>
       <button class="btn btn-ghost btn-sm" style="flex:1;min-width:70px" onclick="viewOutletQR('${o.id}')">📷 QR Code</button>
+      ${isDeliveryMan()?'':`<button class="btn btn-ghost btn-sm" style="flex:1;min-width:70px" onclick="stsbSharePortalLink('${o.id}','whatsapp')" title="Send the shop its private link to see orders and balance">🔗 Customer link</button>`}
     </div>
 
     <!-- GPS pin info -->

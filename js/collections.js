@@ -34,7 +34,8 @@ async function loadCollections() {
 
 async function openNewCollection(outletId='') {
   // Outlets: admin sees all, rep sees only own
-  const myOutlets = isAdmin() ? allOutlets : allOutlets.filter(o=>o.createdBy===CU.uid);
+  // allOutlets is already each role's own outlets (core.js _scopeOutlets)
+  const myOutlets = allOutlets;
   document.getElementById('cOutlet').innerHTML='<option value="">Select outlet...</option>'+
     myOutlets.map(o=>`<option value="${o.id}">${o.name}${o.route?' ['+o.route+']':''}</option>`).join('');
   document.getElementById('cDate').value=todayStr();
@@ -127,6 +128,7 @@ async function saveCollection() {
     notes:document.getElementById('cNotes').value,
     createdBy:CU.uid,createdByName:CU.name,
     zoneId:CU.zoneId||null,
+    ...(isDeliveryMan()?{source:'delivery'}:{}), // the rules let delivery men record delivery collections
     createdAt:window.__SF.serverTimestamp()
   });
   closeM('mCol');

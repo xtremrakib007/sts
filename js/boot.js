@@ -472,6 +472,10 @@ async function loadCachedData(force = false) {
     _loadZoneProductOverrides(),              // loads for active zone (owner filter or CU.zoneId)
   ]);
   allZones   = znDocs.map(d=>({id:d.id,...d.data()}));
+  if (isDeliveryMan()) { // the office may have closed his day since login
+    const me = await window.__SF.getDoc(rootDocRef('users', CU.uid)).catch(() => null);
+    if (me && me.exists()) CU.deliveryClosedAt = me.data().deliveryClosedAt || '';
+  }
   const _dmOrders = isDeliveryMan()
     ? (await sfGet('orders', [window.__SF.where('deliveryManId', '==', CU.uid)])).map(d => d.data()) : [];
   allOutlets = _scopeOutlets(ouDocs.map(d=>({id:d.id,...d.data()})), _dmOrders);

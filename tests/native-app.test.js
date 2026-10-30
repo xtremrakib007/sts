@@ -175,3 +175,24 @@ test('Sync for field staff does not list users (rules allow only their own profi
   assert.match(boot, /isAdmin\(\) \? get\(_usersRef\(\)\) : Promise\.resolve\(_selfOnly\(\)\)/);
   assert.match(boot, /window\.__SF\.getDocs\(rootCol\('products'\)\)\.catch\(none\)/);
 });
+
+test('Audit Log / Data Export / Error Log pages work', () => {
+  const html = read('index.html');
+  assert.match(html, /writeBatch, limit \} from "https:\/\/www\.gstatic\.com\/firebasejs\/10\.12\.2\/firebase-firestore\.js"/, 'limit imported (audit query used it)');
+  assert.match(html, /writeBatch: writeBatch, limit: limit,/);
+  assert.match(html, /<div id="pageAuditLog" class="page">/, 'no inline display:none hiding the page');
+  assert.match(html, /<div id="pageDataExport" class="page">/);
+  assert.match(html, /window\.stsbLoadMoreAudit = function\(\)/);
+  assert.match(html, /window\.stsbExportAuditCSV = function\(\)/);
+  assert.match(html, /async function _stsbTriggerDownload\(blob, filename\) \{\n        if \(typeof _invNative === 'function' && _invNative\(\)\)/, 'app saves files to Documents');
+  assert.match(html, /window\.stsbLogError = function\(kind, message, stack\)/);
+  assert.match(html, /<div id="pageErrorLog" class="page">/);
+  assert.match(read('firestore.rules'), /match \/error_log\/\{entryId\} \{/);
+});
+
+test('delivery man: working outlets only until the office closes his day', () => {
+  assert.match(read('js/core.js'), /function _dmActiveOutletIds\(orders\)/);
+  assert.match(read('js/outlets.js'), /allowedIds=_dmActiveOutletIds\(myO\.map\(d=>d\.data\(\)\)\)/);
+  assert.match(read('public/portal/index.html'), /window\.closeDriverDay = async function\(dmId\)/);
+  assert.match(read('js/collections.js'), /\.\.\.\(isDeliveryMan\(\)\?\{source:'delivery'\}:\{\}\)/);
+});

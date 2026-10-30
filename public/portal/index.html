@@ -3211,6 +3211,9 @@ async function deliveryReport() {
     const outlets = Object.fromEntries(outSnap.docs.map(d => [d.id, d.data()]));
     const orders = ordSnap.docs.map(d => ({ _docId: d.id, ...d.data() }));
     const R = window.DeliveryReport.buildDeliveryReport(orders, st);
+    // when each delivery man's day was last closed (users/{uid}.deliveryClosedAt)
+    const dmClosed = {};
+    await Promise.all([...new Set(R.drivers.map(d => d.dmId))].map(id => getDoc(doc(_db, 'users', id)).then(u => { if (u.exists()) dmClosed[id] = u.data().deliveryClosedAt || ''; }).catch(() => {})));
     const nm = r => r.outletName || outlets[r.outletId]?.name || r.outletId || '—';
     const dmName = id => dms[id] || orders.find(o => o.deliveryManId === id)?.deliveryManName || id || '—';
     window.__drData = { R, nm, dmName };
@@ -3267,9 +3270,11 @@ async function deliveryReport() {
         </div>
       </div>
       <div class="card" style="margin-bottom:16px"><div style="padding:14px 16px 0;font-weight:700">🚚 By delivery man <span style="font-weight:400;font-size:12px;color:var(--tx3)">— cash and cheques each one should hand over</span></div>
-        <div class="twrap"><table><thead><tr><th>Delivery man</th><th style="text-align:right">Done</th><th style="text-align:right">Full</th><th style="text-align:right">Partial</th><th style="text-align:right">Failed</th><th style="text-align:right">Delivered</th><th style="text-align:right">Cash</th><th style="text-align:right">Cheque</th><th style="text-align:right">Online</th><th style="text-align:right">Pending</th></tr></thead>
-        <tbody>${R.drivers.map(d => `<tr><td><strong>${_esc(dmName(d.dmId))}</strong></td><td style="text-align:right">${d.done}</td><td style="text-align:right">${d.full}</td><td style="text-align:right">${d.partial}</td><td style="text-align:right">${d.failed}</td><td style="text-align:right">${fmt(d.delivered)}</td><td style="text-align:right;color:var(--acc)">${fmt(d.cash)}</td><td style="text-align:right">${fmt(d.cheque)}</td><td style="text-align:right">${fmt(d.online)}</td><td style="text-align:right;color:var(--ylw)">${fmt(d.pending)}</td></tr>`).join('')
-          || '<tr><td colspan="10" style="text-align:center;color:var(--tx3);padding:20px">No deliveries finished in this period</td></tr>'}</tbody></table></div></div>
+        <div class="twrap"><table><thead><tr><th>Delivery man</th><th style="text-align:right">Done</th><th style="text-align:right">Full</th><th style="text-align:right">Partial</th><th style="text-align:right">Failed</th><th style="text-align:right">Delivered</th><th style="text-align:right">Cash</th><th style="text-align:right">Cheque</th><th style="text-align:right">Online</th><th style="text-align:right">Pending</th><th>Day</th></tr></thead>
+        <tbody>${R.drivers.map(d => { const open = R.out.filter(r => r.dmId === d.dmId).length, closedAt = dmClosed[d.dmId] || '';
+          return `<tr><td><strong>${_esc(dmName(d.dmId))}</strong></td><td style="text-align:right">${d.done}</td><td style="text-align:right">${d.full}</td><td style="text-align:right">${d.partial}</td><td style="text-align:right">${d.failed}</td><td style="text-align:right">${fmt(d.delivered)}</td><td style="text-align:right;color:var(--acc)">${fmt(d.cash)}</td><td style="text-align:right">${fmt(d.cheque)}</td><td style="text-align:right">${fmt(d.online)}</td><td style="text-align:right;color:var(--ylw)">${fmt(d.pending)}</td>
+          <td style="white-space:nowrap">${open ? `<span style="font-size:11px;color:var(--tx3)">${open} still out</span>` : `<button class="btn btn-ghost" style="padding:4px 9px;font-size:11px" onclick="closeDriverDay('${_esc(d.dmId)}')" title="Deliveries and collection checked: clears his finished outlets from his app until new deliveries are assigned">✅ Close day</button>`}${closedAt ? `<div style="font-size:10px;color:var(--tx3)">closed ${_esc(new Date(closedAt).toLocaleString('en-MY', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</div>` : ''}</td></tr>`; }).join('')
+          || '<tr><td colspan="11" style="text-align:center;color:var(--tx3);padding:20px">No deliveries finished in this period</td></tr>'}</tbody></table></div></div>
       <div class="card" style="margin-bottom:16px"><div style="padding:14px 16px 0;font-weight:700">📋 Deliveries (${R.rows.length})</div>
         <div class="twrap"><table id="drTbl"><thead><tr><th>When</th><th>Order</th><th>Outlet</th><th>Delivery man</th><th>Outcome</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Payment</th><th style="text-align:right">Collected</th><th style="text-align:right">Pending</th><th>Details</th></tr></thead>
         <tbody>${R.rows.map(row).join('') || '<tr><td colspan="11" style="text-align:center;color:var(--tx3);padding:20px">No deliveries finished in this period</td></tr>'}</tbody></table></div></div>
@@ -3280,6 +3285,19 @@ async function deliveryReport() {
     mc.innerHTML = `<div style="color:var(--red);padding:32px;text-align:center">Could not load the delivery report: ${_esc(e.message)}</div>`;
   }
 }
+
+// Close a delivery man's day once his deliveries and collection are checked:
+// his app then drops the outlets he finished (until new deliveries are
+// assigned); outlets that still owe money stay in his dues list.
+window.closeDriverDay = async function(dmId) {
+  const name = (window.__drData && window.__drData.dmName(dmId)) || dmId;
+  if (!confirm(`Close the day for ${name}?\n\nHis finished outlets will be cleared from his app until new deliveries are assigned. Outlets with money still due stay in his dues list.`)) return;
+  try {
+    await updateDoc(doc(_db, 'users', dmId), { deliveryClosedAt: new Date().toISOString(), deliveryClosedBy: uid() });
+    showToast(`Day closed for ${name} ✓`, 'success');
+    deliveryReport();
+  } catch (e) { showToast('Could not close the day: ' + e.message, 'error'); }
+};
 
 window.exportDeliveryReport = function() {
   const D = window.__drData; if (!D) return;
