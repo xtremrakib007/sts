@@ -2595,343 +2595,194 @@
 
 <script>
 /* =====================================================================
-   LIVE LOCATIONS — full rewrite
+   LIVE LOCATIONS (admin page)
+   The app on each field user's phone (js/tracking.js) saves their GPS on
+   their own user profile: lastLat, lastLng, lastLocationAt, lastAccuracy,
+   and lastSeen whenever the app is open. This page listens to those
+   profiles live, so a new fix shows within seconds.
 ===================================================================== */
 (function () {
-  const GPS_INTERVAL  = 5 * 60 * 1000;  // 5 min heartbeat
-  const PUSH_THROTTLE = 30 * 1000;       // minimum gap between Firestore writes
-  const UI_TICK       = 30 * 1000;       // "ago" label refresh
+  const UI_TICK = 30 * 1000;           // "ago" labels
+  const ATT_REFRESH = 5 * 60 * 1000;   // today's attendance
+  const LIVE_MS = 15 * 60 * 1000;      // a fix this recent counts as live
 
   const sf  = () => window.__SF;
-  const cu  = () => window.__currentUser;
-  const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const toDate = v => !v ? null : v.toDate ? v.toDate() : (d => isNaN(d) ? null : d)(new Date(v));
 
   function ago(d) {
     if (!d) return '—';
-    const s = Math.floor((Date.now() - d.getTime()) / 1000);
+    const s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
     if (s < 60)    return s + 's ago';
     if (s < 3600)  return Math.floor(s / 60) + 'm ago';
     if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-    return d.toLocaleDateString('en-MY', { day:'numeric', month:'short' });
+    return Math.floor(s / 86400) + 'd ago';
   }
-  function fmtDt(d) {
-    if (!d) return '—';
-    return d.toLocaleString('en-MY', { dateStyle:'medium', timeStyle:'short' });
+  const fmtDt = d => d ? d.toLocaleString('en-MY', { dateStyle:'medium', timeStyle:'short' }) : '—';
+  const isAdminUser = () => typeof isAdmin === 'function' && isAdmin();
+
+  let _users = {}, _attendance = {}, _filter = 'all', _unsub = null, _uiTimer = null, _attTimer = null;
+
+  // Owner: all field users (or the zone picked in Zone View). Zone admin:
+  // their zone's users (the rules only let them read their own zone).
+  function _usersQuery() {
+    const { collection, query, where, db } = sf();
+    if (CU && !isOwner() && CU.zoneId) return query(collection(db, 'users'), where('zoneId', '==', CU.zoneId));
+    return query(collection(db, 'users'), where('role', 'in', ['sales_rep', 'delivery_man']));
   }
-
-  const isFieldUser = () => ['sales_rep','delivery_man'].includes(cu()?.role || '');
-  const isAdminUser = () => ['admin','sub_admin','owner'].includes(cu()?.role || '');
-
-  /* ══════════════════════════════════════════
-     FIELD SIDE — watchPosition + heartbeat
-  ══════════════════════════════════════════ */
-  let _fieldTimer  = null;
-  let _watchId     = null;
-  let _lastPush    = 0;
-
-  function _writeGPS(pos) {
-    const u = cu();
-    if (!u?.uid) return;
-    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-    _lastPush = Date.now();
-    sf().setDoc(sf().doc(sf().db, 'userLocations', u.uid), {
-      uid: u.uid, name: u.name || '', role: u.role || '',
-      zoneId: u.zoneId || '', lat, lng, accuracy,
-      updatedAt: sf().serverTimestamp()
-    }, { merge: true }).catch(e => console.warn('[GPS write]', e.message));
-  }
-
-  function _pushOnce() {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      _writeGPS,
-      e => console.warn('[GPS once]', e.message),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
-  }
-
-  function _startField() {
-    if (!isFieldUser() || !navigator.geolocation) return;
-    // Immediate push on login / boot
-    _pushOnce();
-    // watchPosition — fires on every movement, throttled to PUSH_THROTTLE
-    if (_watchId == null) {
-      _watchId = navigator.geolocation.watchPosition(
-        pos => { if (Date.now() - _lastPush >= PUSH_THROTTLE) _writeGPS(pos); },
-        e => console.warn('[GPS watch]', e.message),
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-      );
-    }
-    // Heartbeat keeps location fresh even when device is stationary
-    if (!_fieldTimer) _fieldTimer = setInterval(_pushOnce, GPS_INTERVAL);
-  }
-
-  function _stopField() {
-    if (_fieldTimer) { clearInterval(_fieldTimer); _fieldTimer = null; }
-    if (_watchId != null) { navigator.geolocation.clearWatch(_watchId); _watchId = null; }
-  }
-
-  /* ══════════════════════════════════════════
-     ADMIN SIDE
-  ══════════════════════════════════════════ */
-  let _users      = {};
-  let _liveGPS    = {};
-  let _attendance = {};
-  let _filter     = 'all';
-  let _unsub      = null;
-  let _uiTimer    = null;
-  let _refreshTimer = null;
-
-  async function _loadUsers() {
-    try {
-      const { getDocs, collection, query, where, db } = sf();
-      const snap = await getDocs(query(collection(db,'users'),
-        where('role','in',['sales_rep','delivery_man'])));
-      _users = {};
-      snap.forEach(d => { _users[d.id] = { uid: d.id, ...d.data() }; });
-    } catch(e) { console.warn('[LL users]', e.message); }
-  }
+  const _isField = u => ['sales_rep', 'delivery_man'].includes(u.role) && u.status !== 'disabled'
+    && (!isOwner() || !_ownerZoneFilter || u.zoneId === _ownerZoneFilter);
 
   async function _loadAttendance() {
     try {
-      const { getDocs, collection, query, orderBy, db } = sf();
-      const snap = await getDocs(query(collection(db,'attendance'), orderBy('date','desc')));
+      const { where } = sf();
+      const docs = await sfGet('attendance', [where('date', '==', todayStr())]);
       const seen = {};
-      snap.forEach(d => {
-        const dat = d.data();
-        const uid = dat.uid || dat.userId || dat.repId || dat.repUid;
-        if (uid && !seen[uid]) seen[uid] = { ...dat, _id: d.id };
+      docs.forEach(d => {
+        const a = d.data(), uid = a.uid || a.userId || a.repId || a.repUid;
+        if (uid && (!seen[uid] || String(a.checkIn || '') > String(seen[uid].checkIn || ''))) seen[uid] = a;
       });
       _attendance = seen;
-    } catch(e) {
-      try {
-        const { getDocs, collection, db } = sf();
-        const snap = await getDocs(collection(db,'attendance'));
-        const seen = {};
-        snap.forEach(d => {
-          const dat = d.data();
-          const uid = dat.uid || dat.userId || dat.repId || dat.repUid;
-          if (!uid) return;
-          if (!seen[uid] || (dat.date||'') > (seen[uid].date||'')) seen[uid] = { ...dat, _id: d.id };
-        });
-        _attendance = seen;
-      } catch(e2) { console.warn('[LL att]', e2.message); }
-    }
+    } catch (e) { console.warn('[LL att]', e.message); }
   }
 
-  /* Real-time listener — use docChanges so initial load + live updates both work */
   function _attachListener() {
     if (_unsub) return;
     try {
-      const { onSnapshot, collection, db } = sf();
-      _unsub = onSnapshot(collection(db,'userLocations'),
-        snap => {
-          snap.docChanges().forEach(ch => {
-            if (ch.type === 'removed') delete _liveGPS[ch.doc.id];
-            else _liveGPS[ch.doc.id] = { uid: ch.doc.id, ...ch.doc.data() };
-          });
-          _render();
-          _setSubtitle();
-        },
-        e => console.warn('[LL snap]', e.message)
-      );
-    } catch(e) { console.warn('[LL listener]', e.message); }
+      _unsub = sf().onSnapshot(_usersQuery(), snap => {
+        const next = {};
+        snap.forEach(d => { const u = { uid: d.id, ...d.data() }; if (_isField(u)) next[d.id] = u; });
+        _users = next;
+        _render(); _setSubtitle();
+      }, e => {
+        console.warn('[LL snap]', e.message);
+        const list = document.getElementById('llList');
+        if (list) list.innerHTML = `<div style="text-align:center;padding:28px;color:var(--red);font-size:13px">Could not load staff: ${esc(e.message)}</div>`;
+      });
+    } catch (e) { console.warn('[LL listener]', e.message); }
   }
-
-  function _detachListener() {
-    if (_unsub) { _unsub(); _unsub = null; }
-  }
+  function _detachListener() { if (_unsub) { _unsub(); _unsub = null; } }
 
   async function _fullLoad() {
     const list = document.getElementById('llList');
-    if (list) list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--tx3);font-size:13px">⏳ Loading…</div>';
-    // Load users + attendance in parallel, THEN attach listener (which fires immediately with current data)
-    await Promise.all([_loadUsers(), _loadAttendance()]);
-    _attachListener(); // snapshot fires → _render called automatically
-    _setSubtitle();
+    if (list && !Object.keys(_users).length) list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--tx3);font-size:13px">⏳ Loading…</div>';
+    await _loadAttendance();
+    _attachListener();
+    _render(); _setSubtitle();
   }
 
   function _setSubtitle() {
     const el = document.getElementById('llLastRefresh');
     if (!el) return;
-    const n    = Object.keys(_users).length;
-    const live = Object.values(_liveGPS).length;
-    const t    = new Date().toLocaleTimeString('en-MY', { hour:'2-digit', minute:'2-digit' });
-    el.textContent = `${n} field user${n!==1?'s':''} · ${live} live GPS · updated ${t}`;
+    const all = Object.keys(_users);
+    const live = all.filter(uid => _merge(uid).live).length;
+    const t = new Date().toLocaleTimeString('en-MY', { hour:'2-digit', minute:'2-digit' });
+    el.textContent = `${all.length} field user${all.length !== 1 ? 's' : ''} · ${live} live now · updated ${t}`;
   }
 
-  /* Merge user + GPS + attendance into one display object */
   function _merge(uid) {
-    const u   = _users[uid]      || {};
-    const gps = _liveGPS[uid]    || {};
-    const att = _attendance[uid] || {};
-
-    const lat = gps.lat ?? att.checkInLat ?? att.lat ?? null;
-    const lng = gps.lng ?? att.checkInLng ?? att.lng ?? null;
-    const acc = gps.accuracy != null ? Math.round(gps.accuracy) + ' m' : null;
-
-    const gpsTsRaw = gps.updatedAt?.toDate ? gps.updatedAt.toDate() : null;
-    const attTsRaw = att.checkInTime?.toDate ? att.checkInTime.toDate()
-                   : att.checkIn?.toDate     ? att.checkIn.toDate()
-                   : att.date?.toDate        ? att.date.toDate()
-                   : null;
-    const loginTs  = u.lastLogin?.toDate  ? u.lastLogin.toDate()
-                   : u.createdAt?.toDate  ? u.createdAt.toDate()
-                   : null;
-
+    const u = _users[uid] || {}, att = _attendance[uid] || {};
+    const gpsTs = toDate(u.lastLocationAt);
+    const hasGps = u.lastLat != null && u.lastLng != null;
+    const attTs = toDate(att.checkIn || att.checkInTime);
+    const attLat = att.checkInLat ?? att.lat ?? null, attLng = att.checkInLng ?? att.lng ?? null;
+    const src = hasGps ? 'gps' : (attLat != null && attLng != null) ? 'checkin' : 'none';
+    const seen = toDate(u.lastSeen);
     return {
-      uid, lat, lng, acc,
-      name:        u.name || u.email || uid,
-      role:        u.role || '',
-      phone:       u.phone || '',
-      lastSeenTs:  gpsTsRaw || attTsRaw || null,
-      loginTs,
-      gpsSource:   gpsTsRaw ? 'live' : attTsRaw ? 'checkin' : 'none',
-      todayAttend: att.date ? (att.status || 'checked-in') : null,
+      uid, name: u.name || u.email || uid, role: u.role || '', phone: u.phone || '',
+      lat: src === 'gps' ? u.lastLat : src === 'checkin' ? attLat : null,
+      lng: src === 'gps' ? u.lastLng : src === 'checkin' ? attLng : null,
+      acc: src === 'gps' && u.lastAccuracy ? Math.round(u.lastAccuracy) + ' m' : null,
+      src, fixTs: src === 'gps' ? gpsTs : src === 'checkin' ? attTs : null,
+      live: src === 'gps' && gpsTs && Date.now() - gpsTs.getTime() < LIVE_MS,
+      appTs: [seen, gpsTs, toDate(u.lastLogin)].filter(Boolean).sort((a, b) => b - a)[0] || null,
+      today: att.date ? (att.checkOut ? 'Checked out' : 'Checked in' + (attTs ? ' ' + attTs.toLocaleTimeString('en-MY', { hour:'2-digit', minute:'2-digit' }) : '')) : null,
     };
   }
 
   function _render() {
-    const list  = document.getElementById('llList');
-    const empty = document.getElementById('llEmpty');
+    const list = document.getElementById('llList'), empty = document.getElementById('llEmpty');
     if (!list) return;
-
-    const uids = Object.keys(_users).filter(uid =>
-      _filter === 'all' || (_users[uid]?.role || '') === _filter
-    );
-
-    if (!uids.length) {
-      list.innerHTML = '';
-      if (empty) empty.style.display = '';
-      return;
-    }
+    const rows = Object.keys(_users).filter(uid => _filter === 'all' || _users[uid].role === _filter).map(_merge);
+    if (!rows.length) { list.innerHTML = ''; if (empty) empty.style.display = ''; return; }
     if (empty) empty.style.display = 'none';
-
-    uids.sort((a, b) => {
-      const ma = _merge(a), mb = _merge(b);
-      if (ma.gpsSource==='live' && mb.gpsSource!=='live') return -1;
-      if (mb.gpsSource==='live' && ma.gpsSource!=='live') return 1;
-      return (mb.lastSeenTs?.getTime()||0) - (ma.lastSeenTs?.getTime()||0);
-    });
-
-    list.innerHTML = uids.map(uid => {
-      const m       = _merge(uid);
-      const roleIco = m.role === 'delivery_man' ? '🚚' : '🧑‍💼';
-      const roleLbl = m.role === 'delivery_man' ? 'Delivery Man' : 'Sales Rep';
-      const ava     = (m.name[0] || '?').toUpperCase();
-      const mapsUrl = m.lat != null && m.lng != null
-        ? `https://www.google.com/maps?q=${Number(m.lat).toFixed(6)},${Number(m.lng).toFixed(6)}` : null;
-
-      const freshMs  = m.lastSeenTs ? Date.now() - m.lastSeenTs.getTime() : Infinity;
-      const dotColor = m.gpsSource==='live'    && freshMs < 5*60*1000  ? '#22c55e'
-                     : m.gpsSource==='live'    && freshMs < 30*60*1000 ? '#f59e0b'
-                     : m.gpsSource==='checkin'                         ? '#3b82f6'
-                     :                                                    '#6b7280';
-      const dotTitle = m.gpsSource==='live'    ? 'Live GPS'
-                     : m.gpsSource==='checkin' ? 'Last check-in location'
-                     :                           'No location';
-
-      const locLine  = m.lat != null && m.lng != null
-        ? `<span>📌 ${Number(m.lat).toFixed(5)}, ${Number(m.lng).toFixed(5)}${m.acc ? ' ±'+m.acc : ''}</span>`
-        : `<span style="color:var(--tx3)">📌 No location data</span>`;
-
-      const srcBadge = m.gpsSource==='live'
-        ? `<span style="background:rgba(34,197,94,.15);color:#22c55e;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(34,197,94,.3)">● LIVE GPS</span>`
-        : m.gpsSource==='checkin'
-        ? `<span style="background:rgba(59,130,246,.13);color:#60a5fa;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(59,130,246,.25)">● LAST CHECK-IN</span>`
-        : `<span style="background:rgba(107,114,128,.13);color:#9ca3af;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(107,114,128,.2)">● NO GPS YET</span>`;
-
+    rows.sort((a, b) => (b.live - a.live) || ((b.fixTs?.getTime() || 0) - (a.fixTs?.getTime() || 0)) || a.name.localeCompare(b.name));
+    list.innerHTML = rows.map(m => {
+      const age = m.fixTs ? Date.now() - m.fixTs.getTime() : Infinity;
+      const dot = m.live && age < 5 * 60 * 1000 ? '#22c55e' : m.live ? '#f59e0b' : m.src === 'gps' ? '#9ca3af' : m.src === 'checkin' ? '#3b82f6' : '#6b7280';
+      const badge = m.live ? ['rgba(34,197,94,.15)', '#22c55e', '● LIVE']
+        : m.src === 'gps' ? ['rgba(245,158,11,.13)', '#d97706', '● LAST KNOWN']
+        : m.src === 'checkin' ? ['rgba(59,130,246,.13)', '#60a5fa', '● CHECK-IN SPOT']
+        : ['rgba(107,114,128,.13)', '#9ca3af', '● NO GPS YET'];
+      const maps = m.lat != null ? `https://www.google.com/maps?q=${Number(m.lat).toFixed(6)},${Number(m.lng).toFixed(6)}` : null;
+      const hint = m.src === 'none'
+        ? '<div style="font-size:10px;color:var(--ylw);margin-top:5px">Location appears once they open the STSB app with location allowed.</div>'
+        : !m.live ? '<div style="font-size:10px;color:var(--tx3);margin-top:5px">Not live: app closed, location off or no signal since then.</div>' : '';
       return `
       <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);padding:14px 16px;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:13px">
           <div style="position:relative;flex-shrink:0">
-            <div style="width:46px;height:46px;border-radius:13px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-family:Syne,sans-serif;font-size:19px;font-weight:800;color:#fff">${esc(ava)}</div>
-            <div style="position:absolute;bottom:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:${dotColor};border:2px solid var(--s1)" title="${dotTitle}"></div>
+            <div style="width:46px;height:46px;border-radius:13px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-family:Syne,sans-serif;font-size:19px;font-weight:800;color:#fff">${esc((m.name[0] || '?').toUpperCase())}</div>
+            <div style="position:absolute;bottom:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:${dot};border:2px solid var(--s1)"></div>
           </div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:2px">
               <span style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:var(--tx)">${esc(m.name)}</span>
-              ${srcBadge}
+              <span style="background:${badge[0]};color:${badge[1]};font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px">${badge[2]}</span>
             </div>
-            <div style="font-size:11px;color:var(--tx3);margin-bottom:6px">${roleIco} ${roleLbl}${m.phone ? ' · '+esc(m.phone) : ''}</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--tx2)">${locLine}</div>
+            <div style="font-size:11px;color:var(--tx3);margin-bottom:6px">${m.role === 'delivery_man' ? '🚚 Delivery Man' : '🧑‍💼 Sales Rep'}${m.phone ? ' · ' + esc(m.phone) : ''}</div>
+            <div style="font-size:11px;color:var(--tx2)">${m.lat != null ? `📌 Located <strong>${ago(m.fixTs)}</strong>${m.fixTs ? ' (' + fmtDt(m.fixTs) + ')' : ''}${m.acc ? ' · ±' + m.acc : ''}` : '<span style="color:var(--tx3)">📌 No location yet</span>'}</div>
             <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--tx3);margin-top:5px">
-              <span>🕐 Last seen: <strong style="color:var(--tx2)">${m.lastSeenTs ? ago(m.lastSeenTs) : '—'}</strong>${m.lastSeenTs ? ' ('+fmtDt(m.lastSeenTs)+')' : ''}</span>
-              <span>🔑 Last login: <strong style="color:var(--tx2)">${m.loginTs ? fmtDt(m.loginTs) : '—'}</strong></span>
-              ${m.todayAttend ? `<span>✅ Today: ${esc(m.todayAttend)}</span>` : '<span style="color:var(--tx3)">⭕ No attendance today</span>'}
-            </div>
+              <span>📱 App last open: <strong style="color:var(--tx2)">${m.appTs ? ago(m.appTs) : '—'}</strong></span>
+              ${m.today ? `<span>✅ Today: ${esc(m.today)}</span>` : '<span>⭕ No attendance today</span>'}
+            </div>${hint}
           </div>
-          <div style="flex-shrink:0">
-            ${mapsUrl
-              ? `<a href="${mapsUrl}" target="_blank" rel="noopener"
-                   style="display:flex;align-items:center;justify-content:center;
-                          width:56px;height:56px;background:var(--acc);color:#fff;
-                          border-radius:12px;font-size:20px;text-decoration:none"
-                   title="Open in Google Maps">🗺️</a>`
-              : `<div style="width:56px;height:56px;border-radius:12px;background:var(--s2);
-                             border:1px solid var(--bdr);display:flex;align-items:center;
-                             justify-content:center;font-size:20px;opacity:.4" title="No location">📍</div>`}
-          </div>
+          <div style="flex-shrink:0">${maps
+            ? `<a href="${maps}" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;width:56px;height:56px;background:var(--acc);color:#fff;border-radius:12px;font-size:20px;text-decoration:none" title="Open in Google Maps">🗺️</a>`
+            : '<div style="width:56px;height:56px;border-radius:12px;background:var(--s2);border:1px solid var(--bdr);display:flex;align-items:center;justify-content:center;font-size:20px;opacity:.4">📍</div>'}</div>
         </div>
       </div>`;
     }).join('');
   }
 
-  /* ── public API ─────────────────────────── */
   window.llSetTab = function(filter, el) {
     _filter = filter;
     document.querySelectorAll('#pageLiveLocations .rtab').forEach(t => t.classList.remove('active'));
     if (el) el.classList.add('active');
     _render();
   };
-
-  window.llForceRefresh = function() {
-    _detachListener();
-    _liveGPS = {}; _users = {}; _attendance = {};
-    _fullLoad();
-  };
-
-  /* ── boot ─────────────────────────────────── */
-  function _boot() {
-    const u = cu();
-    if (!u) return;
-    if (isFieldUser()) { _stopField(); _startField(); }
-  }
+  window.llForceRefresh = function() { _detachListener(); _users = {}; _attendance = {}; _fullLoad(); };
 
   function _onPageOpen() {
     if (!isAdminUser()) return;
-    if (!_uiTimer)      _uiTimer      = setInterval(() => { _render(); _setSubtitle(); }, UI_TICK);
-    if (!_refreshTimer) _refreshTimer = setInterval(() => _loadAttendance().then(_render), GPS_INTERVAL);
+    if (!_uiTimer)  _uiTimer  = setInterval(() => { _render(); _setSubtitle(); }, UI_TICK);
+    if (!_attTimer) _attTimer = setInterval(() => _loadAttendance().then(_render), ATT_REFRESH);
+    _detachListener(); // Zone View may have changed since the last visit
     _fullLoad();
   }
-
-  /* Wait for goPage to be defined by app.min.js, then patch it */
-  function _patchGoPage() {
-    if (typeof window.goPage !== 'function') return; // appReady guarantees it's loaded
-    const _orig = window.goPage;
-    window.goPage = function(page, ...args) {
-      _orig.call(this, page, ...args);
-      if (page === 'liveLocations') _onPageOpen();
-    };
+  function _onPageLeave() {
+    _detachListener();
+    if (_uiTimer)  { clearInterval(_uiTimer);  _uiTimer  = null; }
+    if (_attTimer) { clearInterval(_attTimer); _attTimer = null; }
   }
 
-  window.addEventListener('appReady', () => { _boot(); _patchGoPage(); });
-  if (window.__currentUser) _boot();
-
-  window.addEventListener('userChanged', () => {
-    _stopField(); _detachListener();
-    _users = {}; _liveGPS = {}; _attendance = {};
-    if (_uiTimer)      { clearInterval(_uiTimer);      _uiTimer      = null; }
-    if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
-    _boot();
-  });
-
-  /* Also open immediately if already on liveLocations page at boot */
+  function _patchGoPage() {
+    if (typeof window.goPage !== 'function' || window.goPage.__ll) return;
+    const _orig = window.goPage;
+    window.goPage = function(page, ...args) {
+      const r = _orig.call(this, page, ...args);
+      if (page === 'liveLocations') _onPageOpen(); else _onPageLeave();
+      return r;
+    };
+    window.goPage.__ll = true;
+  }
   window.addEventListener('appReady', () => {
+    _patchGoPage();
     const page = document.querySelector('.page.active');
     if (page && page.id === 'pageLiveLocations') _onPageOpen();
   });
-
+  window.addEventListener('userChanged', () => { _onPageLeave(); _users = {}; _attendance = {}; });
+  window.__llReload = () => { if (document.getElementById('pageLiveLocations')?.classList.contains('active')) _onPageOpen(); };
 })();
 </script>
 
