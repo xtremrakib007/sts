@@ -208,7 +208,17 @@ tr:hover td{background:var(--s2);}
   .frow,.frow3{grid-template-columns:1fr;}
   .kpi-grid{grid-template-columns:1fr 1fr;}
   .topbar-sync{display:none;}
+  .inv-line{grid-template-columns:1fr 1fr!important;padding:10px;border:1px solid var(--bdr);border-radius:10px}
+  .inv-line>div:first-child{grid-column:1/-1}
 }
+/* Search dropdown (ERP invoice): works on phones, unlike <datalist> */
+.cbx-wrap{position:relative}
+.cbx-list{position:absolute;left:0;right:0;top:100%;margin-top:4px;z-index:60;max-height:260px;overflow-y:auto;background:var(--s1);border:1px solid var(--bdr);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+.cbx-opt{padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--bdr)}
+.cbx-opt:last-child{border-bottom:0}
+.cbx-opt:hover,.cbx-opt.on{background:var(--s2)}
+.cbx-opt b{font-weight:700}
+.cbx-sub{font-size:11px;color:var(--tx2);margin-top:2px}
 body.store-mode .adm-only{display:none!important}
 </style>
 </head>
@@ -528,7 +538,7 @@ body.store-mode .adm-only{display:none!important}
         <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="invDate" type="date"></div>
       </div>
       <div class="frow">
-        <div class="fgrp"><label class="flbl">Customer / outlet *</label><input class="finp" id="invCust" list="invCustList" autocomplete="off" placeholder="Search an outlet or type a new customer" oninput="_invCustChanged()"><datalist id="invCustList"></datalist>
+        <div class="fgrp"><label class="flbl">Customer / outlet *</label><input class="finp" id="invCust" autocomplete="off" placeholder="Tap to pick an outlet, Walk-in, or type a name" oninput="_invCustChanged()">
           <div id="invCustInfo" style="font-size:11px;color:var(--tx3);margin-top:3px"></div><input type="hidden" id="invOutletId"></div>
         <div class="fgrp"><label class="flbl">Due Date</label><input class="finp" id="invDue" type="date"></div>
       </div>
@@ -536,13 +546,15 @@ body.store-mode .adm-only{display:none!important}
         <div class="fgrp"><label class="flbl">Mobile number</label><input class="finp" id="invPhone" type="tel" inputmode="tel" placeholder="01X-XXXXXXX"></div>
         <div class="fgrp"><label class="flbl">Address</label><input class="finp" id="invAddr" placeholder="Shop address"></div>
       </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Salesman</label><select class="finp" id="invRep"><option value="">— None (office sale) —</option></select></div>
       <div class="fgrp"><label class="flbl">Linked Sales Order</label>
         <select class="finp" id="invLinkedOrder" onchange="autofillFromOrder(this)">
           <option value="">— None / manual entry —</option>
         </select>
       </div>
+      </div>
       <div style="font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Line Items</div>
-      <datalist id="invProdList"></datalist>
       <div id="invLineItems"></div>
       <button class="btn btn-ghost" onclick="addInvLine()" style="width:100%;margin-bottom:14px;font-size:12px">+ Add Line</button>
       <div style="background:var(--s2);border-radius:10px;padding:12px;font-size:13px">
@@ -1150,15 +1162,21 @@ async function prepModal(type) {
     document.getElementById('invNo').readOnly = true;
     document.getElementById('invDate').value = today;
     document.getElementById('invDue').value = today;
-    ['invCust', 'invPhone', 'invAddr', 'invOutletId', 'invNotes'].forEach(id => { document.getElementById(id).value = ''; });
+    ['invCust', 'invPhone', 'invAddr', 'invOutletId', 'invNotes', 'invRep'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('invCustInfo').textContent = '';
     document.getElementById('invLineItems').innerHTML = '';
     // Outlets and the whole product catalogue, searchable in the form.
     const [outs, prods] = await Promise.all([getDocs(collection(_db, 'outlets')).catch(() => ({ docs: [] })), _allProducts().catch(() => [])]);
     window.__invOutlets = outs.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => o.name).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    window.__invCatalog = prods.filter(p => p.name);
-    document.getElementById('invCustList').innerHTML = window.__invOutlets.map(o => `<option value="${_esc(o.name)}">${_esc([o.route, o.phone].filter(Boolean).join(' · '))}</option>`).join('');
-    document.getElementById('invProdList').innerHTML = window.__invCatalog.map(p => `<option value="${_esc(_invProdLabel(p))}"></option>`).join('');
+    window.__invCatalog = prods.filter(p => p.name).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    _invCustCombo();
+    // Salesmen (Sales App users, older setups also in stsb_users)
+    const [ua, ub] = await Promise.all([getDocs(collection(_db, 'users')).catch(() => ({ docs: [] })), getDocs(collection(_db, C('users'))).catch(() => ({ docs: [] }))]);
+    const reps = {};
+    [...ua.docs, ...ub.docs].forEach(d => { const v = d.data(); if (['salesman', 'sales_rep'].includes(v.role) && v.active !== false && v.status !== 'inactive') reps[d.id] = v.name || v.email || d.id; });
+    window.__invReps = reps;
+    document.getElementById('invRep').innerHTML = '<option value="">— None (office sale) —</option>' +
+      Object.entries(reps).sort((x, y) => x[1].localeCompare(y[1])).map(([id, n]) => `<option value="${_esc(id)}">${_esc(n)}</option>`).join('');
     // Load approved orders
     const linSel = document.getElementById('invLinkedOrder');
     linSel.innerHTML = '<option value="">— None / manual entry —</option>';
@@ -1176,6 +1194,8 @@ async function prepModal(type) {
         o.dataset.phone = v.outletPhone || v.customerPhone || '';
         o.dataset.address = v.outletAddress || v.customerAddress || '';
         o.dataset.outletId = v.outletId || '';
+        o.dataset.repId = v.repId || '';
+        o.dataset.repName = v.repName || '';
         o.textContent = `${v.orderId||d.id} — ${v.customer||'?'} — ${fmt(v.total||0)}`;
         linSel.appendChild(o);
       });
@@ -1509,8 +1529,59 @@ async function processDiscount(orderId, decision) {
 //  INVOICE LINE ITEMS (ERP)
 // ═══════════════════════════════════════════
 let _invLines = 0;
-const _invProdLabel = p => `${p.name}${p.sku ? ' · ' + p.sku : ''} — ${fmt(p.price)}${_n(p.ctnSize) ? ' / ' + fmt(p.ctnPrice || p.price * p.ctnSize) + ' ctn' : ''}`;
-const _invFindProd = label => (window.__invCatalog || []).find(p => _invProdLabel(p) === label || p.name === label || (p.sku && p.sku === label));
+const _invProdSub = p => [p.sku, fmt(p.price) + ' / ' + (p.unit || 'pcs'), _n(p.ctnSize) ? fmt(p.ctnPrice || p.price * p.ctnSize) + ' / ctn of ' + _qty(p.ctnSize) : '', p.category].filter(Boolean).join(' · ');
+const INV_UNITS = ['pcs', 'ctn', 'kg', 'bag'];
+const INV_WALKIN = 'Walk-in customer';
+
+// Search dropdown for an input: opens on tap/focus with the full list,
+// filters as you type (every word must match), arrow keys + Enter.
+// source(q) → [{label, sub, value}]; onPick(value).
+function _combo(input, source, onPick) {
+  if (input.__combo) return;
+  input.__combo = true;
+  const wrap = input.parentElement;
+  wrap.classList.add('cbx-wrap');
+  const list = document.createElement('div');
+  list.className = 'cbx-list';
+  list.hidden = true;
+  wrap.appendChild(list);
+  let items = [], hi = 0;
+  const render = () => {
+    items = source(input.value.trim().toLowerCase()).slice(0, 60);
+    list.innerHTML = items.length
+      ? items.map((it, i) => `<div class="cbx-opt${i === hi ? ' on' : ''}" data-i="${i}"><b>${_esc(it.label)}</b>${it.sub ? `<div class="cbx-sub">${_esc(it.sub)}</div>` : ''}</div>`).join('')
+      : '<div class="cbx-opt" style="color:var(--tx3);cursor:default">No match — keep typing to use this name</div>';
+    list.hidden = false;
+  };
+  const pick = i => { const it = items[i]; if (!it) return; list.hidden = true; onPick(it.value); };
+  input.addEventListener('focus', () => { hi = 0; render(); });
+  input.addEventListener('click', () => { if (list.hidden) { hi = 0; render(); } });
+  input.addEventListener('input', () => { hi = 0; render(); });
+  input.addEventListener('keydown', e => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown') { hi = Math.min(items.length - 1, hi + 1); render(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { hi = Math.max(0, hi - 1); render(); e.preventDefault(); }
+    else if (e.key === 'Enter') { if (items[hi]) { pick(hi); e.preventDefault(); } }
+    else if (e.key === 'Escape') list.hidden = true;
+  });
+  // mousedown (also fired after a tap) so the pick lands before blur hides the list
+  list.addEventListener('mousedown', e => { const o = e.target.closest('[data-i]'); e.preventDefault(); if (o) pick(+o.dataset.i); });
+  input.addEventListener('blur', () => setTimeout(() => { list.hidden = true; }, 150));
+}
+const _words = q => q.split(/\s+/).filter(Boolean);
+const _matches = (hay, q) => { const h = hay.toLowerCase(); return _words(q).every(w => h.includes(w)); };
+
+function _invCustCombo() {
+  _combo(document.getElementById('invCust'), q => [
+    ...(!q || _matches(INV_WALKIN, q) ? [{ label: '🚶 ' + INV_WALKIN, sub: 'No outlet — mobile and address optional', value: { walkin: true } }] : []),
+    ...(window.__invOutlets || []).filter(o => !q || _matches([o.name, o.route, o.phone, o.address].join(' '), q))
+      .map(o => ({ label: o.name, sub: [o.route, o.phone, o.address].filter(Boolean).join(' · '), value: o })),
+  ], v => {
+    const el = document.getElementById('invCust');
+    el.value = v.walkin ? INV_WALKIN : v.name;
+    _invCustChanged();
+  });
+}
 
 // Customer: picking a known outlet fills its mobile and address; a new
 // name is fine too (walk-in or not yet in the Sales App).
@@ -1518,56 +1589,70 @@ window._invCustChanged = function() {
   const name = document.getElementById('invCust').value.trim();
   const o = (window.__invOutlets || []).find(x => x.name === name);
   document.getElementById('invOutletId').value = o ? o.id : '';
-  document.getElementById('invCustInfo').textContent = o ? `✓ Outlet${o.route ? ' · ' + o.route : ''}` : name ? 'New customer — enter mobile and address' : '';
+  document.getElementById('invCustInfo').textContent = o ? `✓ Outlet${o.route ? ' · ' + o.route : ''}` : name === INV_WALKIN ? '🚶 Walk-in — mobile and address optional' : name ? 'New customer — enter mobile and address' : '';
+  if (o && o.repId && window.__invReps?.[o.repId] && !document.getElementById('invRep').value) document.getElementById('invRep').value = o.repId;
   if (o) {
     if (o.phone) document.getElementById('invPhone').value = o.phone;
     if (o.address) document.getElementById('invAddr').value = o.address;
   }
 };
 
-// One line: searchable product, unit (pcs / ctn), qty, unit price, total.
+// One line: searchable product, unit (pcs / ctn / kg / bag), qty, unit price, total.
 window.addInvLine = function(item) {
   _invLines++;
   const div = document.createElement('div');
   div.className = 'inv-line';
   div.style.cssText = 'display:grid;grid-template-columns:minmax(0,3fr) 90px 80px 110px 100px auto;gap:8px;margin-bottom:8px;align-items:end;';
   div.innerHTML = `
-    <div><label class="flbl">Product</label><input class="finp il-prod" list="invProdList" autocomplete="off" placeholder="Search product, SKU…" oninput="_invPickProduct(this)"></div>
-    <div><label class="flbl">Unit</label><select class="finp il-unit" onchange="_invUnitChanged(this)"><option value="pcs">pcs</option></select></div>
+    <div><label class="flbl">Product</label><input class="finp il-prod" autocomplete="off" placeholder="Tap to pick or search product, SKU…"></div>
+    <div><label class="flbl">Unit</label><select class="finp il-unit" onchange="_invUnitChanged(this)"></select></div>
     <div><label class="flbl">Qty</label><input class="finp il-qty" type="number" min="0" step="any" value="1" oninput="calcInvTotal()"></div>
     <div><label class="flbl">Unit price</label><input class="finp il-price" type="number" min="0" step="0.01" placeholder="0.00" oninput="calcInvTotal()"></div>
     <div><label class="flbl">Total</label><div class="il-total" style="padding:9px 0;font-family:'DM Mono',monospace;text-align:right">RM 0.00</div></div>
     <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove();calcInvTotal()">✕</button>`;
   document.getElementById('invLineItems').appendChild(div);
+  const prodIn = div.querySelector('.il-prod');
+  _invSetUnits(div, null);
+  _combo(prodIn, q => (window.__invCatalog || []).filter(p => !q || _matches([p.name, p.sku, p.barcode, p.category].join(' '), q))
+    .map(p => ({ label: p.name, sub: _invProdSub(p), value: p })), p => _invPickProduct(prodIn, p));
+  // typing a different name after a pick makes it a free-text line
+  prodIn.addEventListener('input', () => { if (div.__prod && prodIn.value.trim() !== div.__prod.name) div.__prod = null; });
   if (item) {
     const p = (window.__invCatalog || []).find(x => (item.productId && x.id === item.productId) || (item.pid && x.id === item.pid) || (item.sku && x.sku === item.sku) || x.name === item.name);
-    const prodIn = div.querySelector('.il-prod');
-    prodIn.value = p ? _invProdLabel(p) : (item.name || '');
+    prodIn.value = p ? p.name : (item.name || '');
     _invSetUnits(div, p);
     const ctn = _n(item.ctnQty) > 0 && _n(item.ctnSize) > 0 && !_n(item.pcsQty);
-    div.querySelector('.il-unit').value = ctn ? 'ctn' : 'pcs';
+    const u = String(item.unit || '').toLowerCase();
+    div.querySelector('.il-unit').value = ctn ? 'ctn' : INV_UNITS.includes(u) ? u : 'pcs';
     div.querySelector('.il-qty').value = ctn ? _n(item.ctnQty) : (_n(item.qty) || 1);
     div.querySelector('.il-price').value = ctn ? (_n(item.ctnPrice) || _n(item.price) * _n(item.ctnSize)) : _n(item.price);
   }
   calcInvTotal();
   return div;
 };
+// pcs, ctn, kg, bag always; the product's own unit too if it is something
+// else (e.g. bottle). ctn shows the pack size when the product has one.
+const _invBase = p => { const u = String((p && p.unit) || 'pcs').trim() || 'pcs'; return INV_UNITS.includes(u.toLowerCase()) ? u.toLowerCase() : u; };
 function _invSetUnits(row, p) {
-  const sel = row.querySelector('.il-unit'), base = (p && p.unit) || 'pcs';
-  sel.innerHTML = `<option value="pcs">${_esc(base)}</option>${p && _n(p.ctnSize) ? `<option value="ctn">ctn (${_qty(p.ctnSize)})</option>` : ''}`;
+  const sel = row.querySelector('.il-unit'), base = _invBase(p);
+  const units = INV_UNITS.includes(base) ? INV_UNITS : [base, ...INV_UNITS];
+  sel.innerHTML = units.map(u => `<option value="${_esc(u)}">${u === 'ctn' && p && _n(p.ctnSize) ? `ctn (${_qty(p.ctnSize)})` : _esc(u)}</option>`).join('');
+  sel.value = base;
   row.__prod = p || null;
 }
-window._invPickProduct = function(input) {
-  const row = input.closest('.inv-line'), p = _invFindProd(input.value.trim());
-  if (!p) { row.__prod = null; return; }
-  input.value = _invProdLabel(p);
+window._invPickProduct = function(input, p) {
+  const row = input.closest('.inv-line');
+  input.value = p.name;
   _invSetUnits(row, p);
   row.querySelector('.il-price').value = _n(p.price);
   calcInvTotal();
+  row.querySelector('.il-qty').focus();
 };
 window._invUnitChanged = function(sel) {
   const row = sel.closest('.inv-line'), p = row.__prod;
-  if (p) row.querySelector('.il-price').value = sel.value === 'ctn' ? (_n(p.ctnPrice) || Math.round(_n(p.price) * _n(p.ctnSize) * 100) / 100) : _n(p.price);
+  const base = _invBase(p);
+  if (p && sel.value === 'ctn' && _n(p.ctnSize)) row.querySelector('.il-price').value = _n(p.ctnPrice) || Math.round(_n(p.price) * _n(p.ctnSize) * 100) / 100;
+  else if (p && sel.value === base) row.querySelector('.il-price').value = _n(p.price);
   calcInvTotal();
 };
 window.calcInvTotal = function() {
@@ -1587,6 +1672,11 @@ window.autofillFromOrder = function(sel) {
   if (opt.dataset.phone) document.getElementById('invPhone').value = opt.dataset.phone;
   if (opt.dataset.address) document.getElementById('invAddr').value = opt.dataset.address;
   if (opt.dataset.outletId) document.getElementById('invOutletId').value = opt.dataset.outletId;
+  if (opt.dataset.repId) {
+    const rs = document.getElementById('invRep');
+    if (![...rs.options].some(o => o.value === opt.dataset.repId)) rs.add(new Option(opt.dataset.repName || opt.dataset.repId, opt.dataset.repId));
+    rs.value = opt.dataset.repId;
+  }
   document.getElementById('invLineItems').innerHTML = '';
   JSON.parse(opt.dataset.items || '[]').forEach(item => addInvLine(item));
   calcInvTotal();
@@ -1604,8 +1694,9 @@ window.saveInvoice = async function() {
     if (!label || !(qty > 0)) return;
     const lineTotal = Math.round(qty * price * 100) / 100;
     total += lineTotal;
-    const base = { productId: p?.id || '', sku: p?.sku || '', name: p ? p.name : label, unit: p?.unit || 'pcs', total: lineTotal };
-    if (p && row.querySelector('.il-unit').value === 'ctn') {
+    const unit = row.querySelector('.il-unit').value || 'pcs';
+    const base = { productId: p?.id || '', sku: p?.sku || '', name: p ? p.name : label, unit: unit === 'ctn' && _n(p?.ctnSize) ? (p.unit || 'pcs') : unit, total: lineTotal };
+    if (p && unit === 'ctn' && _n(p.ctnSize)) {
       const size = _n(p.ctnSize);
       items.push({ ...base, ctnSize: size, ctnQty: qty, pcsQty: 0, qty: qty * size, ctnPrice: price, price: Math.round(price / size * 10000) / 10000 });
     } else items.push({ ...base, ctnSize: _n(p?.ctnSize), ctnQty: 0, pcsQty: qty, qty, price });
@@ -1614,7 +1705,8 @@ window.saveInvoice = async function() {
   total = Math.round(total * 100) / 100;
   const linkedOrder = document.getElementById('invLinkedOrder').value;
   const data = {
-    customer: cust, outletId: document.getElementById('invOutletId').value || '',
+    customer: cust, outletId: document.getElementById('invOutletId').value || '', walkIn: cust === INV_WALKIN,
+    repId: document.getElementById('invRep').value || '', repName: document.getElementById('invRep').selectedOptions[0]?.value ? document.getElementById('invRep').selectedOptions[0].text : '',
     customerPhone: document.getElementById('invPhone').value.trim(), customerAddress: document.getElementById('invAddr').value.trim(),
     date: document.getElementById('invDate').value,
     dueDate: document.getElementById('invDue').value,
