@@ -237,6 +237,17 @@ async function setOwnerZoneFilter(zid) {
   // Force-reload cached collections so allOutlets/allRoutes/allUsers reflect new zone
   await loadCachedData(true);
   // Reload current active page under the new zone scope
+  _reloadActivePage();
+
+  // If rep locations modal is open, restart the live listener under the new zone filter
+  const repLocModal = document.getElementById('mRepLocations');
+  if(repLocModal && repLocModal.classList.contains('show')) {
+    _startRepLocationsListener();
+  }
+}
+
+// Re-draw the page on screen with fresh data.
+function _reloadActivePage() {
   const activePage = document.querySelector('.page.active');
   if(!activePage) return;
   const raw = activePage.id.replace(/^page/, '');
@@ -257,13 +268,35 @@ async function setOwnerZoneFilter(zid) {
     zones:      loadZones,
     outletstructure: loadOutletStructure,
     liveLocations: ()=>window.__llReload&&window.__llReload(),
+    advances:   ()=>typeof loadMyAdvances==='function'&&loadMyAdvances(),
   };
   if(reloaders[pg]) reloaders[pg]();
+}
 
-  // If rep locations modal is open, restart the live listener under the new zone filter
-  const repLocModal = document.getElementById('mRepLocations');
-  if(repLocModal && repLocModal.classList.contains('show')) {
-    _startRepLocationsListener();
+// ── Sync button (top bar): fresh data from the server for every page,
+// a new location for field staff, and the latest app version if one is
+// waiting (installed now unless an order or form is open).
+let _syncing = false;
+async function syncApp() {
+  if (_syncing) return;
+  if (!navigator.onLine) { showToast('No internet: showing saved data. Sync again when online.', 'warn'); return; }
+  _syncing = true;
+  const btn = document.getElementById('syncBtn');
+  if (btn) btn.classList.add('spin');
+  try {
+    invalidateCache();
+    invalidateDashCache();
+    await loadCachedData(true);
+    _reloadActivePage();
+    updateBadges(); updateSidebarStats();
+    if (typeof _isFieldUser === 'function' && _isFieldUser()) _captureAndSaveLocation();
+    showToast('Synced ✅ — everything is up to date', 'success');
+    if (isNativeApp() && _updater()) _otaCheck(true);
+  } catch (e) {
+    showToast('Sync failed: ' + e.message, 'error');
+  } finally {
+    _syncing = false;
+    if (btn) btn.classList.remove('spin');
   }
 }
 

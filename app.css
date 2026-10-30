@@ -205,3 +205,5 @@
 .dues-m a{color:var(--acc);text-decoration:none}
 .dues-amt{font-weight:800;color:var(--red);font-size:14px;white-space:nowrap}
 .dues-more{width:100%;margin-top:6px}
+
+.sync-btn.spin{animation:syncSpin .8s linear infinite;pointer-events:none}@keyframes syncSpin{to{transform:rotate(360deg)}}
