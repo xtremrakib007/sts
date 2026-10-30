@@ -18,6 +18,14 @@
     ],
     "rewrites": [
       {
+        "source": "/api/customer-portal",
+        "function": "customerPortal"
+      },
+      {
+        "source": "/customer",
+        "destination": "/customer.html"
+      },
+      {
         "source": "/portal",
         "destination": "/portal/index.html"
       },

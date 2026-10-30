@@ -145,7 +145,7 @@
     }
     </style>
     <script
-        type="module">import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"; import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js"; import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, setPersistence, browserLocalPersistence, browserSessionPersistence, sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"; import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDoc, getDocs, getDocsFromCache, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"; import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js"; import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js"; const firebaseConfig = { apiKey: "AIzaSyC0cO3x4Oqi8GBUhzON-InN3YZTm-RfMyA", authDomain: "stfm-sales.firebaseapp.com", projectId: "stfm-sales", storageBucket: "stfm-sales.firebasestorage.app", messagingSenderId: "53800678989", appId: "1:53800678989:web:bce1be11a8beb92c084e04", measurementId: "G-QRWNKXQR8Y" }, app = initializeApp(firebaseConfig), analytics = getAnalytics(app), auth = getAuth(app), db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }), storage = getStorage(app); const _secondaryApp = initializeApp(firebaseConfig, "secondary"); const _secondaryAuth = getAuth(_secondaryApp); let appReadyResolve, messaging = null; try { messaging = getMessaging(app) } catch (e) { console.warn("[FCM] getMessaging failed:", e.message) } function tryBootApp(e) { return "function" == typeof bootApp && (bootApp(), appReadyResolve(!0), !0) } window.__SF = { auth: auth, db: db, analytics: analytics, storage: storage, messaging: messaging, getMessaging: getMessaging, getToken: getToken, onMessage: onMessage, signInWithEmailAndPassword: signInWithEmailAndPassword, signOut: signOut, onAuthStateChanged: onAuthStateChanged, createUserWithEmailAndPassword: createUserWithEmailAndPassword, createUserSafe: async (email, password) => { const c = await createUserWithEmailAndPassword(_secondaryAuth, email, password); await _secondaryAuth.signOut(); return c; }, setPersistence: setPersistence, browserLocalPersistence: browserLocalPersistence, browserSessionPersistence: browserSessionPersistence, sendPasswordResetEmail: sendPasswordResetEmail, updatePassword: updatePassword, reauthenticateWithCredential: reauthenticateWithCredential, EmailAuthProvider: EmailAuthProvider, collection: collection, doc: doc, setDoc: setDoc, getDoc: getDoc, getDocs: getDocs, getDocsFromCache: getDocsFromCache, addDoc: addDoc, updateDoc: updateDoc, deleteDoc: deleteDoc, query: query, where: where, orderBy: orderBy, onSnapshot: onSnapshot, serverTimestamp: serverTimestamp, Timestamp: Timestamp, writeBatch: writeBatch, storageRef: storageRef, uploadBytes: uploadBytes, getDownloadURL: getDownloadURL, deleteObject: deleteObject }, window.__creatingUser = !1, window.__firebaseReady = !0, window.__appReadyPromise = new Promise(e => { appReadyResolve = e }), window.addEventListener("appReady", () => { window.__pendingUser && (window.__currentUser = window.__pendingUser, window.__pendingUser = null, "function" == typeof bootApp && bootApp()), appReadyResolve(!0) }); let loaderTimeout = setTimeout(() => { const e = document.getElementById("loader"); e && "none" !== e.style.display && !e.classList.contains("hidden") && (e.innerHTML = '\n      <div style="text-align:center;padding:24px">\n        <div style="font-size:48px;margin-bottom:12px">⚠️</div>\n        <div style="font-family:\'Syne\',sans-serif;font-size:16px;font-weight:700;color:var(--tx);margin-bottom:8px">Connection Timeout</div>\n        <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;max-width:280px">Unable to connect to Firebase. Please check your internet connection.</div>\n        <button onclick="location.reload()" style="background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">🔄 Retry</button>\n        <div><button onclick="doLogout && doLogout()" style="background:transparent;color:var(--tx3);border:1px solid var(--bdr);padding:8px 20px;border-radius:8px;font-size:12px;cursor:pointer">Sign Out</button></div>\n      </div>', e.classList.remove("hidden"), e.style.display = "flex") }, 1e4); onAuthStateChanged(auth, async e => { if (clearTimeout(loaderTimeout), window.__creatingUser) return; const t = document.getElementById("loader"); try { if (e) { const n = new Promise((e, t) => setTimeout(() => t(new Error("Request timeout")), 1e4)); let o; try { o = await Promise.race([getDoc(doc(db, "users", e.uid)), n]) } catch (e) { throw new Error("Failed to load user data: " + e.message) } if (o.exists()) window.__currentUser = { uid: e.uid, ...o.data() }, t && (t.classList.add("hidden"), t.style.display = "none"), tryBootApp(e) || (window.__pendingUser = window.__currentUser); else { let n = !1; try { n = (await getDocs(collection(db, "users"))).empty } catch (e) { n = !1 } if (n) t && (t.classList.add("hidden"), t.style.display = "none"), "function" == typeof showSetupPanel ? showSetupPanel(e) : window.addEventListener("appReady", () => showSetupPanel(e)); else { const n = e.uid, o = e.email || ""; await signOut(auth), t && (t.classList.add("hidden"), t.style.display = "none"); const i = () => { const e = document.getElementById("loginPage"); if (!e) return; e.style.display = "flex", document.getElementById("app").style.display = "none"; const t = document.getElementById("_recoveryCard"); t && t.remove(); const i = document.createElement("div"); i.id = "_recoveryCard", i.style.cssText = "\n              position:fixed;inset:0;z-index:9999;\n              background:rgba(0,0,0,.75);\n              display:flex;align-items:center;justify-content:center;\n              padding:20px;backdrop-filter:blur(6px)\n            ", i.innerHTML = `\n              <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:20px;\n                          padding:28px 24px;max-width:380px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)">\n                <div style="font-size:40px;text-align:center;margin-bottom:14px">⚠️</div>\n                <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;\n                            text-align:center;margin-bottom:8px;color:var(--tx)">\n                  Account Profile Missing\n                </div>\n                <div style="font-size:13px;color:var(--tx2);text-align:center;line-height:1.6;margin-bottom:18px">\n                  <strong style="color:var(--acc)">${o}</strong> exists in Firebase Auth\n                  but has no profile in the system.<br><br>\n                  This usually happens when user creation was interrupted.\n                </div>\n\n                \x3c!-- Admin self-repair: fill in profile if you are the admin --\x3e\n                <div style="background:var(--s2);border:1px solid var(--bdr);border-radius:12px;\n                            padding:16px;margin-bottom:14px">\n                  <div style="font-size:11px;font-weight:700;color:var(--tx3);\n                              letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">\n                    🔧 Admin — Complete This Profile\n                  </div>\n                  <div class="fgrp" style="margin-bottom:10px">\n                    <label class="flbl">Full Name *</label>\n                    <input id="_rName" class="finp" placeholder="Full name" style="font-size:14px">\n                  </div>\n                  <div class="fgrp" style="margin-bottom:10px">\n                    <label class="flbl">Role *</label>\n                    <select id="_rRole" class="finp" style="font-size:14px">\n                      <option value="sales_rep">Sales Rep</option>\n                      <option value="delivery_man">Delivery Man</option>\n                      <option value="sub_admin">Sub Admin</option>\n                      <option value="admin">Admin</option>\n                    </select>\n                  </div>\n                  <div class="fgrp" style="margin-bottom:12px">\n                    <label class="flbl">Phone</label>\n                    <input id="_rPhone" class="finp" placeholder="01XXXXXXXXX" style="font-size:14px">\n                  </div>\n                  <div style="font-size:11px;color:var(--ylw);margin-bottom:12px">\n                    ⚠️ You must be an Admin to complete this. Enter YOUR admin credentials below to authorise.\n                  </div>\n                  <div class="fgrp" style="margin-bottom:10px">\n                    <label class="flbl">Your Admin Email *</label>\n                    <input id="_rAdminEmail" class="finp" type="email" placeholder="admin@company.com" style="font-size:14px">\n                  </div>\n                  <div class="fgrp" style="margin-bottom:14px">\n                    <label class="flbl">Your Admin Password *</label>\n                    <input id="_rAdminPwd" class="finp" type="password" placeholder="••••••••" style="font-size:14px">\n                  </div>\n                  <button id="_rFixBtn" onclick="window._doRecoveryFix('${n}','${o}')"\n                    style="width:100%;padding:12px;background:linear-gradient(135deg,#22c55e,#15803d);\n                           color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">\n                    ✅ Create Profile &amp; Fix Account\n                  </button>\n                </div>\n\n                <button onclick="document.getElementById('_recoveryCard').remove()"\n                  style="width:100%;padding:10px;background:transparent;border:1px solid var(--bdr);\n                         border-radius:10px;color:var(--tx3);font-size:13px;font-weight:600;cursor:pointer">\n                  Cancel — Back to Login\n                </button>\n              </div>\n            `, document.body.appendChild(i) }; "function" == typeof showLoginPage ? (showLoginPage(), i()) : window.addEventListener("appReady", () => { showLoginPage(), i() }) } } } else t && (t.classList.add("hidden"), t.style.display = "none"), "function" == typeof showLoginPage ? showLoginPage() : window.addEventListener("appReady", () => showLoginPage()) } catch (e) { console.error("Auth error:", e), t && (t.innerHTML = `\n        <div style="text-align:center;padding:24px">\n          <div style="font-size:48px;margin-bottom:12px">🌐</div>\n          <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--tx);margin-bottom:8px">Connection Error</div>\n          <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;max-width:280px">${e.message || "Failed to connect to Firebase."}</div>\n          <button onclick="location.reload()" style="background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer">🔄 Retry</button>\n        </div>`, t.classList.remove("hidden"), t.style.display = "flex"), "function" == typeof showToast && showToast("Connection error: " + e.message, "error") } }), window.dispatchEvent(new Event("firebaseReady")), console.log("Firebase initialized with STSB project")</script>
+        type="module">import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"; import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js"; import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, setPersistence, browserLocalPersistence, browserSessionPersistence, sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"; import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, getDoc, getDocs, getDocsFromCache, addDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp, writeBatch, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"; import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js"; import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js"; const firebaseConfig = { apiKey: "AIzaSyC0cO3x4Oqi8GBUhzON-InN3YZTm-RfMyA", authDomain: "stfm-sales.firebaseapp.com", projectId: "stfm-sales", storageBucket: "stfm-sales.firebasestorage.app", messagingSenderId: "53800678989", appId: "1:53800678989:web:bce1be11a8beb92c084e04", measurementId: "G-QRWNKXQR8Y" }, app = initializeApp(firebaseConfig), analytics = getAnalytics(app), auth = getAuth(app), db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }), storage = getStorage(app); const _secondaryApp = initializeApp(firebaseConfig, "secondary"); const _secondaryAuth = getAuth(_secondaryApp); let appReadyResolve, messaging = null; try { messaging = getMessaging(app) } catch (e) { console.warn("[FCM] getMessaging failed:", e.message) } function tryBootApp(e) { return "function" == typeof bootApp && (bootApp(), appReadyResolve(!0), !0) } window.__SF = { auth: auth, db: db, analytics: analytics, storage: storage, messaging: messaging, getMessaging: getMessaging, getToken: getToken, onMessage: onMessage, signInWithEmailAndPassword: signInWithEmailAndPassword, signOut: signOut, onAuthStateChanged: onAuthStateChanged, createUserWithEmailAndPassword: createUserWithEmailAndPassword, createUserSafe: async (email, password) => { const c = await createUserWithEmailAndPassword(_secondaryAuth, email, password); await _secondaryAuth.signOut(); return c; }, setPersistence: setPersistence, browserLocalPersistence: browserLocalPersistence, browserSessionPersistence: browserSessionPersistence, sendPasswordResetEmail: sendPasswordResetEmail, updatePassword: updatePassword, reauthenticateWithCredential: reauthenticateWithCredential, EmailAuthProvider: EmailAuthProvider, collection: collection, doc: doc, setDoc: setDoc, getDoc: getDoc, getDocs: getDocs, getDocsFromCache: getDocsFromCache, addDoc: addDoc, updateDoc: updateDoc, deleteDoc: deleteDoc, query: query, where: where, orderBy: orderBy, onSnapshot: onSnapshot, serverTimestamp: serverTimestamp, Timestamp: Timestamp, writeBatch: writeBatch, limit: limit, storageRef: storageRef, uploadBytes: uploadBytes, getDownloadURL: getDownloadURL, deleteObject: deleteObject }, window.__creatingUser = !1, window.__firebaseReady = !0, window.__appReadyPromise = new Promise(e => { appReadyResolve = e }), window.addEventListener("appReady", () => { window.__pendingUser && (window.__currentUser = window.__pendingUser, window.__pendingUser = null, "function" == typeof bootApp && bootApp()), appReadyResolve(!0) }); let loaderTimeout = setTimeout(() => { const e = document.getElementById("loader"); e && "none" !== e.style.display && !e.classList.contains("hidden") && (e.innerHTML = '\n      <div style="text-align:center;padding:24px">\n        <div style="font-size:48px;margin-bottom:12px">⚠️</div>\n        <div style="font-family:\'Syne\',sans-serif;font-size:16px;font-weight:700;color:var(--tx);margin-bottom:8px">Connection Timeout</div>\n        <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;max-width:280px">Unable to connect to Firebase. Please check your internet connection.</div>\n        <button onclick="location.reload()" style="background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">🔄 Retry</button>\n        <div><button onclick="doLogout && doLogout()" style="background:transparent;color:var(--tx3);border:1px solid var(--bdr);padding:8px 20px;border-radius:8px;font-size:12px;cursor:pointer">Sign Out</button></div>\n      </div>', e.classList.remove("hidden"), e.style.display = "flex") }, 1e4); onAuthStateChanged(auth, async e => { if (clearTimeout(loaderTimeout), window.__creatingUser) return; const t = document.getElementById("loader"); try { if (e) { const n = new Promise((e, t) => setTimeout(() => t(new Error("Request timeout")), 1e4)); let o; try { o = await Promise.race([getDoc(doc(db, "users", e.uid)), n]) } catch (e) { throw new Error("Failed to load user data: " + e.message) } if (o.exists()) window.__currentUser = { uid: e.uid, ...o.data() }, t && (t.classList.add("hidden"), t.style.display = "none"), tryBootApp(e) || (window.__pendingUser = window.__currentUser); else { let n = !1; try { n = (await getDocs(collection(db, "users"))).empty } catch (e) { n = !1 } if (n) t && (t.classList.add("hidden"), t.style.display = "none"), "function" == typeof showSetupPanel ? showSetupPanel(e) : window.addEventListener("appReady", () => showSetupPanel(e)); else { const n = e.uid, o = e.email || ""; await signOut(auth), t && (t.classList.add("hidden"), t.style.display = "none"); const i = () => { const e = document.getElementById("loginPage"); if (!e) return; e.style.display = "flex", document.getElementById("app").style.display = "none"; const t = document.getElementById("_recoveryCard"); t && t.remove(); const i = document.createElement("div"); i.id = "_recoveryCard", i.style.cssText = "\n              position:fixed;inset:0;z-index:9999;\n              background:rgba(0,0,0,.75);\n              display:flex;align-items:center;justify-content:center;\n              padding:20px;backdrop-filter:blur(6px)\n            ", i.innerHTML = `\n              <div style="background:var(--s1);border:1px solid var(--bdr);border-radius:20px;\n                          padding:28px 24px;max-width:380px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.5)">\n                <div style="font-size:40px;text-align:center;margin-bottom:14px">⚠️</div>\n                <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;\n                            text-align:center;margin-bottom:8px;color:var(--tx)">\n                  Account Profile Missing\n                </div>\n                <div style="font-size:13px;color:var(--tx2);text-align:center;line-height:1.6;margin-bottom:18px">\n                  <strong style="color:var(--acc)">${o}</strong> exists in Firebase Auth\n                  but has no profile in the system.<br><br>\n                  This usually happens when user creation was interrupted.\n                </div>\n\n                \x3c!-- Admin self-repair: fill in profile if you are the admin --\x3e\n                <div style="background:var(--s2);border:1px solid var(--bdr);border-radius:12px;\n                            padding:16px;margin-bottom:14px">\n                  <div style="font-size:11px;font-weight:700;color:var(--tx3);\n                              letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">\n                    🔧 Admin — Complete This Profile\n                  </div>\n                  <div class="fgrp" style="margin-bottom:10px">\n                    <label class="flbl">Full Name *</label>\n                    <input id="_rName" class="finp" placeholder="Full name" style="font-size:14px">\n                  </div>\n                  <div class="fgrp" style="margin-bottom:10px">\n                    <label class="flbl">Role *</label>\n                    <select id="_rRole" class="finp" style="font-size:14px">\n                      <option value="sales_rep">Sales Rep</option>\n                      <option value="delivery_man">Delivery Man</option>\n                      <option value="sub_admin">Sub Admin</option>\n                      <option value="admin">Admin</option>\n                    </select>\n                  </div>\n                  <div class="fgrp" style="margin-bottom:12px">\n                    <label class="flbl">Phone</label>\n                    <input id="_rPhone" class="finp" placeholder="01XXXXXXXXX" style="font-size:14px">\n                  </div>\n                  <div style="font-size:11px;color:var(--ylw);margin-bottom:12px">\n                    ⚠️ You must be an Admin to complete this. Enter YOUR admin credentials below to authorise.\n                  </div>\n                  <div class="fgrp" style="margin-bottom:10px">\n                    <label class="flbl">Your Admin Email *</label>\n                    <input id="_rAdminEmail" class="finp" type="email" placeholder="admin@company.com" style="font-size:14px">\n                  </div>\n                  <div class="fgrp" style="margin-bottom:14px">\n                    <label class="flbl">Your Admin Password *</label>\n                    <input id="_rAdminPwd" class="finp" type="password" placeholder="••••••••" style="font-size:14px">\n                  </div>\n                  <button id="_rFixBtn" onclick="window._doRecoveryFix('${n}','${o}')"\n                    style="width:100%;padding:12px;background:linear-gradient(135deg,#22c55e,#15803d);\n                           color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">\n                    ✅ Create Profile &amp; Fix Account\n                  </button>\n                </div>\n\n                <button onclick="document.getElementById('_recoveryCard').remove()"\n                  style="width:100%;padding:10px;background:transparent;border:1px solid var(--bdr);\n                         border-radius:10px;color:var(--tx3);font-size:13px;font-weight:600;cursor:pointer">\n                  Cancel — Back to Login\n                </button>\n              </div>\n            `, document.body.appendChild(i) }; "function" == typeof showLoginPage ? (showLoginPage(), i()) : window.addEventListener("appReady", () => { showLoginPage(), i() }) } } } else t && (t.classList.add("hidden"), t.style.display = "none"), "function" == typeof showLoginPage ? showLoginPage() : window.addEventListener("appReady", () => showLoginPage()) } catch (e) { console.error("Auth error:", e), t && (t.innerHTML = `\n        <div style="text-align:center;padding:24px">\n          <div style="font-size:48px;margin-bottom:12px">🌐</div>\n          <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--tx);margin-bottom:8px">Connection Error</div>\n          <div style="font-size:13px;color:var(--tx2);margin-bottom:20px;max-width:280px">${e.message || "Failed to connect to Firebase."}</div>\n          <button onclick="location.reload()" style="background:linear-gradient(135deg,#22c55e,#15803d);color:#fff;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer">🔄 Retry</button>\n        </div>`, t.classList.remove("hidden"), t.style.display = "flex"), "function" == typeof showToast && showToast("Connection error: " + e.message, "error") } }), window.dispatchEvent(new Event("firebaseReady")), console.log("Firebase initialized with STSB project")</script>
 </head>
 
 <body>
@@ -337,6 +337,7 @@
                 <div class="nav-sec admin-only" style="display:none">Data & Security</div>
                 <div class="nitem admin-only" style="display:none" onclick='goPage("auditLog"),closeSidebar()'><span class="nico">🗒️</span> Audit Log <span class="sb-audit-badge">NEW</span></div>
                 <div class="nitem admin-only" style="display:none" onclick='goPage("dataExport"),closeSidebar()'><span class="nico">📥</span> Data Export <span class="sb-audit-badge">NEW</span></div>
+                <div class="nitem admin-only" style="display:none" onclick='goPage("errorLog"),closeSidebar()'><span class="nico">🐞</span> Error Log <span class="sb-audit-badge">NEW</span></div>
                 <div class="nitem" onclick='openCustomerPortal(),closeSidebar()'><span class="nico">🏪</span> Customer Portal <span class="sb-audit-badge">NEW</span></div>
             </nav>
             <div class="sb-foot"><button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:6px" onclick="doLogout()">🚪 Sign Out</button></div>
@@ -2379,6 +2380,9 @@
         { page:'deliveries',    ico:'🚛', lbl:'Deliveries',      roles:[...R_ADMIN],             badgeId:'delivAdminBadge' },
         { page:'zones',         ico:'🗂️',  lbl:'Zones',           roles:[...R_ADMIN],             hiddenId:'zonesNav'       },
         { page:'liveLocations', ico:'📍', lbl:'Live Locations',  roles:[...R_ADMIN]                            },
+        { page:'auditLog',      ico:'🗒️', lbl:'Audit Log',       roles:[...R_ADMIN]                            },
+        { page:'dataExport',    ico:'📥', lbl:'Data Export',     roles:[...R_ADMIN]                            },
+        { page:'errorLog',      ico:'🐞', lbl:'Error Log',       roles:[...R_ADMIN]                            },
     ];
 
     function buildHomeGrid() {
@@ -2852,7 +2856,7 @@
     <!-- ═══════════════════════════════════════════════════════════════
          NEW FEATURE: Audit Log Page
          ═══════════════════════════════════════════════════════════════ -->
-    <div id="pageAuditLog" class="page" style="display:none">
+    <div id="pageAuditLog" class="page">
         <div class="page-hdr">
             <button class="back-btn" onclick="goPage('dashboard')">← Back</button>
             <div class="page-hdr-info">
@@ -2900,7 +2904,27 @@
     <!-- ═══════════════════════════════════════════════════════════════
          NEW FEATURE: Data Export Page
          ═══════════════════════════════════════════════════════════════ -->
-    <div id="pageDataExport" class="page" style="display:none">
+    <div id="pageErrorLog" class="page">
+        <div class="page-hdr">
+            <button class="back-btn" onclick="goPage('dashboard')">← Back</button>
+            <div class="page-hdr-info">
+                <div style="font-family:Syne,sans-serif;font-size:19px;font-weight:700">🐞 Error Log</div>
+                <div style="font-size:11px;color:var(--tx3)">Errors staff hit in the app — newest first</div>
+            </div>
+            <div style="display:flex;gap:7px;flex-shrink:0;flex-wrap:wrap">
+                <select class="finp btn-ghost" id="errKindFilter" style="width:130px;padding:8px 12px;font-size:12px" onchange="stsbRenderErrorLog()">
+                    <option value="">All kinds</option><option value="error">Crash</option><option value="promise">Unhandled</option>
+                    <option value="console">Logged</option><option value="toast">Shown to user</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" onclick="stsbLoadErrorLog()">🔄</button>
+                <button class="btn btn-ghost btn-sm" onclick="stsbExportErrorCSV()">📥 CSV</button>
+            </div>
+        </div>
+        <div id="errLogSummary" style="font-size:12px;color:var(--tx3);margin-bottom:8px"></div>
+        <div class="card" style="overflow:hidden;padding:0"><div id="errLogList"></div></div>
+    </div>
+
+    <div id="pageDataExport" class="page">
         <div class="page-hdr">
             <button class="back-btn" onclick="goPage('dashboard')">← Back</button>
             <div class="page-hdr-info">
@@ -2998,8 +3022,14 @@
             <div class="mbody">
                 <div
                     style="background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.2);border-radius:var(--r2);padding:10px 13px;margin-bottom:14px;font-size:12px;color:var(--tx2)">
-                    🔎 Share this portal link with customers so they can track their own orders without a login.
+                    🔗 Each shop gets its own private link: it shows that shop's orders, invoices and balance — no login needed.
                 </div>
+                <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">
+                    <select id="portalOutletSel" class="finp" style="flex:1;min-width:180px"></select>
+                    <button class="btn btn-primary btn-sm" onclick="stsbSharePortalLink(document.getElementById('portalOutletSel').value,'whatsapp')">💬 Send on WhatsApp</button>
+                    <button class="btn btn-ghost btn-sm" onclick="stsbSharePortalLink(document.getElementById('portalOutletSel').value,'copy')">🔗 Copy link</button>
+                </div>
+                <div style="font-size:11px;font-weight:700;color:var(--tx3);margin-bottom:6px;letter-spacing:.5px">TRACK AN ORDER</div>
                 <div class="portal-track-row">
                     <input id="portalOrderSearch" class="finp" placeholder="Enter outlet name or order ID..."
                         oninput="stsbPortalSearch()">
@@ -3009,7 +3039,6 @@
             </div>
             <div class="mfoot">
                 <button class="btn btn-ghost btn-sm" onclick='closeM("mCustomerPortal")'>Close</button>
-                <button class="btn btn-ghost btn-sm" onclick="stsbCopyPortalLink()">🔗 Copy Portal Link</button>
             </div>
         </div>
     </div>
@@ -3205,6 +3234,107 @@
         }
     };
 
+    /* ──────────────────────────────────────────────────────────────
+       4b. Error Log — crashes, unhandled promise errors, logged errors
+       and error messages shown to staff go to `error_log` (admins view
+       them on the Error Log page). Each distinct message is sent once
+       per session, at most 30 per session.
+    ────────────────────────────────────────────────────────────── */
+    const _errSent = new Set();
+    let _errCount = 0, _errBusy = false;
+    const _ERR_SKIP = /ResizeObserver loop|^Script error\.?$|Non-Error promise rejection|\[LL |\[Location\]/;
+    window.stsbLogError = function(kind, message, stack) {
+        try {
+            const user = window.__currentUser;
+            const msg = String(message || '').slice(0, 1000);
+            if (!user || !msg || _ERR_SKIP.test(msg) || _errBusy) return;
+            const key = kind + '|' + msg;
+            if (_errSent.has(key) || _errCount >= 30) return;
+            _errSent.add(key); _errCount++;
+            if (!window.__SF || !window.__SF.db) return;
+            const page = (document.querySelector('.page.active') || {}).id || '';
+            _errBusy = true; // a failing write must not log itself
+            window.__SF.addDoc(window.__SF.collection(window.__SF.db, 'error_log'), {
+                kind, message: msg, stack: String(stack || '').slice(0, 2000), page: page.replace(/^page/, ''),
+                appVersion: String(window.__APP_VERSION || ''),
+                platform: window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() ? 'android-app' : 'web',
+                userAgent: navigator.userAgent.slice(0, 200),
+                userId: user.uid, userName: user.name || user.email || '', userRole: user.role || '',
+                timestamp: window.__SF.serverTimestamp(), ts_client: Date.now(),
+            }).catch(() => {}).finally(() => { _errBusy = false; });
+        } catch (e) { _errBusy = false; }
+    };
+    window.addEventListener('error', e => {
+        if (e.target && e.target !== window && (e.target.src || e.target.href)) return; // failed image/script load
+        stsbLogError('error', e.message || String(e.error || ''), (e.error && e.error.stack) || (e.filename ? e.filename + ':' + e.lineno + ':' + e.colno : ''));
+    });
+    window.addEventListener('unhandledrejection', e => {
+        const r = e.reason;
+        stsbLogError('promise', (r && (r.message || r.code)) || String(r || ''), r && r.stack);
+    });
+    (function() {
+        const orig = console.error.bind(console);
+        console.error = function() {
+            orig.apply(console, arguments);
+            const parts = [...arguments].map(a => a instanceof Error ? a.message : typeof a === 'object' ? (a && a.message) || JSON.stringify(a) : String(a));
+            const err = [...arguments].find(a => a instanceof Error);
+            stsbLogError('console', parts.join(' ').slice(0, 1000), err && err.stack);
+        };
+    })();
+    window.addEventListener('appReady', () => {
+        const orig = window.showToast;
+        if (typeof orig !== 'function') return;
+        window.showToast = function(msg, type) {
+            const r = orig.apply(this, arguments);
+            if (type === 'error') stsbLogError('toast', String(msg || '').replace(/^❌\s*/, ''));
+            return r;
+        };
+    });
+
+    let _errDocs = [];
+    window.stsbLoadErrorLog = async function() {
+        const list = document.getElementById('errLogList');
+        if (!list) return;
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--tx3)">Loading…</div>';
+        try {
+            const snap = await window.__SF.getDocs(window.__SF.query(window.__SF.collection(window.__SF.db, 'error_log'),
+                window.__SF.orderBy('timestamp', 'desc'), window.__SF.limit(300)));
+            _errDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            stsbRenderErrorLog();
+        } catch (e) {
+            list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--red)">Could not load the error log: ' + String(e.message || e).replace(/</g, '&lt;') + '</div>';
+        }
+    };
+    window.stsbRenderErrorLog = function() {
+        const list = document.getElementById('errLogList');
+        if (!list) return;
+        const kind = document.getElementById('errKindFilter')?.value || '';
+        const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const rows = _errDocs.filter(d => !kind || d.kind === kind);
+        const label = { error: ['Crash', 'var(--red)'], promise: ['Unhandled', 'var(--red)'], console: ['Logged', 'var(--ylw)'], toast: ['Shown to user', 'var(--blu)'] };
+        const day = Date.now() - 86400000;
+        const sum = document.getElementById('errLogSummary');
+        if (sum) sum.textContent = `${rows.length} error${rows.length === 1 ? '' : 's'} · ${rows.filter(d => (d.ts_client || 0) > day).length} in the last 24 h · ${new Set(rows.map(d => d.userId)).size} user(s)`;
+        list.innerHTML = rows.length ? rows.map(d => {
+            const t = d.timestamp && d.timestamp.toDate ? d.timestamp.toDate() : new Date(d.ts_client || 0);
+            const [lbl, col] = label[d.kind] || [d.kind, 'var(--tx3)'];
+            return '<details class="audit-entry" style="display:block"><summary style="cursor:pointer;list-style:none;display:flex;gap:10px;align-items:flex-start">' +
+                '<span style="font-size:10px;font-weight:700;color:' + col + ';border:1px solid ' + col + ';border-radius:20px;padding:1px 7px;white-space:nowrap">' + esc(lbl) + '</span>' +
+                '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;word-break:break-word">' + esc(d.message) + '</div>' +
+                '<div style="font-size:11px;color:var(--tx3)">' + esc(d.userName) + ' · ' + esc(d.userRole) + (d.page ? ' · ' + esc(d.page) : '') + ' · ' + esc(d.platform) + (d.appVersion ? ' v' + esc(d.appVersion) : '') + '</div></div>' +
+                '<div class="audit-time">' + (isNaN(t) ? '' : esc(t.toLocaleString('en-MY', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))) + '</div></summary>' +
+                (d.stack ? '<pre style="white-space:pre-wrap;font-size:10px;color:var(--tx3);margin:8px 0 0;max-height:220px;overflow:auto">' + esc(d.stack) + '</pre>' : '') +
+                '<div style="font-size:10px;color:var(--tx3);margin-top:4px">' + esc(d.userAgent) + '</div></details>';
+        }).join('') : '<div style="padding:40px;text-align:center;color:var(--tx3)">No errors recorded 🎉</div>';
+    };
+    window.stsbExportErrorCSV = function() {
+        if (!_errDocs.length) { if (typeof showToast === 'function') showToast('No errors to export', 'info'); return; }
+        _stsbDownloadCSV([['Time', 'Kind', 'Message', 'Page', 'User', 'Role', 'Platform', 'Version', 'Stack']].concat(_errDocs.map(d => {
+            const t = d.timestamp && d.timestamp.toDate ? d.timestamp.toDate() : new Date(d.ts_client || 0);
+            return [isNaN(t) ? '' : t.toISOString(), d.kind, d.message, d.page, d.userName, d.userRole, d.platform, d.appVersion, d.stack];
+        })), 'stsb_error_log_' + _stsbDateTag() + '.csv');
+    };
+
     // Patch key write operations to auto-log (after appReady)
     window.addEventListener('appReady', () => {
         const patchAfter = (fnName, actionLabel, getDetails) => {
@@ -3221,6 +3351,9 @@
         patchAfter('saveOutlet',      'outlet_added',        () => ({}));
         patchAfter('saveUser',        'user_created',        () => ({}));
         patchAfter('saveBroadcast',   'broadcast_sent',      () => ({}));
+        patchAfter('saveCompleteDelivery', 'delivery_completed', a => ({ order: a[0] }));
+        patchAfter('startDelivery',   'delivery_started',    a => ({ order: a[0] }));
+        patchAfter('delOutlet',       'outlet_deleted',      a => ({ outlet: a[0] }));
     });
 
     /* Load audit log entries for the Audit Log page */
@@ -3303,13 +3436,24 @@
                 '<div class="audit-icon">' + (icons[data.action] || '📋') + '</div>' +
                 '<div class="audit-meta"><div class="audit-action">' + esc(action) + '</div>' +
                 '<div class="audit-detail"><strong>' + esc(data.userName || 'Unknown') + '</strong>' +
-                '<span style="color:var(--acc)"> · ' + esc(data.userRole || '') + '</span></div></div>' +
+                '<span style="color:var(--acc)"> · ' + esc(data.userRole || '') + '</span></div>' +
+                (data.details && Object.keys(data.details).length ? '<div class="audit-detail" style="font-size:11px;color:var(--tx3)">' + esc(Object.entries(data.details).map(([k, v]) => k + ': ' + (typeof v === 'object' ? JSON.stringify(v) : v)).join(' · ').slice(0, 200)) + '</div>' : '') +
+                '</div>' +
                 '<div class="audit-time">' + esc(timeStr) + '</div></div>';
         }).join('');
         if (moreBtn) moreBtn.style.display = _auditDocs.length > _auditVisibleCount ? '' : 'none';
     }
 
     let _auditVisibleCount = 50;
+    window.stsbLoadMoreAudit = function() { _auditVisibleCount += 50; _renderAuditPage(); };
+    window.stsbExportAuditCSV = function() {
+        if (!_auditDocs.length) { if (typeof showToast === 'function') showToast('No audit entries to export', 'info'); return; }
+        const rows = [['Time', 'Action', 'User', 'Role', 'Details']].concat(_auditDocs.map(doc => {
+            const d = doc.data(), t = d.timestamp && d.timestamp.toDate ? d.timestamp.toDate() : new Date(d.ts_client || 0);
+            return [isNaN(t) ? '' : t.toISOString(), d.action || '', d.userName || '', d.userRole || '', JSON.stringify(d.details || {})];
+        }));
+        _stsbDownloadCSV(rows, 'stsb_audit_log_' + _stsbDateTag() + '.csv');
+    };
     /* Populate audit user filter dropdown when page opens */
     window.addEventListener('appReady', () => {
         const origGoPage = window.goPage;
@@ -3323,6 +3467,7 @@
                 if (page === 'dataExport') {
                     stsbInitExportDates();
                 }
+                if (page === 'errorLog') stsbLoadErrorLog();
             };
         }
     });
@@ -3381,7 +3526,9 @@
             return String(value);
         };
         try {
-            const snap = await window.__SF.getDocs(window.__SF.collection(window.__SF.db, collection));
+            // Zone data for zone admins (and the owner's Zone View); products are one global list.
+            const ref = collection !== 'products' && typeof colR === 'function' ? colR(collection) : window.__SF.collection(window.__SF.db, collection);
+            const snap = await window.__SF.getDocs(ref);
             let docs = snap.docs.map(doc => ({id:doc.id,...doc.data()}));
             if (fromTs || toTs) docs = docs.filter(doc => {
                 const date = asDate(doc.createdAt)||asDate(doc.timestamp)||asDate(doc.updatedAt)||asDate(doc.date);
@@ -3420,7 +3567,25 @@
         _stsbTriggerDownload(new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8;'}),filename);
     }
 
-    function _stsbTriggerDownload(blob, filename) {
+    // The Android app has no browser downloads: save to Documents/STSB
+    // (or offer the share sheet), as for invoice PDFs.
+    async function _stsbTriggerDownload(blob, filename) {
+        if (typeof _invNative === 'function' && _invNative()) {
+            const fs = _invPlugin('Filesystem');
+            if (!fs) { _invNeedsUpdate('Saving files'); return; }
+            const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+            try {
+                await fs.writeFile({ path: 'STSB/' + filename, data, directory: 'DOCUMENTS', recursive: true });
+                if (typeof showToast === 'function') showToast('Saved: Documents/STSB/' + filename, 'success');
+            } catch (e) {
+                try {
+                    const r = await fs.writeFile({ path: filename, data, directory: 'CACHE', recursive: true });
+                    const sh = _invPlugin('Share');
+                    if (sh) await sh.share({ title: filename, files: [r.uri], dialogTitle: 'Save or send the export' }); else throw e;
+                } catch (e2) { if (typeof showToast === 'function') showToast('Could not save the file: ' + (e2.message || e2), 'error'); }
+            }
+            return;
+        }
         const url=URL.createObjectURL(blob), a=document.createElement('a');
         a.href=url; a.download=filename; a.style.display='none'; document.body.appendChild(a); a.click(); a.remove();
         setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -3557,6 +3722,12 @@
         const search = document.getElementById('portalOrderSearch');
         if (results) results.innerHTML = '';
         if (search) search.value = '';
+        const sel = document.getElementById('portalOutletSel');
+        if (sel) {
+            const list = (typeof allOutlets !== 'undefined' ? allOutlets : []).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            sel.innerHTML = '<option value="">Choose a shop…</option>' + list.map(o => '<option value="' + String(o.id).replace(/"/g, '&quot;') + '">' +
+                String(o.name || o.id).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) + '</option>').join('');
+        }
         if (typeof window.openM === 'function') window.openM('mCustomerPortal');
         else { const el = document.getElementById('mCustomerPortal'); if (el) { el.style.removeProperty('display'); el.classList.add('show'); } }
     };
@@ -3631,14 +3802,38 @@
         }
     };
 
-    window.stsbCopyPortalLink = function() {
-        const url = window.location.origin + window.location.pathname + '?portal=1';
-        navigator.clipboard?.writeText(url).then(() => {
-            if (typeof showToast === 'function') showToast('🔗 Portal link copied!', 'success');
-        }).catch(() => {
-            prompt('Copy this link:', url);
-        });
+    // Each shop's private link: https://stfm-sales.web.app/customer?t=TOKEN
+    // (public page public/customer.html, data from the customerPortal
+    // function). The token is made the first time and kept on the outlet.
+    const PORTAL_BASE = 'https://stfm-sales.web.app/customer?t=';
+    window.stsbOutletPortalUrl = async function(outletId) {
+        const o = (typeof allOutlets !== 'undefined' ? allOutlets : []).find(x => x.id === outletId);
+        if (!o) throw new Error('Choose a shop first');
+        let token = /^[a-f0-9]{32}$/.test(o.portalToken || '') ? o.portalToken : '';
+        if (!token) {
+            const b = new Uint8Array(16); crypto.getRandomValues(b);
+            token = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+            await sfUpdate('outlets', outletId, { portalToken: token, portalCreatedAt: new Date().toISOString(), portalCreatedBy: CU.uid });
+            o.portalToken = token;
+        }
+        return PORTAL_BASE + token;
     };
+    window.stsbSharePortalLink = async function(outletId, how) {
+        try {
+            const url = await stsbOutletPortalUrl(outletId);
+            const o = allOutlets.find(x => x.id === outletId) || {};
+            if (how === 'whatsapp') {
+                const raw = String(o.phone || '').replace(/\D/g, '');
+                const intl = !raw ? '' : raw.startsWith('60') ? raw : raw.startsWith('0') ? '6' + raw : '60' + raw;
+                const msg = 'Hello ' + (o.name || '') + ', you can check your orders, invoices and balance with Sairah Trading here (private link for your shop): ' + url;
+                window.open('https://wa.me/' + intl + '?text=' + encodeURIComponent(msg), '_blank');
+                return;
+            }
+            try { await navigator.clipboard.writeText(url); showToast('🔗 Link for ' + (o.name || 'the shop') + ' copied', 'success'); }
+            catch (e) { prompt('Copy this link:', url); }
+        } catch (e) { showToast('Could not make the link: ' + e.message, 'error'); }
+    };
+    window.stsbCopyPortalLink = () => openCustomerPortal();
 
     /* ──────────────────────────────────────────────────────────────
        9. FEATURE — 2FA UI helpers (hooks into Firebase phone auth)

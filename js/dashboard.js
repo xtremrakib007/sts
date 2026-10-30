@@ -13,7 +13,7 @@ function statC(ico,lbl,val,chg,color,onclick='') {
 function _renderDashboard(ordDocs, colDocs, attDocs) {
   if(!CU) return;
   const salesBody=document.getElementById('dashSalesBody'), delivBody=document.getElementById('dashDelivBody');
-  if(isDeliveryMan()){ _renderDeliveryDashboard(ordDocs, attDocs); return; }
+  if(isDeliveryMan()){ _renderDeliveryDashboard(ordDocs, attDocs, colDocs); return; }
   if(salesBody) salesBody.style.display='';
   if(delivBody) delivBody.style.display='none';
   const sub=document.getElementById('dashSub'); if(sub) sub.textContent='Sales overview & performance';
@@ -91,7 +91,7 @@ function _renderDashboard(ordDocs, colDocs, attDocs) {
 const _localDay = d => { const x = d ? new Date(d) : new Date(); return isNaN(x) ? '' : `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
 const PAY_LABEL = { cash:'💵 Cash', cheque:'🧾 Cheque', online:'🏦 Online', pending:'⏳ Pending' };
 
-function _renderDeliveryDashboard(ordDocs, attDocs) {
+function _renderDeliveryDashboard(ordDocs, attDocs, colDocs = []) {
   const salesBody=document.getElementById('dashSalesBody'), body=document.getElementById('dashDelivBody');
   if(salesBody) salesBody.style.display='none';
   if(!body) return;
@@ -146,11 +146,23 @@ function _renderDeliveryDashboard(ordDocs, attDocs) {
         <div style="font-size:11px;color:var(--tx3)">${payTxt}</div></div>
       <div style="font-weight:800;font-size:13px">${o.status==='Failed'?'—':fmt(value(o))}</div></div>`;
   };
+  // Outlets he delivered to that still owe money (stay here after his day is closed)
+  const owed={}, paidBy={};
+  ordDocs.forEach(d=>{const o=d.data(); if(!o.outletId||o.status==='Cancelled')return; owed[o.outletId]=(owed[o.outletId]||0)+_orderAmountDue(o);});
+  colDocs.forEach(d=>{const c=d.data(); if(c.outletId) paidBy[c.outletId]=(paidBy[c.outletId]||0)+(Number(c.amount)||0);});
+  const dues=allOutlets.map(o=>({o,due:Math.round(Math.max(0,(owed[o.id]||0)-(paidBy[o.id]||0)+(o.balanceStatus==='approved'?Number(o.openingBalance)||0:0))*100)/100}))
+    .filter(r=>r.due>0.009).sort((a,b)=>b.due-a.due);
+  const duesCard=`<div class="card" style="margin-bottom:12px"><div class="card-hdr"><div><div class="card-ttl">🧾 Dues to collect</div><div class="card-sub">${dues.length?`${dues.length} outlet${dues.length>1?'s':''} · ${fmt(dues.reduce((s,r)=>s+r.due,0))}`:'Nothing owed'}</div></div></div>
+    ${dues.map(({o,due})=>`<div class="dd-row" style="cursor:default"><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(o.name)}</div>
+      <div style="font-size:11px;color:var(--tx3)">${o.route?escH(o.route)+' · ':''}${o.phone?`<a href="tel:${escH(o.phone)}">📞 Call</a>`:''}</div></div>
+      <div style="font-weight:800;color:var(--red);font-size:13px">${fmt(due)}</div>
+      <button class="btn btn-primary btn-xs" onclick="openNewCollection('${o.id}')">Collect</button></div>`).join('')||'<div style="color:var(--tx3);font-size:12px;padding:8px 0">All your outlets are paid up ✅</div>'}</div>`;
   // last 7 days: completed deliveries per day
   const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return _localDay(d);});
   const per=days.map(day=>mine.filter(o=>o.status==='Delivered'&&doneOn(o)===day).length);
   const maxV=Math.max(...per,1);
   body.innerHTML=`${att}
+    ${duesCard}
     <div class="g2">
       <div class="card"><div class="card-hdr"><div><div class="card-ttl">🚚 Next stops</div><div class="card-sub">${open.length} to deliver</div></div>
         <button class="btn btn-primary btn-xs" onclick="goPage('delivery')">Open deliveries</button></div>

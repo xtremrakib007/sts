@@ -966,3 +966,38 @@ exports.duesReminderRunNow = functions.firestore.document(`${erp.erpCol('config'
   catch (e) { await change.after.ref.set({ lastRun: { at: new Date().toISOString(), reason: 'manual', error: e.message } }, { merge: true }); }
   return null;
 });
+
+// ═══════════════════════════════════════════════════════════════
+// CUSTOMER PORTAL — /customer?t=TOKEN (hosting rewrite /api/customer-portal)
+// A shop opens its private link (shared by its salesman) and sees its
+// orders, payments and balance. The outlet's random portalToken is the
+// only key; staff create or reset it in the Sales App.
+// ═══════════════════════════════════════════════════════════════
+const portal = require('./customer-portal');
+
+exports.customerPortal = functions.https.onRequest(async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.set('X-Content-Type-Options', 'nosniff');
+  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return; }
+  const t = String(req.query.t || '');
+  if (!portal.isValidToken(t)) { res.status(404).json({ error: 'This link is not valid.' }); return; }
+  try {
+    const os = await db().collection('outlets').where('portalToken', '==', t).limit(1).get();
+    if (os.empty) { res.status(404).json({ error: 'This link is not valid any more — ask your salesman for a new one.' }); return; }
+    const od = os.docs[0], outlet = od.data();
+    const [ords, cols, co] = await Promise.all([
+      db().collection('orders').where('outletId', '==', od.id).get(),
+      db().collection('collections').where('outletId', '==', od.id).get(),
+      db().doc('config/company').get().catch(() => null),
+    ]);
+    res.json(portal.buildCustomerPortal({
+      outlet,
+      orders: ords.docs.map((d) => ({ _docId: d.id, ...d.data() })),
+      collections: cols.docs.map((d) => d.data()),
+      company: co && co.exists ? co.data() : {},
+    }));
+  } catch (e) {
+    console.error('[customerPortal]', e);
+    res.status(500).json({ error: 'Something went wrong. Please try again later.' });
+  }
+});

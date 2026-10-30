@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My orders — Sairah Trading</title>
+<meta name="robots" content="noindex">
+<style>
+  :root{--bg:#f4f6f5;--card:#fff;--tx:#14201b;--tx2:#4b5a54;--tx3:#7d8a85;--bdr:#dfe5e2;--acc:#15935f;--red:#c62828;--ylw:#b7791f}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1513;--card:#17201c;--tx:#e9f0ed;--tx2:#b3c0bb;--tx3:#83918b;--bdr:#2a3631;--acc:#2cc483;--red:#ef6b6b;--ylw:#e8b04b}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.45}
+  main{max-width:640px;margin:0 auto;padding:18px 16px 40px}
+  .card{background:var(--card);border:1px solid var(--bdr);border-radius:16px;padding:16px;margin-bottom:12px}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--tx2);font-size:13px}
+  .bal{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .bal div{background:var(--bg);border-radius:12px;padding:10px 12px}
+  .bal b{display:block;font-size:20px}
+  .bal span{font-size:11px;color:var(--tx3)}
+  .tabs{display:flex;gap:6px;margin:4px 0 10px}
+  .tabs button{flex:1;font:inherit;font-weight:700;font-size:13px;padding:9px;border-radius:10px;border:1px solid var(--bdr);background:var(--card);color:var(--tx2);cursor:pointer}
+  .tabs button.on{border-color:var(--acc);color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+  .row{display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-top:1px solid var(--bdr)}
+  .row:first-child{border-top:0}
+  .grow{flex:1;min-width:0}
+  .num{font-weight:700;font-size:14px}
+  .meta{font-size:12px;color:var(--tx3)}
+  .amt{text-align:right;white-space:nowrap;font-weight:700}
+  .due{color:var(--red);font-size:12px;font-weight:700}
+  .paid{color:var(--acc);font-size:12px}
+  .st{display:inline-block;font-size:11px;font-weight:700;border-radius:20px;padding:1px 8px;background:var(--bg);color:var(--tx2);margin-left:4px}
+  details summary{cursor:pointer;color:var(--acc);font-size:12px;margin-top:4px}
+  .items{font-size:12px;color:var(--tx2);margin-top:4px}
+  .msg{text-align:center;color:var(--tx2);padding:40px 10px}
+  .foot{text-align:center;color:var(--tx3);font-size:11px;margin-top:16px}
+</style>
+</head>
+<body>
+<main id="app"><div class="msg">Loading your orders…</div></main>
+<script>
+(function () {
+  const app = document.getElementById('app');
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const rm = (v) => 'RM ' + (Number(v) || 0).toLocaleString('en-MY', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const t = new URLSearchParams(location.search).get('t') || '';
+  let data = null, tab = 'orders';
+
+  function render() {
+    const d = data;
+    const unpaid = d.orders.filter((o) => o.due > 0.009);
+    const list = tab === 'orders' ? d.orders : tab === 'unpaid' ? unpaid : d.payments;
+    const rows = tab === 'payments'
+      ? list.map((p) => `<div class="row"><div class="grow"><div class="num">${esc(p.method || 'Payment')}</div><div class="meta">${esc(p.date)}</div></div><div class="amt" style="color:var(--acc)">${rm(p.amount)}</div></div>`)
+      : list.map((o) => `<div class="row"><div class="grow">
+          <div class="num">${esc(o.number)} <span class="st">${esc(o.status)}</span></div>
+          <div class="meta">${esc(o.date)}</div>
+          ${o.items.length ? `<details><summary>${o.items.length} item${o.items.length === 1 ? '' : 's'}</summary><div class="items">${o.items.map((it) => esc(it.name) + ' — ' + esc(it.display || it.qty)).join('<br>')}</div></details>` : ''}
+        </div><div class="amt">${o.cancelled ? '<span class="meta">cancelled</span>' : rm(o.total)}
+          ${o.cancelled ? '' : o.due > 0.009 ? `<div class="due">due ${rm(o.due)}</div>` : '<div class="paid">✓ paid</div>'}</div></div>`);
+    app.innerHTML = `
+      <div class="card">
+        <div class="sub">${esc(d.company.name)}</div>
+        <h1>${esc(d.outlet.name)}</h1>
+        ${d.outlet.address ? `<div class="sub">${esc(d.outlet.address)}</div>` : ''}
+        <div class="bal">
+          <div><span>Balance to pay</span><b style="color:${d.balance > 0.009 ? 'var(--red)' : 'var(--acc)'}">${rm(d.balance)}</b></div>
+          <div><span>Unpaid invoices</span><b>${unpaid.length}</b></div>
+        </div>
+        ${d.credit > 0.009 ? `<div class="sub" style="margin-top:8px">Paid in advance: ${rm(d.credit)}</div>` : ''}
+      </div>
+      <div class="tabs">
+        <button class="${tab === 'orders' ? 'on' : ''}" data-tab="orders">Orders (${d.orders.length})</button>
+        <button class="${tab === 'unpaid' ? 'on' : ''}" data-tab="unpaid">Unpaid (${unpaid.length})</button>
+        <button class="${tab === 'payments' ? 'on' : ''}" data-tab="payments">Payments (${d.payments.length})</button>
+      </div>
+      <div class="card">${rows.join('') || '<div class="msg" style="padding:20px">Nothing here yet.</div>'}</div>
+      <div class="foot">Questions? ${d.company.phone ? 'Call ' + esc(d.company.phone) + ' or a' : 'A'}sk your salesman. · This link is private to your shop.</div>`;
+    app.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => { tab = b.dataset.tab; render(); }; });
+  }
+
+  if (!/^[a-f0-9]{32}$/.test(t)) {
+    app.innerHTML = '<div class="msg">This link is not complete. Ask your salesman to send it again.</div>';
+    return;
+  }
+  fetch('/api/customer-portal?t=' + encodeURIComponent(t), {cache: 'no-store'})
+    .then((r) => r.json().then((j) => ({ok: r.ok, j})))
+    .then(({ok, j}) => {
+      if (!ok) { app.innerHTML = `<div class="msg">${esc(j.error || 'Could not load your orders.')}</div>`; return; }
+      data = j; document.title = j.outlet.name + ' — orders'; render();
+    })
+    .catch(() => { app.innerHTML = '<div class="msg">No connection. Please try again.</div>'; });
+})();
+</script>
+</body>
+</html>
