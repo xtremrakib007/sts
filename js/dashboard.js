@@ -12,6 +12,11 @@ function statC(ico,lbl,val,chg,color,onclick='') {
 // ★ FIX: Internal function accepting pre-loaded docs — used by bootApp to avoid double-fetching
 function _renderDashboard(ordDocs, colDocs, attDocs) {
   if(!CU) return;
+  const salesBody=document.getElementById('dashSalesBody'), delivBody=document.getElementById('dashDelivBody');
+  if(isDeliveryMan()){ _renderDeliveryDashboard(ordDocs, attDocs); return; }
+  if(salesBody) salesBody.style.display='';
+  if(delivBody) delivBody.style.display='none';
+  const sub=document.getElementById('dashSub'); if(sub) sub.textContent='Sales overview & performance';
   const t=todayStr();
   const m=t.slice(0,7);
 
@@ -80,6 +85,89 @@ function _renderDashboard(ordDocs, colDocs, attDocs) {
 
   // ★ Owner cross-zone summary panel
   _renderOwnerZoneSummary();
+}
+
+// ── Delivery man: today's run, outcomes and money collected ──
+const _localDay = d => { const x = d ? new Date(d) : new Date(); return isNaN(x) ? '' : `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
+const PAY_LABEL = { cash:'💵 Cash', cheque:'🧾 Cheque', online:'🏦 Online', pending:'⏳ Pending' };
+
+function _renderDeliveryDashboard(ordDocs, attDocs) {
+  const salesBody=document.getElementById('dashSalesBody'), body=document.getElementById('dashDelivBody');
+  if(salesBody) salesBody.style.display='none';
+  if(!body) return;
+  body.style.display='';
+  const sub=document.getElementById('dashSub'); if(sub) sub.textContent='Your deliveries & collections';
+  const today=_localDay();
+  const mine=ordDocs.map(d=>({_docId:d.id,...d.data()})).filter(o=>o.deliveryManId===CU.uid);
+  const doneOn=o=>_localDay(o.deliveredAt||o.failedAt);
+  const open=mine.filter(o=>o.status==='Assigned'||o.status==='In Transit')
+    .sort((a,b)=>(a.status==='In Transit'?-1:0)-(b.status==='In Transit'?-1:0)||String(a.deliveryDate||'').localeCompare(String(b.deliveryDate||'')));
+  const doneToday=mine.filter(o=>(o.status==='Delivered'||o.status==='Failed')&&doneOn(o)===today);
+  const full=doneToday.filter(o=>o.status==='Delivered'&&!o.partial);
+  const part=doneToday.filter(o=>o.status==='Delivered'&&o.partial);
+  const failed=doneToday.filter(o=>o.status==='Failed');
+  const value=o=>Number(o.deliveredTotal??o.total)||0;
+  const pay={cash:0,cheque:0,online:0};
+  let delivered=0, collected=0;
+  doneToday.filter(o=>o.status==='Delivered').forEach(o=>{
+    delivered+=value(o);
+    const a=Number(o.paymentAmount)||0;
+    if(a>0&&pay[o.paymentMethod]!=null){pay[o.paymentMethod]+=a;collected+=a;}
+  });
+  const pendingPay=Math.max(0,Math.round((delivered-collected)*100)/100);
+
+  const ds=document.getElementById('dashStats');
+  if(ds) ds.innerHTML=
+    statC('🚚','To deliver',open.length,`${open.filter(o=>o.status==='In Transit').length} on the way`,'#3b82f6',"goPage('delivery')")+
+    statC('✅','Delivered today',full.length+part.length,`${full.length} full · ${part.length} partial`,'#22c55e',"goPage('delivery')")+
+    statC('❌','Not delivered',failed.length,'Today','#ef4444',"goPage('delivery')")+
+    statC('💰','Collected today',fmt(collected),`of ${fmt(delivered)} delivered`,'#22c55e',"goPage('delivery')")+
+    statC('⏳','Payment pending',fmt(pendingPay),'Today, to collect later','#f59e0b',"goPage('delivery')");
+
+  const todayAtt=attDocs.map(d=>d.data()).find(a=>a.date===todayStr()&&(a.userId===CU.uid||a.uid===CU.uid));
+  const att=todayAtt
+    ?`<div class="dd-note ok" onclick="goPage('attendance')">✅ Checked in ${escH(todayAtt.checkInTime||'')}${todayAtt.checkOutTime?' · out '+escH(todayAtt.checkOutTime):''}</div>`
+    :`<div class="dd-note warn" onclick="goPage('attendance')">⏰ Not checked in yet — check in before you start</div>`;
+
+  const stop=o=>{
+    const out=allOutlets.find(x=>x.id===o.outletId)||{};
+    return `<div class="dd-row" onclick="goPage('delivery')">
+      <span class="bdg ${o.status==='In Transit'?'bdg-acc':'bdg-ylw'}">${o.status==='In Transit'?'On the way':'Assigned'}</span>
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(out.name||outletName(o.outletId))}</div>
+        <div style="font-size:11px;color:var(--tx3)">${escH(o.id||o._docId)}${out.route?' · '+escH(out.route):''}${o.deliveryDate?' · '+escH(o.deliveryDate):''}</div></div>
+      <div style="font-weight:800;color:var(--acc);font-size:13px">${fmt(o.total)}</div></div>`;
+  };
+  const doneRow=o=>{
+    const out=allOutlets.find(x=>x.id===o.outletId)||{};
+    const st=o.status==='Failed'?['bdg-red','Not delivered']:o.partial?['bdg-ylw','Partial']:['bdg-grn','Full'];
+    const payTxt=o.status==='Failed'?escH(o.failureReason||''):o.paymentMethod?`${PAY_LABEL[o.paymentMethod]||o.paymentMethod}${Number(o.paymentAmount)?' '+fmt(o.paymentAmount):''}`:'—';
+    return `<div class="dd-row"><span class="bdg ${st[0]}">${st[1]}</span>
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(out.name||outletName(o.outletId))}</div>
+        <div style="font-size:11px;color:var(--tx3)">${payTxt}</div></div>
+      <div style="font-weight:800;font-size:13px">${o.status==='Failed'?'—':fmt(value(o))}</div></div>`;
+  };
+  // last 7 days: completed deliveries per day
+  const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return _localDay(d);});
+  const per=days.map(day=>mine.filter(o=>o.status==='Delivered'&&doneOn(o)===day).length);
+  const maxV=Math.max(...per,1);
+  body.innerHTML=`${att}
+    <div class="g2">
+      <div class="card"><div class="card-hdr"><div><div class="card-ttl">🚚 Next stops</div><div class="card-sub">${open.length} to deliver</div></div>
+        <button class="btn btn-primary btn-xs" onclick="goPage('delivery')">Open deliveries</button></div>
+        ${open.slice(0,6).map(stop).join('')||'<div style="color:var(--tx3);font-size:12px;padding:8px 0">Nothing assigned right now 🎉</div>'}
+        ${open.length>6?`<div style="font-size:11px;color:var(--tx3);padding-top:6px">+${open.length-6} more</div>`:''}</div>
+      <div class="card"><div class="card-hdr"><div><div class="card-ttl">💰 Collected today</div><div class="card-sub">Hand over cash and cheques to the office</div></div></div>
+        ${['cash','cheque','online'].map(k=>`<div class="dd-pay"><span>${PAY_LABEL[k]}</span><strong>${fmt(pay[k])}</strong></div>`).join('')}
+        <div class="dd-pay pend"><span>${PAY_LABEL.pending} (not paid)</span><strong>${fmt(pendingPay)}</strong></div>
+        <div class="dd-pay tot"><span>Total collected</span><strong>${fmt(collected)}</strong></div></div>
+    </div>
+    <div class="g2">
+      <div class="card"><div class="card-hdr"><div><div class="card-ttl">📋 Done today</div><div class="card-sub">${full.length} full · ${part.length} partial · ${failed.length} not delivered</div></div></div>
+        ${doneToday.map(doneRow).join('')||'<div style="color:var(--tx3);font-size:12px;padding:8px 0">No deliveries finished yet today</div>'}</div>
+      <div class="card"><div class="card-hdr"><div><div class="card-ttl">📈 Last 7 days</div><div class="card-sub">Deliveries completed</div></div></div>
+        <div class="bchart">${per.map((v,i)=>`<div class="bcol-w ${i===6?'bactive':''}"><div class="bcol" data-v="${v}" style="height:${Math.max(5,v/maxV*100)}px"></div><div class="blbl">${['Su','Mo','Tu','We','Th','Fr','Sa'][new Date(days[i]+'T00:00').getDay()]}</div></div>`).join('')}</div></div>
+    </div>`;
+  const oz=document.getElementById('ownerZoneSummary'); if(oz) oz.style.display='none';
 }
 
 // ── Owner-only: cross-zone summary ──

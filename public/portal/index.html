@@ -607,6 +607,7 @@ body.store-mode .adm-only{display:none!important}
 <script defer src="/vendor/invoice-template.js"></script>
 <script defer src="/vendor/advance-core.js"></script>
 <script defer src="/vendor/product-import.js"></script>
+<script defer src="/vendor/delivery-report.js"></script>
 <script defer src="/vendor/read-excel-file.js"></script>
 <script defer src="/vendor/write-excel-file.js"></script>
 <script type="module">
@@ -906,6 +907,7 @@ function buildSidebar() {
       <div class="sb-section">Operations</div>
       <div class="sb-item" data-page="deliveryPlanner" onclick="goPage('deliveryPlanner')"><span class="ico">🗓️</span> Delivery Planner</div>
       <div class="sb-item" data-page="dispatch" onclick="goPage('dispatch')"><span class="ico">🚚</span> Dispatch & Delivery</div>
+      <div class="sb-item" data-page="deliveryReport" onclick="goPage('deliveryReport')"><span class="ico">📊</span> Delivery Report</div>
       <div class="sb-item" data-page="returns" onclick="goPage('returns')"><span class="ico">↩️</span> Returns</div>
       <div class="sb-item" data-page="hqOrders" onclick="goPage('hqOrders')"><span class="ico">🛒</span> HQ Orders</div>
       <div class="sb-item" data-page="transfers" onclick="goPage('transfers')"><span class="ico">↔️</span> Transfers</div>
@@ -937,6 +939,7 @@ const pageConfig = {
   stockLedger:    {title:'Stock Movements', icon:'📜'},
   stockApprovals: {title:'Stock Approvals', icon:'✅'},
   deliveryPlanner:{title:'Delivery Planner', icon:'🗓️'},
+  deliveryReport: {title:'Delivery Report', icon:'📊', action:null},
   returns:        {title:'Returns & Credit Notes', icon:'↩️'},
   salesOrders:    {title:'Sales Orders',    icon:'📋', action:null},
   discounts:      {title:'Discount Queue',  icon:'🏷️', action:null},
@@ -988,7 +991,7 @@ window.goPage = function(page) {
   const renders = {
     dashboard, inventory, salesOrders, discounts, invoices, collections,
     stockLedger: () => window.stockLedger(), stockApprovals: () => window.stockApprovals(),
-    deliveryPlanner, returns,
+    deliveryPlanner, returns, deliveryReport,
     dispatch, suppliers, reports, settings, salesmanOrdersReport,
     hqOrders, transfers,
     salesDashboard, myOrders, myCollections, myDeliveries, products,
@@ -3132,6 +3135,133 @@ async function collections() {
   } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
 }
 
+// ═══════════════════════════════════════════
+//  DELIVERY REPORT (Operations)
+//  What each delivery man handed over (full / partial / not delivered) and
+//  the money taken at the door (cash, cheque, online, still pending), from
+//  the Sales App orders. Logic: /vendor/delivery-report.js.
+// ═══════════════════════════════════════════
+const _DR_OUT = { full: ['badge-green', '✅ Full'], partial: ['badge-yellow', '🟡 Partial'], failed: ['badge-red', '❌ Not delivered'],
+  in_transit: ['badge-blue', '🚚 On the way'], assigned: ['badge-gray', '📋 Assigned'] };
+const _DR_PAY = { cash: '💵 Cash', cheque: '🧾 Cheque', online: '🏦 Online', pending: '⏳ Not paid', unrecorded: '— not recorded' };
+
+async function deliveryReport() {
+  const mc = document.getElementById('mainContent');
+  const today = _localDate();
+  const st = window.__drState = window.__drState || { from: today, to: today, dm: '' };
+  mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
+  try {
+    const [ordSnap, outSnap, dms] = await Promise.all([
+      getDocs(query(collection(_db, 'orders'), where('status', 'in', ['Assigned', 'In Transit', 'Delivered', 'Failed']))),
+      getDocs(collection(_db, 'outlets')).catch(() => ({ docs: [] })),
+      _deliveryMen(),
+    ]);
+    const outlets = Object.fromEntries(outSnap.docs.map(d => [d.id, d.data()]));
+    const orders = ordSnap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+    const R = window.DeliveryReport.buildDeliveryReport(orders, st);
+    const nm = r => r.outletName || outlets[r.outletId]?.name || r.outletId || '—';
+    const dmName = id => dms[id] || orders.find(o => o.deliveryManId === id)?.deliveryManName || id || '—';
+    window.__drData = { R, nm, dmName };
+    const t = R.total;
+    const kpi = (ico, val, lbl, color) => `<div class="kpi" style="--kpi-color:${color}"><div class="kpi-ico">${ico}</div><div class="kpi-val">${val}</div><div class="kpi-lbl">${lbl}</div></div>`;
+    const dmOpts = Object.entries(dms).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => `<option value="${_esc(id)}"${st.dm === id ? ' selected' : ''}>${_esc(n)}</option>`).join('');
+    const row = r => {
+      const [cls, lbl] = _DR_OUT[r.outcome] || ['badge-gray', r.outcome];
+      const pay = r.outcome === 'failed' ? '—' : `${_DR_PAY[r.method] || r.method}${r.ref ? `<div style="font-size:10px;color:var(--tx3)">${r.method === 'cheque' ? 'Chq ' : 'Ref '}${_esc(r.ref)}${r.chequeBank ? ' · ' + _esc(r.chequeBank) : ''}${r.chequeDate ? ' · ' + _esc(r.chequeDate) : ''}</div>` : ''}`;
+      const detail = r.outcome === 'failed' ? `<span style="color:var(--red)">${_esc(r.reason || '—')}</span>`
+        : `${r.receiver ? 'Received by ' + _esc(r.receiver) : ''}${r.short.length ? `<details style="margin-top:3px"><summary style="cursor:pointer;color:var(--ylw)">${r.short.length} item(s) short</summary>${r.short.map(x => `<div style="font-size:11px">${_esc(x.name)}: ${_qty(x.delivered)} of ${_qty(x.ordered)}</div>`).join('')}</details>` : ''}${r.note ? `<div style="font-size:10px;color:var(--tx3)">${_esc(r.note)}</div>` : ''}`;
+      return `<tr>
+        <td style="font-size:11px;white-space:nowrap">${_esc(r.day)}<div style="color:var(--tx3)">${r.at ? new Date(r.at).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' }) : ''}</div></td>
+        <td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(r.id)}</td>
+        <td><strong>${_esc(nm(r))}</strong></td>
+        <td style="font-size:12px">${_esc(dmName(r.dmId))}</td>
+        <td><span class="badge ${cls}">${lbl}</span></td>
+        <td style="text-align:right">${fmt(r.ordered)}</td>
+        <td style="text-align:right">${r.outcome === 'failed' ? '—' : fmt(r.delivered)}</td>
+        <td style="font-size:12px">${pay}</td>
+        <td style="text-align:right;color:var(--acc)">${r.collected ? fmt(r.collected) : '—'}</td>
+        <td style="text-align:right;color:${r.pending ? 'var(--ylw)' : 'var(--tx3)'}">${r.pending ? fmt(r.pending) : '—'}</td>
+        <td style="font-size:12px;min-width:140px">${detail}</td>
+      </tr>`;
+    };
+    mc.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div><div class="page-title">Delivery Report</div>
+          <div class="page-sub">Full, partial and failed deliveries with the payment taken at the door</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div><label class="flbl">From</label><input class="finp" type="date" value="${_esc(st.from)}" style="width:150px" onchange="__drState.from=this.value;deliveryReport()"></div>
+          <div><label class="flbl">To</label><input class="finp" type="date" value="${_esc(st.to)}" style="width:150px" onchange="__drState.to=this.value;deliveryReport()"></div>
+          <div><label class="flbl">Delivery man</label><select class="finp" style="width:170px" onchange="__drState.dm=this.value;deliveryReport()"><option value="">All</option>${dmOpts}</select></div>
+          <button class="btn btn-ghost" onclick="exportDeliveryReport()">⬇ CSV</button>
+          <button class="btn btn-primary" onclick="printDeliveryReport()">🖨 Print</button>
+        </div>
+      </div>
+      <div class="kpi-grid">
+        ${kpi('📦', t.done, 'Deliveries finished', 'var(--blu)')}
+        ${kpi('✅', t.full, 'Delivered in full', 'var(--acc)')}
+        ${kpi('🟡', t.partial, `Partial · ${fmt(t.shortValue)} short`, 'var(--ylw)')}
+        ${kpi('❌', t.failed, `Not delivered · ${fmt(t.failedValue)}`, 'var(--red)')}
+        ${kpi('🚚', R.out.length, 'Still out (any date)', 'var(--blu)')}
+        ${kpi('💼', fmt(t.delivered), 'Value delivered', 'var(--acc)')}
+      </div>
+      <div class="card" style="padding:14px 16px;margin-bottom:16px">
+        <div style="font-weight:700;margin-bottom:10px">💰 Delivery collections</div>
+        <div class="kpi-grid" style="margin-bottom:0">
+          ${kpi('💵', fmt(t.cash), 'Cash', 'var(--acc)')}
+          ${kpi('🧾', fmt(t.cheque), `Cheque · ${t.cheques} chq`, 'var(--blu)')}
+          ${kpi('🏦', fmt(t.online), 'Online transfer', 'var(--pur, #a855f7)')}
+          ${kpi('⏳', fmt(t.pending), 'Pending (not paid)', 'var(--ylw)')}
+          ${kpi('Σ', fmt(t.collected), 'Total collected', 'var(--acc)')}
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px"><div style="padding:14px 16px 0;font-weight:700">🚚 By delivery man <span style="font-weight:400;font-size:12px;color:var(--tx3)">— cash and cheques each one should hand over</span></div>
+        <div class="twrap"><table><thead><tr><th>Delivery man</th><th style="text-align:right">Done</th><th style="text-align:right">Full</th><th style="text-align:right">Partial</th><th style="text-align:right">Failed</th><th style="text-align:right">Delivered</th><th style="text-align:right">Cash</th><th style="text-align:right">Cheque</th><th style="text-align:right">Online</th><th style="text-align:right">Pending</th></tr></thead>
+        <tbody>${R.drivers.map(d => `<tr><td><strong>${_esc(dmName(d.dmId))}</strong></td><td style="text-align:right">${d.done}</td><td style="text-align:right">${d.full}</td><td style="text-align:right">${d.partial}</td><td style="text-align:right">${d.failed}</td><td style="text-align:right">${fmt(d.delivered)}</td><td style="text-align:right;color:var(--acc)">${fmt(d.cash)}</td><td style="text-align:right">${fmt(d.cheque)}</td><td style="text-align:right">${fmt(d.online)}</td><td style="text-align:right;color:var(--ylw)">${fmt(d.pending)}</td></tr>`).join('')
+          || '<tr><td colspan="10" style="text-align:center;color:var(--tx3);padding:20px">No deliveries finished in this period</td></tr>'}</tbody></table></div></div>
+      <div class="card" style="margin-bottom:16px"><div style="padding:14px 16px 0;font-weight:700">📋 Deliveries (${R.rows.length})</div>
+        <div class="twrap"><table id="drTbl"><thead><tr><th>When</th><th>Order</th><th>Outlet</th><th>Delivery man</th><th>Outcome</th><th style="text-align:right">Ordered</th><th style="text-align:right">Delivered</th><th>Payment</th><th style="text-align:right">Collected</th><th style="text-align:right">Pending</th><th>Details</th></tr></thead>
+        <tbody>${R.rows.map(row).join('') || '<tr><td colspan="11" style="text-align:center;color:var(--tx3);padding:20px">No deliveries finished in this period</td></tr>'}</tbody></table></div></div>
+      ${R.out.length ? `<div class="card"><div style="padding:14px 16px 0;font-weight:700">🚚 Still out (${R.out.length})</div>
+        <div class="twrap"><table><thead><tr><th>Planned</th><th>Order</th><th>Outlet</th><th>Delivery man</th><th>Status</th><th style="text-align:right">Value</th></tr></thead>
+        <tbody>${R.out.map(r => `<tr><td style="font-size:12px">${_esc(r.planned || '—')}</td><td style="font-family:'DM Mono',monospace;font-size:11px">${_esc(r.id)}</td><td>${_esc(nm(r))}</td><td style="font-size:12px">${_esc(dmName(r.dmId))}</td><td><span class="badge ${_DR_OUT[r.outcome][0]}">${_DR_OUT[r.outcome][1]}</span></td><td style="text-align:right">${fmt(r.ordered)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+  } catch (e) {
+    mc.innerHTML = `<div style="color:var(--red);padding:32px;text-align:center">Could not load the delivery report: ${_esc(e.message)}</div>`;
+  }
+}
+
+window.exportDeliveryReport = function() {
+  const D = window.__drData; if (!D) return;
+  _downloadCsv(`delivery-report-${__drState.from}_${__drState.to}.csv`,
+    ['Date', 'Time', 'Order', 'Outlet', 'Delivery man', 'Outcome', 'Ordered', 'Delivered', 'Short value', 'Payment', 'Reference', 'Bank', 'Cheque date', 'Collected', 'Pending', 'Received by / reason', 'Items short'],
+    D.R.rows.map(r => [r.day, r.at ? new Date(r.at).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' }) : '', r.id, D.nm(r), D.dmName(r.dmId),
+      { full: 'Full', partial: 'Partial', failed: 'Not delivered' }[r.outcome] || r.outcome, r.ordered, r.outcome === 'failed' ? 0 : r.delivered, r.shortValue,
+      r.outcome === 'failed' ? '' : (window.DeliveryReport.PAY_METHODS[r.method] || r.method), r.ref, r.chequeBank, r.chequeDate, r.collected, r.pending,
+      r.outcome === 'failed' ? r.reason : r.receiver, r.short.map(x => `${x.name} ${x.delivered}/${x.ordered}`).join('; ')]));
+};
+
+window.printDeliveryReport = function() {
+  const D = window.__drData; if (!D) return;
+  const { R, nm, dmName } = D, t = R.total, st = window.__drState;
+  const w = window.open('', '_blank'); if (!w) { showToast('Allow pop-ups to print', 'warn'); return; }
+  const money = v => 'RM ' + _n(v).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Delivery Report ${_esc(st.from)} – ${_esc(st.to)}</title><style>
+    body{font-family:Arial,sans-serif;font-size:11px;color:#111;margin:18px}h1{font-size:16px;margin:0 0 2px}h2{font-size:12px;margin:16px 0 6px}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}th{background:#f1f1f1}.r{text-align:right}
+    .k{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.k div{border:1px solid #bbb;border-radius:6px;padding:6px 10px}.k b{display:block;font-size:13px}
+    @page{size:A4 landscape;margin:10mm}</style></head><body>
+    <h1>Delivery Report</h1><div>${_esc(st.from)} to ${_esc(st.to)}${st.dm ? ' · ' + _esc(dmName(st.dm)) : ''} · printed ${new Date().toLocaleString('en-MY')}</div>
+    <div class="k"><div>Finished<b>${t.done}</b></div><div>Full<b>${t.full}</b></div><div>Partial<b>${t.partial}</b></div><div>Not delivered<b>${t.failed}</b></div><div>Delivered<b>${money(t.delivered)}</b></div>
+      <div>Cash<b>${money(t.cash)}</b></div><div>Cheque<b>${money(t.cheque)}</b></div><div>Online<b>${money(t.online)}</b></div><div>Pending<b>${money(t.pending)}</b></div></div>
+    <h2>By delivery man (to hand over)</h2><table><tr><th>Delivery man</th><th class="r">Done</th><th class="r">Full</th><th class="r">Partial</th><th class="r">Failed</th><th class="r">Delivered</th><th class="r">Cash</th><th class="r">Cheque</th><th class="r">Online</th><th class="r">Pending</th><th>Signature</th></tr>
+      ${R.drivers.map(d => `<tr><td>${_esc(dmName(d.dmId))}</td><td class="r">${d.done}</td><td class="r">${d.full}</td><td class="r">${d.partial}</td><td class="r">${d.failed}</td><td class="r">${money(d.delivered)}</td><td class="r">${money(d.cash)}</td><td class="r">${money(d.cheque)}</td><td class="r">${money(d.online)}</td><td class="r">${money(d.pending)}</td><td style="width:90px"></td></tr>`).join('')}</table>
+    <h2>Deliveries</h2><table><tr><th>Date</th><th>Order</th><th>Outlet</th><th>Delivery man</th><th>Outcome</th><th class="r">Ordered</th><th class="r">Delivered</th><th>Payment</th><th class="r">Collected</th><th class="r">Pending</th><th>Details</th></tr>
+      ${R.rows.map(r => `<tr><td>${_esc(r.day)}</td><td>${_esc(r.id)}</td><td>${_esc(nm(r))}</td><td>${_esc(dmName(r.dmId))}</td><td>${{ full: 'Full', partial: 'Partial', failed: 'Not delivered' }[r.outcome]}</td><td class="r">${money(r.ordered)}</td><td class="r">${r.outcome === 'failed' ? '—' : money(r.delivered)}</td>
+        <td>${r.outcome === 'failed' ? '—' : _esc((window.DeliveryReport.PAY_METHODS[r.method] || r.method) + (r.ref ? ' ' + r.ref : ''))}</td><td class="r">${money(r.collected)}</td><td class="r">${money(r.pending)}</td>
+        <td>${_esc(r.outcome === 'failed' ? r.reason : r.short.map(x => `${x.name} ${x.delivered}/${x.ordered}`).join('; '))}</td></tr>`).join('')}</table>
+    <script>setTimeout(()=>print(),300)<\/script></body></html>`);
+  w.document.close();
+};
+
 async function dispatch() {
   const mc = document.getElementById('mainContent');
   mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
@@ -4500,7 +4630,7 @@ window.runDuesReminderNow = async function() {
 };
 // This page script is an ES module, so its functions are not global. Expose
 // the ones called from inline onclick/onchange handlers.
-Object.assign(window, { prepModal, myOrders, deliveryPlanner, reports, _pickRender, einvoiceRequests, staffAdvances });
+Object.assign(window, { prepModal, myOrders, deliveryPlanner, deliveryReport, reports, _pickRender, einvoiceRequests, staffAdvances });
 // Keep the import status line live on Sales Orders and Settings.
 const _origGoPageForBackfill = window.goPage;
 window.goPage = function(page) {

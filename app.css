@@ -207,3 +207,16 @@
 .dues-more{width:100%;margin-top:6px}
 
 .sync-btn.spin{animation:syncSpin .8s linear infinite;pointer-events:none}@keyframes syncSpin{to{transform:rotate(360deg)}}
+.dd-note{border-radius:var(--r2);padding:11px 13px;margin-bottom:12px;font-size:12px;font-weight:700;cursor:pointer}
+.dd-note.ok{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);color:var(--grn)}
+.dd-note.warn{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);color:var(--ylw)}
+.dd-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bdr);cursor:pointer}
+.dd-row:last-child{border-bottom:0}
+.dd-pay{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed var(--bdr);font-size:13px}
+.dd-pay.pend{color:var(--ylw)}.dd-pay.tot{border-bottom:0;font-size:14px;color:var(--acc)}
+.cd-pay{background:var(--s2);border:1px solid var(--bdr);border-radius:var(--r2);padding:12px;margin-bottom:12px}
+.cd-pay-opts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.cd-pay-opts label{cursor:pointer}.cd-pay-opts input{display:none}
+.cd-pay-opts span{display:block;text-align:center;padding:8px 4px;border:1px solid var(--bdr);border-radius:10px;font-size:12px;font-weight:700;background:var(--s1)}
+.cd-pay-opts input:checked+span{border-color:var(--acc);background:rgba(34,197,94,.12);color:var(--acc)}
+@media(max-width:380px){.cd-pay-opts{grid-template-columns:repeat(2,1fr)}}

@@ -209,7 +209,9 @@ service cloud.firestore {
                      'deliveredAt','deliveredBy',
                      'failureReason','failedAt','failedBy',
                      'deliveryOutcome','partial','deliveredItems','deliveredTotal',
-                     'receiverName','hasProof'
+                     'receiverName','hasProof',
+                     'paymentMethod','paymentAmount','paymentStatus','paymentAt',
+                     'paymentRef','chequeBank','chequeDate'
                    ])
               && (
                 !('inTransitBy' in request.resource.data)
@@ -249,6 +251,9 @@ service cloud.firestore {
           && (
             _isAdminOrSub(ud())
             || (_isSalesRep(ud()) && request.resource.data.createdBy == request.auth.uid)
+            // payment taken when completing a delivery (js/deliveries.js)
+            || (_isDeliveryMan(ud()) && request.resource.data.createdBy == request.auth.uid
+                && request.resource.data.get('source', '') == 'delivery')
           );
         allow update: if isSignedIn() && _isZoneAdmin(ud(), zoneId);
         allow delete: if isSignedIn() && _isAdmin(ud()) && _inZone(ud(), zoneId);
@@ -405,7 +410,9 @@ service cloud.firestore {
                    'deliveredAt','deliveredBy',
                    'failureReason','failedAt','failedBy',
                    'deliveryOutcome','partial','deliveredItems','deliveredTotal',
-                   'receiverName','hasProof'
+                   'receiverName','hasProof',
+                   'paymentMethod','paymentAmount','paymentStatus','paymentAt',
+                   'paymentRef','chequeBank','chequeDate'
                  ])
             && (
               !('inTransitBy' in request.resource.data)
@@ -455,6 +462,8 @@ service cloud.firestore {
       allow create: if isSignedIn() && (
           _isAdminOrSub(ud())
           || (_isSalesRep(ud()) && request.resource.data.createdBy == request.auth.uid)
+          || (_isDeliveryMan(ud()) && request.resource.data.createdBy == request.auth.uid
+              && request.resource.data.get('source', '') == 'delivery')
           // Portal: create their own payment records
           || (isPortalUser() && request.resource.data.createdBy == request.auth.uid)
         );
