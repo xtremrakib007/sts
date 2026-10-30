@@ -162,3 +162,16 @@ test('outlet statement: delivered value, order-tied payments first, then oldest 
   assert.deepEqual(J(withOpening.pending.map((l) => [l.opening ? 'opening' : l.o.id, l.balance])), [['opening', 20], ['A', 100]], 'payment clears the opening balance first');
   assert.match(read('js/ui.js'), /el\.style\.zIndex=String\(\+\+_mTop\)/, 'invoice opens above the outlet window');
 });
+
+test('over-the-air package carries vendor/ (invoice PDF and share need html2canvas + jsPDF)', () => {
+  const build = read('build.js');
+  assert.match(build, /for \(const file of \['index\.html', 'js\/app\.min\.js', \.\.\.COPY_FILES, \.\.\.vendorFiles\]\)/);
+  assert.match(read('js/orders.js'), /_loadScriptOnce\('vendor\/html2canvas\.js'\), _loadScriptOnce\('vendor\/jspdf\.js'\)/);
+});
+
+test('Sync for field staff does not list users (rules allow only their own profile)', () => {
+  const boot = read('js/boot.js');
+  assert.match(boot, /isAdmin\(\) \? _fetchUsers\(\)\.catch\(none\) : Promise\.resolve\(_selfOnly\(\)\)/);
+  assert.match(boot, /isAdmin\(\) \? get\(_usersRef\(\)\) : Promise\.resolve\(_selfOnly\(\)\)/);
+  assert.match(boot, /window\.__SF\.getDocs\(rootCol\('products'\)\)\.catch\(none\)/);
+});

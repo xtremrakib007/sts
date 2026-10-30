@@ -200,7 +200,10 @@ async function build() {
   fs.rmSync(otaDir, { recursive: true, force: true });
   fs.mkdirSync(otaDir, { recursive: true });
   const zip = new AdmZip();
-  for (const file of ['index.html', 'js/app.min.js', ...COPY_FILES]) {
+  // vendor/ holds libraries the app loads on use (PDF: html2canvas, jsPDF);
+  // without them an updated phone could not make or share invoice PDFs.
+  const vendorFiles = fs.existsSync(path.join('www', 'vendor')) ? fs.readdirSync(path.join('www', 'vendor')).map(f => 'vendor/' + f) : [];
+  for (const file of ['index.html', 'js/app.min.js', ...COPY_FILES, ...vendorFiles]) {
     const src = path.join('www', file);
     if (fs.existsSync(src)) zip.addLocalFile(src, path.dirname(file) === '.' ? '' : path.dirname(file));
   }
