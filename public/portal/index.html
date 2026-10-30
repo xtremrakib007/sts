@@ -528,8 +528,13 @@ body.store-mode .adm-only{display:none!important}
         <div class="fgrp"><label class="flbl">Date</label><input class="finp" id="invDate" type="date"></div>
       </div>
       <div class="frow">
-        <div class="fgrp"><label class="flbl">Customer *</label><input class="finp" id="invCust" placeholder="Customer / outlet name"></div>
+        <div class="fgrp"><label class="flbl">Customer / outlet *</label><input class="finp" id="invCust" list="invCustList" autocomplete="off" placeholder="Search an outlet or type a new customer" oninput="_invCustChanged()"><datalist id="invCustList"></datalist>
+          <div id="invCustInfo" style="font-size:11px;color:var(--tx3);margin-top:3px"></div><input type="hidden" id="invOutletId"></div>
         <div class="fgrp"><label class="flbl">Due Date</label><input class="finp" id="invDue" type="date"></div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">Mobile number</label><input class="finp" id="invPhone" type="tel" inputmode="tel" placeholder="01X-XXXXXXX"></div>
+        <div class="fgrp"><label class="flbl">Address</label><input class="finp" id="invAddr" placeholder="Shop address"></div>
       </div>
       <div class="fgrp"><label class="flbl">Linked Sales Order</label>
         <select class="finp" id="invLinkedOrder" onchange="autofillFromOrder(this)">
@@ -537,6 +542,7 @@ body.store-mode .adm-only{display:none!important}
         </select>
       </div>
       <div style="font-size:12px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Line Items</div>
+      <datalist id="invProdList"></datalist>
       <div id="invLineItems"></div>
       <button class="btn btn-ghost" onclick="addInvLine()" style="width:100%;margin-bottom:14px;font-size:12px">+ Add Line</button>
       <div style="background:var(--s2);border-radius:10px;padding:12px;font-size:13px">
@@ -1144,9 +1150,15 @@ async function prepModal(type) {
     document.getElementById('invNo').readOnly = true;
     document.getElementById('invDate').value = today;
     document.getElementById('invDue').value = today;
-    document.getElementById('invCust').value = '';
-    document.getElementById('invNotes').value = '';
+    ['invCust', 'invPhone', 'invAddr', 'invOutletId', 'invNotes'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('invCustInfo').textContent = '';
     document.getElementById('invLineItems').innerHTML = '';
+    // Outlets and the whole product catalogue, searchable in the form.
+    const [outs, prods] = await Promise.all([getDocs(collection(_db, 'outlets')).catch(() => ({ docs: [] })), _allProducts().catch(() => [])]);
+    window.__invOutlets = outs.docs.map(d => ({ id: d.id, ...d.data() })).filter(o => o.name).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    window.__invCatalog = prods.filter(p => p.name);
+    document.getElementById('invCustList').innerHTML = window.__invOutlets.map(o => `<option value="${_esc(o.name)}">${_esc([o.route, o.phone].filter(Boolean).join(' · '))}</option>`).join('');
+    document.getElementById('invProdList').innerHTML = window.__invCatalog.map(p => `<option value="${_esc(_invProdLabel(p))}"></option>`).join('');
     // Load approved orders
     const linSel = document.getElementById('invLinkedOrder');
     linSel.innerHTML = '<option value="">— None / manual entry —</option>';
@@ -1161,12 +1173,14 @@ async function prepModal(type) {
         o.dataset.customer = v.customer||'';
         o.dataset.items = JSON.stringify(v.items||[]);
         o.dataset.total = v.total||0;
+        o.dataset.phone = v.outletPhone || v.customerPhone || '';
+        o.dataset.address = v.outletAddress || v.customerAddress || '';
+        o.dataset.outletId = v.outletId || '';
         o.textContent = `${v.orderId||d.id} — ${v.customer||'?'} — ${fmt(v.total||0)}`;
         linSel.appendChild(o);
       });
     } catch(ex) {}
     addInvLine();
-    calcInvTotal();
   }
   if (type === 'supplier') {
     ['supDocId','supName','supPhone','supEmail','supAddress','supBank','supAccNo','supPayTerms','supNotes'].forEach(i => {
@@ -1495,23 +1509,73 @@ async function processDiscount(orderId, decision) {
 //  INVOICE LINE ITEMS (ERP)
 // ═══════════════════════════════════════════
 let _invLines = 0;
-window.addInvLine = function() {
+const _invProdLabel = p => `${p.name}${p.sku ? ' · ' + p.sku : ''} — ${fmt(p.price)}${_n(p.ctnSize) ? ' / ' + fmt(p.ctnPrice || p.price * p.ctnSize) + ' ctn' : ''}`;
+const _invFindProd = label => (window.__invCatalog || []).find(p => _invProdLabel(p) === label || p.name === label || (p.sku && p.sku === label));
+
+// Customer: picking a known outlet fills its mobile and address; a new
+// name is fine too (walk-in or not yet in the Sales App).
+window._invCustChanged = function() {
+  const name = document.getElementById('invCust').value.trim();
+  const o = (window.__invOutlets || []).find(x => x.name === name);
+  document.getElementById('invOutletId').value = o ? o.id : '';
+  document.getElementById('invCustInfo').textContent = o ? `✓ Outlet${o.route ? ' · ' + o.route : ''}` : name ? 'New customer — enter mobile and address' : '';
+  if (o) {
+    if (o.phone) document.getElementById('invPhone').value = o.phone;
+    if (o.address) document.getElementById('invAddr').value = o.address;
+  }
+};
+
+// One line: searchable product, unit (pcs / ctn), qty, unit price, total.
+window.addInvLine = function(item) {
   _invLines++;
   const div = document.createElement('div');
-  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end;';
+  div.className = 'inv-line';
+  div.style.cssText = 'display:grid;grid-template-columns:minmax(0,3fr) 90px 80px 110px 100px auto;gap:8px;margin-bottom:8px;align-items:end;';
   div.innerHTML = `
-    <div><label class="flbl">Description</label><input class="finp" placeholder="Product / service description"></div>
-    <div><label class="flbl">Qty</label><input class="finp" type="number" value="1" oninput="calcInvTotal()"></div>
-    <div><label class="flbl">Unit Price</label><input class="finp" type="number" placeholder="0.00" oninput="calcInvTotal()"></div>
-    <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove();calcInvTotal()">✕</button>
-  `;
+    <div><label class="flbl">Product</label><input class="finp il-prod" list="invProdList" autocomplete="off" placeholder="Search product, SKU…" oninput="_invPickProduct(this)"></div>
+    <div><label class="flbl">Unit</label><select class="finp il-unit" onchange="_invUnitChanged(this)"><option value="pcs">pcs</option></select></div>
+    <div><label class="flbl">Qty</label><input class="finp il-qty" type="number" min="0" step="any" value="1" oninput="calcInvTotal()"></div>
+    <div><label class="flbl">Unit price</label><input class="finp il-price" type="number" min="0" step="0.01" placeholder="0.00" oninput="calcInvTotal()"></div>
+    <div><label class="flbl">Total</label><div class="il-total" style="padding:9px 0;font-family:'DM Mono',monospace;text-align:right">RM 0.00</div></div>
+    <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove();calcInvTotal()">✕</button>`;
   document.getElementById('invLineItems').appendChild(div);
+  if (item) {
+    const p = (window.__invCatalog || []).find(x => (item.productId && x.id === item.productId) || (item.pid && x.id === item.pid) || (item.sku && x.sku === item.sku) || x.name === item.name);
+    const prodIn = div.querySelector('.il-prod');
+    prodIn.value = p ? _invProdLabel(p) : (item.name || '');
+    _invSetUnits(div, p);
+    const ctn = _n(item.ctnQty) > 0 && _n(item.ctnSize) > 0 && !_n(item.pcsQty);
+    div.querySelector('.il-unit').value = ctn ? 'ctn' : 'pcs';
+    div.querySelector('.il-qty').value = ctn ? _n(item.ctnQty) : (_n(item.qty) || 1);
+    div.querySelector('.il-price').value = ctn ? (_n(item.ctnPrice) || _n(item.price) * _n(item.ctnSize)) : _n(item.price);
+  }
+  calcInvTotal();
+  return div;
+};
+function _invSetUnits(row, p) {
+  const sel = row.querySelector('.il-unit'), base = (p && p.unit) || 'pcs';
+  sel.innerHTML = `<option value="pcs">${_esc(base)}</option>${p && _n(p.ctnSize) ? `<option value="ctn">ctn (${_qty(p.ctnSize)})</option>` : ''}`;
+  row.__prod = p || null;
+}
+window._invPickProduct = function(input) {
+  const row = input.closest('.inv-line'), p = _invFindProd(input.value.trim());
+  if (!p) { row.__prod = null; return; }
+  input.value = _invProdLabel(p);
+  _invSetUnits(row, p);
+  row.querySelector('.il-price').value = _n(p.price);
+  calcInvTotal();
+};
+window._invUnitChanged = function(sel) {
+  const row = sel.closest('.inv-line'), p = row.__prod;
+  if (p) row.querySelector('.il-price').value = sel.value === 'ctn' ? (_n(p.ctnPrice) || Math.round(_n(p.price) * _n(p.ctnSize) * 100) / 100) : _n(p.price);
+  calcInvTotal();
 };
 window.calcInvTotal = function() {
   let total = 0;
-  document.querySelectorAll('#invLineItems > div').forEach(row => {
-    const inputs = row.querySelectorAll('input[type="number"]');
-    total += (parseFloat(inputs[0]?.value)||0) * (parseFloat(inputs[1]?.value)||0);
+  document.querySelectorAll('#invLineItems .inv-line').forEach(row => {
+    const line = (parseFloat(row.querySelector('.il-qty').value) || 0) * (parseFloat(row.querySelector('.il-price').value) || 0);
+    row.querySelector('.il-total').textContent = fmt(line);
+    total += line;
   });
   document.getElementById('invTotal').textContent = fmt(total);
 };
@@ -1519,20 +1583,12 @@ window.autofillFromOrder = function(sel) {
   const opt = sel.selectedOptions[0];
   if (!opt || !opt.value) return;
   document.getElementById('invCust').value = opt.dataset.customer || '';
-  const items = JSON.parse(opt.dataset.items || '[]');
+  _invCustChanged();
+  if (opt.dataset.phone) document.getElementById('invPhone').value = opt.dataset.phone;
+  if (opt.dataset.address) document.getElementById('invAddr').value = opt.dataset.address;
+  if (opt.dataset.outletId) document.getElementById('invOutletId').value = opt.dataset.outletId;
   document.getElementById('invLineItems').innerHTML = '';
-  items.forEach(item => {
-    _invLines++;
-    const div = document.createElement('div');
-    div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end;';
-    div.innerHTML = `
-      <div><label class="flbl">Description</label><input class="finp" value="${item.name||''}" placeholder="Product / service description"></div>
-      <div><label class="flbl">Qty</label><input class="finp" type="number" value="${item.qty||1}" oninput="calcInvTotal()"></div>
-      <div><label class="flbl">Unit Price</label><input class="finp" type="number" value="${item.price||0}" placeholder="0.00" oninput="calcInvTotal()"></div>
-      <button class="btn btn-danger" style="padding:8px 10px;font-size:12px" onclick="this.parentElement.remove();calcInvTotal()">✕</button>
-    `;
-    document.getElementById('invLineItems').appendChild(div);
-  });
+  JSON.parse(opt.dataset.items || '[]').forEach(item => addInvLine(item));
   calcInvTotal();
 };
 
@@ -1541,19 +1597,26 @@ window.saveInvoice = async function() {
   if (!cust) { showToast('Customer required','error'); return; }
   const items = [];
   let total = 0;
-  document.querySelectorAll('#invLineItems > div').forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    const desc = inputs[0]?.value?.trim();
-    const qty = parseFloat(inputs[1]?.value)||0;
-    const price = parseFloat(inputs[2]?.value)||0;
-    if (!desc) return;
-    const lineTotal = qty * price;
+  document.querySelectorAll('#invLineItems .inv-line').forEach(row => {
+    const p = row.__prod, label = row.querySelector('.il-prod').value.trim();
+    const qty = parseFloat(row.querySelector('.il-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.il-price').value) || 0;
+    if (!label || !(qty > 0)) return;
+    const lineTotal = Math.round(qty * price * 100) / 100;
     total += lineTotal;
-    items.push({ name: desc, qty, price, total: lineTotal });
+    const base = { productId: p?.id || '', sku: p?.sku || '', name: p ? p.name : label, unit: p?.unit || 'pcs', total: lineTotal };
+    if (p && row.querySelector('.il-unit').value === 'ctn') {
+      const size = _n(p.ctnSize);
+      items.push({ ...base, ctnSize: size, ctnQty: qty, pcsQty: 0, qty: qty * size, ctnPrice: price, price: Math.round(price / size * 10000) / 10000 });
+    } else items.push({ ...base, ctnSize: _n(p?.ctnSize), ctnQty: 0, pcsQty: qty, qty, price });
   });
+  if (!items.length) { showToast('Add at least one product with a quantity', 'error'); return; }
+  total = Math.round(total * 100) / 100;
   const linkedOrder = document.getElementById('invLinkedOrder').value;
   const data = {
-    customer: cust, date: document.getElementById('invDate').value,
+    customer: cust, outletId: document.getElementById('invOutletId').value || '',
+    customerPhone: document.getElementById('invPhone').value.trim(), customerAddress: document.getElementById('invAddr').value.trim(),
+    date: document.getElementById('invDate').value,
     dueDate: document.getElementById('invDue').value,
     items, subtotal: total, total, linkedOrderId: linkedOrder, orderId: linkedOrder || '',
     notes: document.getElementById('invNotes').value,
@@ -4804,6 +4867,7 @@ function _parseCsv(text) {
 // Reading the sheet, pairing "(Single)" rows with their bulk row and
 // working out prices from the purchase price: /vendor/product-import.js.
 window.__impRule = window.__impRule || { pct: 10, mode: 'markup', round: 0.01, apply: 'missing' };
+window.__impStock = window.__impStock ?? true;
 
 window.importProductsFile = async function(input) {
   const file = input.files && input.files[0]; input.value = '';
@@ -4849,14 +4913,18 @@ function _renderImportPreview(open) {
   const body = `
     <div style="font-size:13px;margin-bottom:10px"><strong>${_esc(src.fileName)}</strong>: <span class="badge badge-green">${adds} new</span> <span class="badge badge-blue">${upd} update${upd === 1 ? '' : 's'}</span> ${res.singles ? `<span class="badge badge-gray">${res.singles} single-unit rows joined to their carton</span>` : ''} ${errors.length ? `<span class="badge badge-red">${errors.length} skipped</span>` : ''}</div>
     ${ruleBox}
-    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched by SKU / barcode, then by name. A "(Single)" row becomes the unit price of its carton product. Stock levels in the sheet are not imported — receive stock in Inventory.</div>
+    ${res.hasStock ? `<label class="card" style="display:flex;gap:8px;align-items:flex-start;padding:10px 12px;margin-bottom:10px;font-size:12px;cursor:pointer">
+      <input type="checkbox" id="impStock" ${window.__impStock ? 'checked' : ''} onchange="window.__impStock=this.checked" style="margin-top:2px">
+      <span><strong>📦 Set stock to the sheet's On Hand</strong> (${plan.filter(p => p.onHand > 0).length} products with stock)<br>
+      <span style="color:var(--tx3)">New items get <b>opening stock</b>; items that already hold stock get a <b>stock count</b> to the sheet's figure (never added twice). Counts worth RM 200+ wait in Stock Approvals for a second admin. Carton + single products count in single units.</span></span></label>` : ''}
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched by SKU / barcode, then by name. A "(Single)" row becomes the unit price of its carton product.${res.hasStock ? '' : ' The sheet has no On Hand column, so stock is not changed.'}</div>
     ${errors.length ? `<div style="font-size:12px;color:var(--red);max-height:110px;overflow:auto;margin-bottom:10px">${errors.slice(0, 50).map(_esc).join('<br>')}</div>` : ''}
-    <div class="twrap" style="max-height:340px;overflow:auto"><table><thead><tr><th></th><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Carton</th></tr></thead><tbody>
+    <div class="twrap" style="max-height:340px;overflow:auto"><table><thead><tr><th></th><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Carton</th>${res.hasStock ? '<th style="text-align:right">On hand</th>' : ''}</tr></thead><tbody>
       ${plan.slice(0, 400).map(p => { const d = p.data; return `<tr><td>${p.id ? '<span class="badge badge-blue">update</span>' : '<span class="badge badge-green">new</span>'}</td>
         <td>${_esc(d.name)}${p.paired ? '<div style="font-size:10px;color:var(--tx3)">carton + single</div>' : ''}</td><td style="font-size:11px">${_esc(d.sku || '—')}</td><td>${_esc(d.category)}</td><td>${_esc(d.unit)}</td>
         <td style="text-align:right;font-size:11px">${d.cost ? fmt(d.cost) : '—'}${d.ctnCost ? `<div style="color:var(--tx3)">ctn ${fmt(d.ctnCost)}</div>` : ''}</td>
         <td style="text-align:right">${fmt(d.price)}${was(p, 'price')}</td>
-        <td style="text-align:right;font-size:11px">${d.ctnSize ? `${_qty(d.ctnSize)} × · ${fmt(d.ctnPrice)}` : '—'}${d.ctnSize ? was(p, 'ctnPrice') : ''}</td></tr>`; }).join('')}
+        <td style="text-align:right;font-size:11px">${d.ctnSize ? `${_qty(d.ctnSize)} × · ${fmt(d.ctnPrice)}` : '—'}${d.ctnSize ? was(p, 'ctnPrice') : ''}</td>${res.hasStock ? `<td style="text-align:right;font-size:11px">${p.onHand == null ? '—' : `${_qty(p.onHand)} ${_esc(d.unit)}`}</td>` : ''}</tr>`; }).join('')}
     </tbody></table></div>`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal('mProdImport')">Cancel</button><button class="btn btn-primary" id="prodImportGo" onclick="runProductImport()" ${plan.length ? '' : 'disabled'}>Import ${plan.length} product${plan.length === 1 ? '' : 's'}</button>`;
   if (open || !document.getElementById('mProdImport')) _stockModal('mProdImport', '⬆️ Import products', body, foot, true);
@@ -4873,7 +4941,7 @@ window.runProductImport = async function() {
     for (let i = 0; i < plan.length; i += 120) {
       const batch = writeBatch(_db);
       plan.slice(i, i + 120).forEach(p => {
-        const id = p.id || doc(collection(_db, C('products'))).id, d = p.data, isNew = !p.id;
+        const isNew = !p.id, id = p.id || p.newId || (p.newId = doc(collection(_db, C('products'))).id), d = p.data;
         batch.set(doc(_db, C('products'), id), { ...d, updatedAt: ts(), updatedBy: uid(), ...(isNew ? { createdAt: ts(), source: 'import' } : {}) }, { merge: true });
         batch.set(doc(_db, 'products', id), { name: d.name, sku: d.sku, barcode: d.barcode || '', category: d.category, unit: d.unit, price: d.price, cost: d.cost, ctnSize: d.ctnSize,
           ctnPrice: d.ctnPrice, ctnCost: d.ctnCost || 0, stockStatus: d.stockStatus, description: d.notes, maxDiscount: d.maxDiscount, updatedAt: now, updatedBy: uid(),
@@ -4885,8 +4953,24 @@ window.runProductImport = async function() {
       done = Math.min(plan.length, i + 120);
       if (btn) btn.textContent = `Importing… ${done}/${plan.length}`;
     }
+    // Stock: bring each item to the sheet's on-hand count via the stock ledger.
+    let moves = [];
+    if (window.__impStock && plan.some(p => p.onHand != null)) {
+      if (btn) btn.textContent = 'Posting stock…';
+      const invSnap = await getDocs(collection(_db, C('inventory')));
+      const invQty = Object.fromEntries(invSnap.docs.map(d => [d.id, _n(d.data().qty)]));
+      const note = `Stock import ${(window.__impSrc?.fileName || '').slice(0, 60)}`.trim();
+      moves = window.ProductImport.stockMovesFor(plan.map(p => ({ ...p, id: p.id || p.newId })), invQty, note);
+      const by = { requestedBy: uid(), requestedByName: _user?.name || _user?.email || '', status: 'requested', createdAt: new Date().toISOString() };
+      for (let i = 0; i < moves.length; i += 200) {
+        const batch = writeBatch(_db);
+        moves.slice(i, i + 200).forEach(m => batch.set(doc(collection(_db, C('stock_requests'))), { ...m, ...by }));
+        await batch.commit();
+      }
+    }
     closeModal('mProdImport');
-    showToast(`Imported ${plan.length} product(s) ✓ — Sales App catalogue updated`, 'success');
+    const opens = moves.filter(m => m.type === 'opening').length, counts = moves.length - opens;
+    showToast(`Imported ${plan.length} product(s) ✓${moves.length ? ` · stock: ${opens} opening, ${counts} count${counts === 1 ? '' : 's'} posting` : ''} — Sales App catalogue updated`, 'success');
     if (window.__curPage === 'products') products();
   } catch (e) {
     showToast(`Stopped after ${done} product(s): ${e.message}`, 'error');

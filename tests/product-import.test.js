@@ -22,8 +22,8 @@ const SHEET = [HEAD,
 ];
 const rule = { pct: 10, mode: 'markup', round: 0.01, apply: 'missing' };
 
-test('stock-system sheet: headers map, extra columns ignored', () => {
-  assert.deepEqual(HEAD.map(P.productField), ['name', 'sku', 'barcode', 'category', 'unit', null, null, null, null, null, null, 'cost', null, 'stockStatus']);
+test('stock-system sheet: headers map (On Hand read), other columns ignored', () => {
+  assert.deepEqual(HEAD.map(P.productField), ['name', 'sku', 'barcode', 'category', 'unit', null, 'onHand', null, null, null, null, 'cost', null, 'stockStatus']);
 });
 
 test('carton + (Single) rows become one product with unit and carton prices from the margin', () => {
@@ -90,4 +90,41 @@ test('our own template: Pcs per carton column keeps the carton on unit rows', ()
   assert.deepEqual([d.unit, d.ctnSize, d.price, d.ctnPrice, d.cost], ['pcs', 24, 2.1, 45, 1.5]);
   const all = P.buildImportPlan(t, [], { pct: 10, apply: 'all' }).plan[0].data;
   assert.deepEqual([all.price, all.ctnPrice], [1.65, 39.6]);
+});
+
+test('on-hand stock: single units for carton + single, cartons × size for carton-only, opening vs count', () => {
+  const H = ['Product', 'SKU', 'UOM', 'On Hand (Bulk)', 'On Hand Unit', 'Purchase Price'];
+  const sheet = [H,
+    ['100 PLUS 1.5LX12', 'B1', 'CTN', 73.833, '', 33.92], ['100 PLUS 1.5LX12 (Single)', 'S1', 'BTL', 885.996, '', 2.86],
+    ['ACI Puffed Rice/Muri 400gX20', 'B2', 'CTN', 3, '', 38.73],
+    ['01 PERUT Mentah 1CTN=20KG+/-', 'B3', 'KG', 140, '', 9.58],
+    ['ATTA 5KG', 'B4', 'PCS', 0, '', 13.97],
+    ['No count', 'B5', 'PCS', '', '', 1]];
+  const res = P.buildImportPlan(sheet, [{ id: 'old4', name: 'ATTA 5KG', sku: 'B4' }], { pct: 10, apply: 'missing' });
+  assert.equal(res.hasStock, true);
+  const by = Object.fromEntries(res.plan.map((p) => [p.data.name, p]));
+  assert.equal(by['100 PLUS 1.5LX12'].onHand, 886);
+  assert.equal(by['ACI Puffed Rice/Muri 400gX20'].onHand, 60);
+  assert.equal(by['01 PERUT Mentah 1CTN=20KG+/-'].onHand, 140);
+  assert.equal(by['No count'].onHand, null, 'blank cell leaves stock alone');
+  const plan = res.plan.map((p, i) => ({ ...p, id: p.id || 'n' + i }));
+  const ids = Object.fromEntries(plan.map((p) => [p.data.name, p.id]));
+  const moves = P.stockMovesFor(plan, { [ids['01 PERUT Mentah 1CTN=20KG+/-']]: 100, old4: 5 }, 'Stock import x.xlsx');
+  const m = Object.fromEntries(moves.map((x) => [x.invId, x]));
+  assert.deepEqual([m[ids['100 PLUS 1.5LX12']].type, m[ids['100 PLUS 1.5LX12']].qty, m[ids['100 PLUS 1.5LX12']].unitCost], ['opening', 886, 2.86]);
+  assert.deepEqual([m[ids['01 PERUT Mentah 1CTN=20KG+/-']].type, m[ids['01 PERUT Mentah 1CTN=20KG+/-']].countedQty], ['count', 140], 'existing stock → count, not added');
+  assert.deepEqual([m.old4.type, m.old4.countedQty, m.old4.reason], ['count', 0, 'Stock import x.xlsx']);
+  assert.equal(moves.length, 4, 'no move for unchanged / blank rows');
+  assert.equal(P.stockMovesFor(plan, Object.fromEntries(plan.map((p) => [p.id, p.onHand || 0])), 'n').length, 0, 're-import of the same sheet changes nothing');
+  assert.equal(P.productField('On Hand Unit'), null);
+});
+
+test('ERP invoice form: searchable products and outlets, customer mobile + address saved', () => {
+  const portal = read('public/portal/index.html');
+  assert.match(portal, /id="invCust" list="invCustList"/);
+  assert.match(portal, /id="invPhone"/);
+  assert.match(portal, /id="invAddr"/);
+  assert.match(portal, /class="finp il-prod" list="invProdList"/);
+  assert.match(portal, /window\.__invCatalog = prods\.filter\(p => p\.name\)/, 'all products loaded');
+  assert.match(portal, /customerPhone: document\.getElementById\('invPhone'\)\.value\.trim\(\), customerAddress: document\.getElementById\('invAddr'\)\.value\.trim\(\)/);
 });
