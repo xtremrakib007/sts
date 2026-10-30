@@ -4965,6 +4965,109 @@ async function myDeliveries() {
   } catch(e) { mc.innerHTML=`<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`; }
 }
 
+// ═══════════════════════════════════════════
+//  BULK PRODUCT PHOTOS
+//  Pick many images at once; each is matched to a product by its file name
+//  (SKU, barcode or product name — /vendor/product-import.js), shrunk to a
+//  small JPEG and saved on the product the Sales App shows reps.
+// ═══════════════════════════════════════════
+const _PHOTO_MAX = 800, _PHOTO_BYTES = 180000;
+function _shrinkPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, _PHOTO_MAX / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      let q = 0.8, out = c.toDataURL('image/jpeg', q);
+      while (out.length > _PHOTO_BYTES && q > 0.35) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+      URL.revokeObjectURL(url); resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('not a readable image')); };
+    img.src = url;
+  });
+}
+
+window.bulkPhotosPicked = async function(input) {
+  const files = [...(input.files || [])].filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name));
+  input.value = '';
+  if (!files.length) { showToast('Choose image files (JPG, PNG, WEBP)', 'warn'); return; }
+  showToast(`Reading ${files.length} photo(s)…`, 'info');
+  const prods = await _allProducts();
+  const matches = window.ProductImport.matchPhotoFiles(files.map(f => f.name), prods);
+  const rows = [];
+  for (let i = 0; i < files.length; i++) {
+    let data = '', err = '';
+    try { data = await _shrinkPhoto(files[i]); } catch (e) { err = e.message; }
+    rows.push({ ...matches[i], data, err });
+  }
+  window.__bulkPh = { rows, prods };
+  _renderBulkPhotos();
+};
+
+function _renderBulkPhotos() {
+  const { rows, prods } = window.__bulkPh;
+  const byId = Object.fromEntries(prods.map(p => [p.id, p]));
+  const opts = sel => '<option value="">— skip —</option>' + prods.map(p => `<option value="${_esc(p.id)}"${p.id === sel ? ' selected' : ''}>${_esc(p.name)}${p.sku ? ' · ' + _esc(p.sku) : ''}</option>`).join('');
+  const ready = rows.filter(r => r.productId && r.data).length;
+  const keep = !!document.getElementById('bpKeep')?.checked;
+  const body = `
+    <div style="font-size:12px;color:var(--tx2);margin-bottom:10px">Name each file after the product's <strong>SKU</strong>, <strong>barcode</strong> or <strong>name</strong> (e.g. <code>100P-500.jpg</code>) and it is matched by itself. Change any match below, or pick a product for unmatched photos.</div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:10px"><input type="checkbox" id="bpKeep" ${keep ? 'checked' : ''} onchange="_renderBulkPhotos()"> Keep photos products already have (only fill missing ones)</label>
+    <div style="max-height:52vh;overflow:auto;border:1px solid var(--bdr);border-radius:10px">
+    ${rows.map((r, i) => {
+      const p = byId[r.productId];
+      const tag = r.err ? `<span class="badge badge-red">${_esc(r.err)}</span>`
+        : !r.productId ? '<span class="badge badge-yellow">No match — pick a product</span>'
+        : r.duplicate ? '<span class="badge badge-yellow">Same product as another photo — last one wins</span>'
+        : keep && p && p.photo ? '<span class="badge badge-gray">Has a photo — will be kept</span>'
+        : r.matchedBy ? `<span class="badge badge-green">Matched by ${r.matchedBy}</span>` : '<span class="badge badge-blue">Picked by you</span>';
+      return `<div style="display:flex;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--bdr)">
+        ${r.data ? `<img src="${r.data}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:8px;flex-shrink:0">` : '<div style="width:46px;height:46px;border-radius:8px;background:var(--s2);flex-shrink:0"></div>'}
+        <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(r.file)}</div><div style="margin-top:3px">${tag}</div></div>
+        ${r.data ? `<select class="finp" style="width:min(260px,45vw);font-size:12px" onchange="__bulkPh.rows[${i}].productId=this.value||null;__bulkPh.rows[${i}].matchedBy=null;_renderBulkPhotos()">${opts(r.productId)}</select>` : ''}
+      </div>`;
+    }).join('')}</div>
+    <div style="font-size:12px;margin-top:10px;color:var(--tx2)">${ready} of ${rows.length} photo(s) ready to save. Photos are shrunk to ${_PHOTO_MAX}px before saving.</div>`;
+  const el = document.getElementById('mBulkPhotos');
+  if (el) el.querySelector('.mbody').innerHTML = body;
+  else _stockModal('mBulkPhotos', '🖼️ Bulk product photos', body,
+    `<button class="btn btn-ghost" onclick="closeModal('mBulkPhotos')">Cancel</button><button class="btn btn-primary" id="bpSave" onclick="saveBulkPhotos()">💾 Save photos</button>`, true);
+}
+
+window.saveBulkPhotos = async function() {
+  const { rows, prods } = window.__bulkPh || {};
+  if (!rows) return;
+  const keep = !!document.getElementById('bpKeep')?.checked;
+  const byId = Object.fromEntries(prods.map(p => [p.id, p]));
+  const last = {}; // one photo per product: the last file picked for it
+  rows.forEach(r => { if (r.productId && r.data && byId[r.productId] && !(keep && byId[r.productId].photo)) last[r.productId] = r.data; });
+  const todo = Object.entries(last);
+  if (!todo.length) { showToast('Nothing to save — match at least one photo to a product', 'warn'); return; }
+  const btn = document.getElementById('bpSave'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    for (let i = 0; i < todo.length; i += 20) {
+      const batch = writeBatch(_db);
+      todo.slice(i, i + 20).forEach(([id, photo]) => {
+        const p = byId[id], patch = { photo, photoUpdatedAt: ts(), updatedAt: ts(), updatedBy: uid() };
+        if (p._inApp || !p._inErp) batch.set(doc(_db, 'products', id), patch, { merge: true }); // what the Sales App shows
+        if (p._inErp) batch.set(doc(_db, C('products'), id), patch, { merge: true });
+      });
+      await batch.commit();
+      if (btn) btn.textContent = `Saving… ${Math.min(i + 20, todo.length)}/${todo.length}`;
+    }
+    closeModal('mBulkPhotos');
+    showToast(`${todo.length} product photo(s) saved ✓`, 'success');
+    window.__bulkPh = null;
+    if (window.__curPage === 'products') products();
+  } catch (e) {
+    showToast('Could not save photos: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Save photos'; }
+  }
+};
+window._renderBulkPhotos = _renderBulkPhotos;
+
 async function products() {
   const mc = document.getElementById('mainContent');
   mc.innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx3)">Loading…</div>';
@@ -5271,7 +5374,7 @@ async function erpProducts() {
       const avail = st ? _n(st.qty) - _n(st.reservedQty) : null;
       const margin = _n(v.price) > 0 && _n(v.cost) > 0 ? Math.round((1 - _n(v.cost) / _n(v.price)) * 1000) / 10 : null;
       return `<tr>
-        <td><strong>${_esc(v.name)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.sku || '—')}${v._inApp && !v._inErp ? ' · Sales App' : ''}${v._inErp && !v._inApp ? ' · ERP only' : ''}</div></td>
+        <td><div style="display:flex;gap:9px;align-items:center">${v.photo ? `<img src="${_esc(v.photo)}" alt="" loading="lazy" style="width:34px;height:34px;object-fit:cover;border-radius:7px;flex-shrink:0">` : '<div style="width:34px;height:34px;border-radius:7px;background:var(--s2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;opacity:.5">📷</div>'}<div><strong>${_esc(v.name)}</strong><div style="font-size:10px;color:var(--tx3)">${_esc(v.sku || '—')}${v._inApp && !v._inErp ? ' · Sales App' : ''}${v._inErp && !v._inApp ? ' · ERP only' : ''}</div></div></div></td>
         <td><span class="badge badge-gray">${_esc(v.category || '—')}</span></td>
         <td>${_esc(v.unit || 'pcs')}${v.ctnSize ? `<div style="font-size:10px;color:var(--tx3)">${_qty(v.ctnSize)}/ctn${v.ctnPrice ? ' · ' + fmt(v.ctnPrice) : ''}</div>` : ''}${v.stockStatus === 'out_of_stock' ? '<div><span class="badge badge-gray">Hidden in app</span></div>' : ''}</td>
         <td style="text-align:right;font-family:'DM Mono',monospace">${fmt(v.price)}</td>
@@ -5291,6 +5394,8 @@ async function erpProducts() {
         <button class="btn btn-ghost" onclick="exportProducts('csv')">⬇️ CSV</button>
         <button class="btn btn-ghost" onclick="downloadProductTemplate()" title="Empty sheet with the right columns">📄 Template</button>
         <button class="btn btn-ghost" onclick="openPriceMargin()" title="Set selling prices from cost with a margin">💲 Price margin</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('prodPhotoFiles').click()" title="Upload many product photos at once; each file is matched by its name (SKU, barcode or product name)">🖼️ Bulk photos</button>
+        <input type="file" id="prodPhotoFiles" accept="image/*" multiple style="display:none" onchange="bulkPhotosPicked(this)">
         <button class="btn btn-primary" onclick="newProduct()">+ Add Product</button></div></div>
       <div class="card"><div class="twrap"><table id="prodTbl"><thead><tr><th>Product</th><th>Category</th><th>Unit</th><th style="text-align:right">Price</th><th style="text-align:right">Cost</th><th style="text-align:right">Margin</th><th style="text-align:right">Max disc.</th><th style="text-align:right">Available</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:30px">No products yet</td></tr>'}</tbody></table></div></div>`;

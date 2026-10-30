@@ -141,3 +141,24 @@ test('Sync button: reloads data from the server, redraws the page, applies a wai
     assert.ok(fn.slice(0, 1200).includes(step), step);
   assert.match(fn, /if \(!navigator\.onLine\)/, 'offline: says so instead of failing');
 });
+
+test('outlet statement: delivered value, order-tied payments first, then oldest first', () => {
+  const vm = require('node:vm');
+  const ctx = { console, window: {}, document: { getElementById: () => null, querySelectorAll: () => [], addEventListener: () => {} } };
+  vm.createContext(ctx);
+  vm.runInContext(read('js/outlets.js') + '\nthis.L=outletLedger;', ctx);
+  const J = (x) => JSON.parse(JSON.stringify(x));
+  const orders = [
+    { _docId: 'a', id: 'A', status: 'Delivered', total: 100, date: '2026-10-01' },
+    { _docId: 'b', id: 'B', status: 'Delivered', total: 100, deliveredTotal: 80, date: '2026-10-10' },
+    { _docId: 'c', id: 'C', status: 'Confirmed', total: 60, date: '2026-10-20' },
+    { _docId: 'd', id: 'D', status: 'Cancelled', total: 999, date: '2026-10-21' },
+  ];
+  const L = ctx.L(orders, [{ amount: 30, orderId: 'B' }, { amount: 120 }], 0);
+  assert.deepEqual([L.sales, L.paid, L.outstanding], [240, 150, 90]);
+  assert.deepEqual(J(L.pending.map((l) => [l.o.id, l.paid, l.balance])), [['B', 50, 30], ['C', 0, 60]]);
+  assert.deepEqual(J(L.orders.map((l) => l.o.id)), ['C', 'B', 'A'], 'newest first, cancelled left out');
+  const withOpening = ctx.L(orders.slice(0, 1), [{ amount: 50 }], 70);
+  assert.deepEqual(J(withOpening.pending.map((l) => [l.opening ? 'opening' : l.o.id, l.balance])), [['opening', 20], ['A', 100]], 'payment clears the opening balance first');
+  assert.match(read('js/ui.js'), /el\.style\.zIndex=String\(\+\+_mTop\)/, 'invoice opens above the outlet window');
+});

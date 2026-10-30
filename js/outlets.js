@@ -962,31 +962,63 @@ function openDirections(outletId) {
   window.open(`https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}&destination_place_id=${label}&travelmode=driving`,'_blank');
 }
 
+// Outlet QR: made on the phone (no internet needed). It links to the web
+// app, which opens the order form for this outlet (?oc=ID, js/boot.js);
+// the in-app scanner (js/misc.js) reads the same link.
+const OUTLET_QR_BASE = 'https://stfm-sales.web.app/';
+function _outletQrUrl(outletId) { return `${OUTLET_QR_BASE}?oc=${encodeURIComponent(outletId)}`; }
+function _outletQr(url) { const qr = qrcode(0, 'M'); qr.addData(url); qr.make(); return qr; }
+
 function viewOutletQR(outletId) {
   const o=allOutlets.find(x=>x.id===outletId);if(!o)return;
-  const base=window.location.origin+window.location.pathname.replace(/\/$/,'');
-  const url=`${base}?oc=${outletId}`;
-  const qrImg=`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=0d1117&margin=12&ecc=M`;
+  const url=_outletQrUrl(outletId);
   document.getElementById('mQRTitle').textContent=`📷 ${o.name}`;
   document.getElementById('mQRSubtitle').textContent=`Scan to open order for ${o.name}`;
-  document.getElementById('mQRCode').innerHTML=`<img src="${qrImg}" style="width:220px;height:220px;border-radius:8px;display:block" alt="QR Code" onerror="this.alt='QR load failed — check internet'">`;
+  const box=document.getElementById('mQRCode');
+  if(typeof qrcode!=='function'){box.innerHTML='<div style="padding:30px;color:var(--red)">QR maker not loaded — update the app</div>';}
+  else box.innerHTML=`<div style="width:220px;height:220px;background:#fff;border-radius:8px;padding:6px;box-sizing:border-box">${_outletQr(url).createSvgTag({cellSize:4,margin:2,scalable:true})}</div>`;
   document.getElementById('mQRUrl').textContent=url;
-  window.__currentQROutlet={id:outletId,name:o.name,url};
+  window.__currentQROutlet={id:outletId,name:o.name,route:o.route||'',url};
   openM('mOutletQR');
 }
 
-function downloadOutletQR() {
+// A printable PNG card: outlet name, the QR and a short instruction.
+function _outletQrCard(q) {
+  const qr=_outletQr(q.url), n=qr.getModuleCount(), cell=Math.floor(560/(n+4)), size=cell*(n+4);
+  const W=size+80, H=size+190, c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d');
+  g.fillStyle='#fff'; g.fillRect(0,0,W,H);
+  g.fillStyle='#0d1117'; g.textAlign='center';
+  g.font='bold 30px Arial, sans-serif'; g.fillText(String(q.name).slice(0,34),W/2,52);
+  if(q.route){g.font='20px Arial, sans-serif'; g.fillStyle='#555'; g.fillText(String(q.route).slice(0,40),W/2,82);}
+  const x0=40, y0=100;
+  g.fillStyle='#0d1117';
+  for(let r=0;r<n;r++)for(let col=0;col<n;col++) if(qr.isDark(r,col)) g.fillRect(x0+(col+2)*cell,y0+(r+2)*cell,cell,cell);
+  g.fillStyle='#333'; g.font='20px Arial, sans-serif';
+  g.fillText('Scan to order · Sairah Trading (STSB)',W/2,y0+size+45);
+  return c.toDataURL('image/png');
+}
+
+async function downloadOutletQR() {
   const q=window.__currentQROutlet;if(!q)return;
-  const qrHigh=`https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=${encodeURIComponent(q.url)}&bgcolor=ffffff&color=0d1117&margin=20&ecc=M`;
-  // Open in new tab so user can long-press save (mobile) or right-click save (desktop)
-  const w=window.open('','_blank');
-  if(w){
-    w.document.write(`<!DOCTYPE html><html><head><title>QR – ${q.name}</title>
-    <style>body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#f5f5f5;font-family:sans-serif;gap:14px}
-    img{border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.15);max-width:90vw}
-    p{font-size:13px;color:#666;text-align:center;max-width:320px}
-    h2{font-size:16px;font-weight:700;margin:0}</style></head>
-    <body><h2>${q.name}</h2><img src="${qrHigh}" alt="QR Code"><p>Long-press (mobile) or right-click → Save image to download.<br><small>${q.url}</small></p></body></html>`);
+  if(typeof qrcode!=='function'){showToast('QR maker not loaded — update the app','error');return;}
+  const png=_outletQrCard(q);
+  const name=`QR-${String(q.name).replace(/[^A-Za-z0-9_-]+/g,'-').replace(/^-|-$/g,'')||q.id}.png`;
+  if(!_invNative()){ const a=document.createElement('a'); a.href=png; a.download=name; a.click(); return; }
+  const fs=_invPlugin('Filesystem');
+  if(!fs){_invNeedsUpdate('Saving the QR');return;}
+  const data=png.split(',')[1];
+  try {
+    await fs.writeFile({path:'STSB/'+name,data,directory:'DOCUMENTS',recursive:true});
+    showToast(`QR saved: Documents/STSB/${name}`,'success');
+  } catch(e) {
+    // Some Android versions block shared Documents: offer it via the share sheet.
+    try {
+      const r=await fs.writeFile({path:name,data,directory:'CACHE',recursive:true});
+      const sh=_invPlugin('Share');
+      if(sh) await sh.share({title:name,files:[r.uri],dialogTitle:'Save or send the QR'});
+      else throw e;
+    } catch(e2){ showToast('Could not save the QR: '+(e2.message||e2),'error'); }
   }
 }
 
@@ -1027,9 +1059,10 @@ async function viewOutlet(id) {
   const [ordD,colD]=await Promise.all([sfGet('orders'),sfGet('collections')]);
   const oOrders=ordD.map(d=>({_docId:d.id,...d.data()})).filter(x=>x.outletId===id);
   const oCols=colD.map(d=>d.data()).filter(x=>x.outletId===id);
-  const totalSales=oOrders.filter(x=>x.status!=='Cancelled').reduce((s,x)=>s+x.total,0);
-  const totalPaid=oCols.reduce((s,x)=>s+x.amount,0);
-  const approvedBalance=o.balanceStatus==='approved'?o.openingBalance:0;
+  const approvedBalance=o.balanceStatus==='approved'?Number(o.openingBalance)||0:0;
+  const led=outletLedger(oOrders,oCols,approvedBalance);
+  const totalSales=led.sales, totalPaid=led.paid;
+  window.__odLedger={outletId:id,...led};
   const hasPinned=!!(o.lat&&o.lng);
   const hasPhone=!!o.phone;
 
@@ -1045,7 +1078,7 @@ async function viewOutlet(id) {
       <!-- Outlet name overlay on cover -->
       <div style="position:absolute;bottom:12px;left:14px;right:14px">
         <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.name}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.82)">${o.type}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.82)">${escH(o.category||o.type||'')}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
       </div>
     </div>` : ''}
     <!-- Header row -->
@@ -1053,7 +1086,7 @@ async function viewOutlet(id) {
       <div class="oava" style="background:${o.color||COLORS[0]};width:48px;height:48px;border-radius:10px;font-size:18px;flex-shrink:0;overflow:hidden;padding:0">${o.signboardPhoto?`<img src="${o.signboardPhoto}" style="width:100%;height:100%;object-fit:cover;display:block">`:`${o.name[0]}`}</div>
       <div style="flex:1;min-width:0">
         <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">${o.name}</div>
-        <div style="font-size:12px;color:var(--tx2)">${o.type}${o.ethnicity?' · 👥 '+o.ethnicity:''}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
+        <div style="font-size:12px;color:var(--tx2)">${escH(o.category||o.type||'')}${o.ethnicity?' · 👥 '+o.ethnicity:''}${o.area?' · '+o.area:''}${o.route?' · 🗺️ '+o.route:''}</div>
         ${hasPhone?`<div style="font-size:11px;color:var(--tx3)">📞 ${o.phone}${o.contact?' · 👤 '+o.contact:''}</div>`:''}
       </div>
     </div>
@@ -1081,23 +1114,72 @@ async function viewOutlet(id) {
 
     <!-- Stats -->
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:14px">
-      <div style="background:var(--s2);border-radius:var(--r2);padding:11px;text-align:center"><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--acc)">${fmt(totalSales)}</div><div style="font-size:10px;color:var(--tx3)">Total Sales</div></div>
-      <div style="background:var(--s2);border-radius:var(--r2);padding:11px;text-align:center"><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--grn)">${fmt(totalPaid)}</div><div style="font-size:10px;color:var(--tx3)">Collected</div></div>
-      <div style="background:var(--s2);border-radius:var(--r2);padding:11px;text-align:center"><div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--red)">${fmt(Math.max(0,totalSales-totalPaid+approvedBalance))}</div><div style="font-size:10px;color:var(--tx3)">Outstanding</div></div>
+      <button class="od-stat" data-tab="orders" onclick="_odTab('orders')"><div style="color:var(--acc)">${fmt(totalSales)}</div><span>Total Sales · ${led.orders.length} ›</span></button>
+      <button class="od-stat" data-tab="payments" onclick="_odTab('payments')"><div style="color:var(--grn)">${fmt(totalPaid)}</div><span>Collected · ${led.payments.length} ›</span></button>
+      <button class="od-stat" data-tab="pending" onclick="_odTab('pending')"><div style="color:var(--red)">${fmt(led.outstanding)}</div><span>Outstanding · ${led.pending.length} ›</span></button>
     </div>
 
     ${o.openingBalance>0?`<div style="background:${o.balanceStatus==='approved'?'rgba(34,197,94,.07)':'rgba(245,158,11,.07)'};border:1px solid ${o.balanceStatus==='approved'?'rgba(34,197,94,.2)':'rgba(245,158,11,.2)'};border-radius:var(--r2);padding:10px;margin-bottom:12px;font-size:12px">Opening Balance: ${fmt(o.openingBalance)} — <strong>${o.balanceStatus==='approved'?'✅ Approved':o.balanceStatus==='rejected'?'❌ Rejected':'⏳ Pending Admin Approval'}</strong></div>`:''}
     ${o.address?`<div style="background:var(--s2);border-radius:var(--r2);padding:10px;margin-bottom:12px;font-size:12px;color:var(--tx2)">📍 ${o.address}</div>`:''}
 
-    <div style="font-size:11px;color:var(--tx3);font-weight:700;margin-bottom:8px;letter-spacing:.5px">RECENT ORDERS</div>
-    ${oOrders.slice(-5).reverse().map(ord=>`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(30,45,69,.4);font-size:12px;gap:8px">
-        <span style="font-weight:600;font-size:11px;flex-shrink:0">${ord.id||ord._docId}</span>
-        <span style="color:var(--tx2);flex-shrink:0">${ord.date||'—'}</span>
-        <span style="font-family:'Syne',sans-serif;font-weight:700;color:var(--acc);flex-shrink:0">${fmt(ord.total)}</span>
-        <span class="bdg bdg-${ord.status==='Delivered'?'grn':ord.status==='Pending'?'ylw':ord.status==='Cancelled'?'red':'blu'}" style="font-size:10px;flex-shrink:0">${ord.status}</span>
-      </div>`).join('')||'<div style="color:var(--tx3);font-size:12px;padding:6px 0">No orders yet</div>'}
+    <div id="odList"></div>
   `;
+  _odTab(led.pending.length?'pending':'orders');
   openM('mOutletDetail');
+}
+
+// ── Outlet statement: what each order still owes ──
+// An order counts for its delivered value less returns (same as dues).
+// Payments tied to an order (delivery payments) go to that order first;
+// the rest pay off the oldest orders (and the opening balance) first.
+function outletLedger(orders, cols, opening) {
+  const r2=v=>Math.round(v*100)/100;
+  const due=o=>Math.max(0,(o.deliveredTotal!=null?Number(o.deliveredTotal):Number(o.total)||0)-(Number(o.returnedTotal)||0));
+  const day=o=>o.date||(typeof o.createdAt==='string'?o.createdAt.slice(0,10):'');
+  const live=orders.filter(o=>o.status!=='Cancelled'&&!o.appDeleted).sort((a,b)=>String(day(a)).localeCompare(String(day(b))));
+  const lines=live.map(o=>({o,amount:r2(due(o)),paid:0}));
+  if(opening>0) lines.unshift({opening:true,amount:r2(opening),paid:0});
+  let free=0;
+  for(const c of cols){
+    const amt=Number(c.amount)||0; if(amt<=0) continue;
+    const ln=c.orderId&&lines.find(l=>l.o&&(l.o.id===c.orderId||l.o._docId===c.orderId||l.o._docId===c.orderDocId));
+    if(ln){const take=Math.min(amt,ln.amount-ln.paid);ln.paid+=take;free+=amt-take;} else free+=amt;
+  }
+  for(const ln of lines){ if(free<=0)break; const take=Math.min(free,ln.amount-ln.paid); ln.paid+=take; free-=take; }
+  lines.forEach(l=>{l.paid=r2(l.paid);l.balance=r2(l.amount-l.paid);});
+  const sales=r2(live.reduce((s,o)=>s+due(o),0)), paid=r2(cols.reduce((s,c)=>s+(Number(c.amount)||0),0));
+  return {
+    sales, paid, outstanding:r2(Math.max(0,sales+opening-paid)), credit:r2(free),
+    orders:[...lines].filter(l=>l.o).reverse(),
+    pending:lines.filter(l=>l.balance>0.009),
+    payments:[...cols].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))),
+  };
+}
+
+const _OD_BADGE={Delivered:'grn',Pending:'ylw',Cancelled:'red',Failed:'red'};
+function _odTab(tab){
+  const L=window.__odLedger; const box=document.getElementById('odList'); if(!L||!box) return;
+  document.querySelectorAll('#mOutletDetail .od-stat').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  const today=new Date();
+  const ordRow=(l,showBal)=>{
+    if(l.opening) return `<div class="od-row"><div style="flex:1"><div style="font-weight:700">Opening balance</div><div class="od-sub">Before the app</div></div>
+      <div style="text-align:right"><div style="font-weight:800;color:var(--red)">${fmt(l.balance)}</div><div class="od-sub">of ${fmt(l.amount)}</div></div></div>`;
+    const o=l.o, d=o.date||'', age=d?Math.max(0,Math.floor((today-new Date(d+'T00:00'))/86400000)):null;
+    return `<div class="od-row" onclick="viewOrder('${o._docId}')" role="button">
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">${escH(o.invoiceNo||o.id||o._docId)} <span class="bdg bdg-${_OD_BADGE[o.status]||'blu'}" style="font-size:9px">${escH(o.status||'')}</span></div>
+        <div class="od-sub">${escH(d||'—')}${showBal&&age!=null?` · ${age} day${age===1?'':'s'}`:''}${o.paymentMethod?` · ${escH(o.paymentMethod)}`:''}</div></div>
+      <div style="text-align:right">${showBal
+        ?`<div style="font-weight:800;color:var(--red)">${fmt(l.balance)}</div><div class="od-sub">${l.paid>0?`paid ${fmt(l.paid)} of `:''}${fmt(l.amount)}</div>`
+        :`<div style="font-weight:800;color:var(--acc)">${fmt(l.amount)}</div><div class="od-sub">${l.balance>0.009?`<span style="color:var(--red)">due ${fmt(l.balance)}</span>`:'✅ paid'}</div>`}</div>
+      <span style="color:var(--tx3);font-size:16px">›</span></div>`;
+  };
+  const head=t=>`<div style="font-size:11px;color:var(--tx3);font-weight:700;margin:2px 0 8px;letter-spacing:.5px">${t}</div>`;
+  if(tab==='pending') box.innerHTML=head(`PENDING PAYMENT · ${L.pending.length} · ${fmt(L.outstanding)}`)+(L.pending.map(l=>ordRow(l,true)).join('')||'<div class="od-empty">Nothing outstanding ✅</div>')
+    +(L.credit>0.009?`<div class="od-sub" style="margin-top:8px">Paid in advance: ${fmt(L.credit)}</div>`:'');
+  else if(tab==='payments') box.innerHTML=head(`PAYMENTS · ${L.payments.length} · ${fmt(L.paid)}`)+(L.payments.map(c=>`<div class="od-row">
+      <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:12px">${escH(c.mode||c.method||'Payment')}${c.source==='delivery'?' · 🚚 on delivery':''}</div>
+        <div class="od-sub">${escH(c.date||'—')}${c.createdByName?' · '+escH(c.createdByName):''}${c.orderId?' · '+escH(c.orderId):''}${c.paymentRef?' · ref '+escH(c.paymentRef):''}</div></div>
+      <div style="font-weight:800;color:var(--grn)">${fmt(c.amount)}</div></div>`).join('')||'<div class="od-empty">No payments yet</div>');
+  else box.innerHTML=head(`ORDER HISTORY · ${L.orders.length}`)+(L.orders.map(l=>ordRow(l,false)).join('')||'<div class="od-empty">No orders yet</div>');
 }
 
