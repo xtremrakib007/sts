@@ -221,3 +221,53 @@ test('outlets: every role gets a Nearby list sorted by distance', () => {
   assert.match(near, /_outletLocate\(false\);/, 'gets the current position, also for admins');
   assert.match(o, /_getPositionNative\(\)\.then\(pos=>\{/);
 });
+
+// ── Owner Zone View: writes follow the zone being viewed ───────────────────
+
+function loadCore(store, user, zoneFilter) {
+  const ref = (...p) => ({ path: p.slice(1).join('/') });
+  const SF = {
+    db: {},
+    collection: ref, doc: ref,
+    addDoc: async (c, d) => { const id = 'n' + Object.keys(store).length; store[c.path + '/' + id] = { ...d }; return { id }; },
+    setDoc: async (r, d) => { store[r.path] = { ...d }; },
+    updateDoc: async (r, d) => { if (!store[r.path]) throw Object.assign(new Error('no doc'), { code: 'not-found' }); Object.assign(store[r.path], d); },
+    deleteDoc: async (r) => { delete store[r.path]; },
+    getDoc: async (r) => ({ exists: () => !!store[r.path], data: () => store[r.path] }),
+  };
+  const ctx = { console, window: { __SF: SF }, document: { getElementById: () => null }, invalidateCache: () => {} };
+  vm.createContext(ctx);
+  vm.runInContext(read('js/core.js').replace(/^"use strict";/, '') +
+    `\nCU=${JSON.stringify(user)};_ownerZoneFilter=${JSON.stringify(zoneFilter)};allZones=[{id:'z1',name:'Ipoh'}];` +
+    '\nthis.api={sfAdd,sfUpdate,sfDelete,setZone:z=>{_ownerZoneFilter=z;}};', ctx);
+  return ctx.api;
+}
+
+test('owner in Zone View: new outlets go to that zone (mirrored to root), edits/deletes reach both copies', async () => {
+  const owner = { uid: 'boss', role: 'admin', isOwner: true };
+  const store = { 'outlets/o1': { name: 'A', _zoneId: 'z1' }, 'zones/z1/outlets/o1': { name: 'A' } };
+  const api = loadCore(store, owner, 'z1');
+  const { id } = await api.sfAdd('outlets', { name: 'New', zoneId: null });
+  assert.equal(store['zones/z1/outlets/' + id].zoneId, 'z1');
+  assert.equal(store['outlets/' + id]._zoneId, 'z1');
+  await api.sfUpdate('outlets', id, { phone: '1' });
+  assert.equal(store['zones/z1/outlets/' + id].phone, '1');
+  assert.equal(store['outlets/' + id].phone, '1');
+  api.setZone(null);
+  await api.sfUpdate('outlets', 'o1', { phone: '2' });
+  assert.equal(store['zones/z1/outlets/o1'].phone, '2', 'All Zones edit reaches the zone copy');
+  await api.sfDelete('outlets', 'o1');
+  assert.ok(!store['outlets/o1'] && !store['zones/z1/outlets/o1']);
+  api.setZone('z1');
+  const p = await api.sfAdd('products', { name: 'P' });
+  assert.ok(store['products/' + p.id] && !store['zones/z1/products/' + p.id], 'catalogue stays global');
+  const rep = loadCore(store, { uid: 'r', role: 'sales_rep', zoneId: 'z1' }, null);
+  const r = await rep.sfAdd('outlets', { name: 'Rep shop' });
+  assert.ok(store['zones/z1/outlets/' + r.id] && store['outlets/' + r.id]._zoneId === 'z1', 'zone users unchanged');
+});
+
+test('Outlets by rep: zone reps only, and outlets with no listed rep are shown, not dropped', () => {
+  const js = read('js/outlets.js');
+  assert.match(js, /u\.role==='sales_rep'&&u\.status!=='disabled'&&\(!isOwner\(\)\|\|!_ownerZoneFilter\|\|u\.zoneId===_ownerZoneFilter\)/);
+  assert.match(js, /const orphans=allSrchOutlets\.filter\(o=>!repIds\.has\(o\.assignedRepId\)&&!repIds\.has\(o\.createdBy\)\);/);
+});

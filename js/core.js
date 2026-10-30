@@ -131,21 +131,64 @@ const colR   = (c)    => window.__SF.collection(db(), _zoneReadPath(c));
 // Collections that are already shared at root (zones, users) are skipped.
 const MIRROR_COLS = new Set(['orders','outlets','collections','attendance','visits','products','routes','broadcasts','targets','deleteRequests']);
 
+// The owner normally writes to root. With a zone picked in the Zone View
+// bar, the owner works on that zone's copy (what the page shows), so new
+// and edited docs go to the zone and are mirrored to root like a zone
+// user's. Products stay in the global (root) catalogue.
+function _ownerWriteZone(colName) {
+  return isOwner() && _ownerZoneFilter && MIRROR_COLS.has(colName) && colName !== 'products' ? _ownerZoneFilter : null;
+}
+const _zoneName = (zid) => (allZones.find(z=>z.id===zid)||{}).name||zid;
+
 // addDoc with mirror: returns the zone doc ref (primary)
 async function sfAdd(colName, data) {
+  const oz = _ownerWriteZone(colName);
+  if(oz){
+    const zData = {...data, zoneId: data.zoneId || oz};
+    const added = await window.__SF.addDoc(window.__SF.collection(db(), `zones/${oz}/${colName}`), zData);
+    try {
+      await window.__SF.setDoc(rootDocRef(colName, added.id), {...zData, _zoneId: oz, _zoneName: _zoneName(oz)});
+    } catch(e){ console.warn('[mirror] owner addDoc root failed:', e.message); }
+    invalidateCache();
+    return added;
+  }
   const zoneRef = col(colName);
   const docAdded = await window.__SF.addDoc(zoneRef, data);
   if(CU && CU.zoneId && !isOwner() && MIRROR_COLS.has(colName)){
     try {
-      await window.__SF.setDoc(rootDocRef(colName, docAdded.id), {...data, _zoneId: CU.zoneId, _zoneName: (allZones.find(z=>z.id===CU.zoneId)||{}).name||CU.zoneId});
+      await window.__SF.setDoc(rootDocRef(colName, docAdded.id), {...data, _zoneId: CU.zoneId, _zoneName: _zoneName(CU.zoneId)});
     } catch(e){ console.warn('[mirror] addDoc root failed:', e.message); }
   }
   invalidateCache();
   return docAdded;
 }
 
+// Owner edits and deletes reach both copies: root, and the zone the doc
+// belongs to (the picked zone, or the zone recorded on the root copy).
+async function _ownerDocZone(colName, docId) {
+  const oz = _ownerWriteZone(colName);
+  if(oz) return oz;
+  if(!isOwner() || !MIRROR_COLS.has(colName) || colName === 'products') return null;
+  try {
+    const s = await window.__SF.getDoc(rootDocRef(colName, docId));
+    return s.exists() ? (s.data()._zoneId || s.data().zoneId || null) : null;
+  } catch(e){ return null; }
+}
+
 // updateDoc with mirror
 async function sfUpdate(colName, docId, data) {
+  if(isOwner()){
+    const zid = await _ownerDocZone(colName, docId);
+    if(zid){
+      const zRef = window.__SF.doc(db(), `zones/${zid}/${colName}`, docId);
+      let done = false;
+      try { await window.__SF.updateDoc(zRef, data); done = true; } catch(e){ if(e.code !== 'not-found') throw e; }
+      try { await window.__SF.updateDoc(rootDocRef(colName, docId), data); done = true; }
+      catch(e){ if(!done) throw e; }
+      invalidateCache();
+      return;
+    }
+  }
   await window.__SF.updateDoc(docRef(colName, docId), data);
   if(CU && CU.zoneId && !isOwner() && MIRROR_COLS.has(colName)){
     try {
@@ -161,6 +204,10 @@ async function sfUpdate(colName, docId, data) {
 
 // deleteDoc with mirror
 async function sfDelete(colName, docId) {
+  const ozid = isOwner() ? await _ownerDocZone(colName, docId) : null;
+  if(ozid){
+    await window.__SF.deleteDoc(window.__SF.doc(db(), `zones/${ozid}/${colName}`, docId));
+  }
   await window.__SF.deleteDoc(docRef(colName, docId));
   if(CU && CU.zoneId && !isOwner() && MIRROR_COLS.has(colName)){
     try {
