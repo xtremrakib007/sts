@@ -404,10 +404,11 @@
                         <button class="back-btn" onclick="goPage('dashboard')">← Back</button>
                         <div class="page-hdr-info">
                             <div style="font-family:Syne,sans-serif;font-size:19px;font-weight:700">📊 Dashboard</div>
-                            <div style="font-size:11px;color:var(--tx3)">Sales overview & performance</div>
+                            <div style="font-size:11px;color:var(--tx3)" id="dashSub">Sales overview & performance</div>
                         </div>
                     </div>
                     <div class="sgrid" id="dashStats"></div>
+                    <div id="dashSalesBody">
                     <div class="g2">
                         <div class="card">
                             <div class="card-hdr">
@@ -469,6 +470,8 @@
                         </div>
                         <div class="g2" id="pendingApprovalsList"></div>
                     </div>
+                    </div>
+                    <div id="dashDelivBody" style="display:none"></div>
                     <div id="ownerZoneSummary" style="display:none;margin-top:18px;background:var(--s1);border:1px solid rgba(34,197,94,.25);border-radius:var(--r);padding:16px">
                         <div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;margin-bottom:8px;color:var(--acc)">👑 All Zones Overview</div>
                         <div style="font-size:12px;color:var(--tx3)">Loading...</div>
@@ -2364,7 +2367,7 @@
         { page:'dashStats',     ico:'📊', lbl:'Dashboard',       roles:[...R_ALL]                              },
         { page:'attendance',    ico:'⏰', lbl:'Attendance',      roles:[...R_ALL]                              },
         { page:'orders',        ico:'📦', lbl:'Orders',          roles:[...R_ADMIN,...R_SALES],  badgeId:'pendBadge'       },
-        { page:'outlets',       ico:'🏪', lbl:'Outlets',         roles:[...R_ADMIN,...R_SALES],  badgeId:'outletApvBadge'  },
+        { page:'outlets',       ico:'🏪', lbl:'Outlets',         roles:[...R_ADMIN,...R_SALES,...R_DELIV], badgeId:'outletApvBadge' },
         { page:'routes',        ico:'🗺️',  lbl:'Routes',          roles:[...R_ADMIN,...R_SALES]                 },
         { page:'collection',    ico:'💰', lbl:'Collection',      roles:[...R_ADMIN,...R_SALES]                 },
         { page:'reports',       ico:'📈', lbl:'Reports',         roles:[...R_ADMIN,...R_SALES]                 },
@@ -2514,6 +2517,7 @@
                         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
                         const target = document.getElementById('pageDashStats');
                         if (target) target.classList.add('active');
+                        if (typeof renderDashboard === 'function') renderDashboard();
                         if (!fromBack) {
                             const hist = window.__pageHistory;
                             if (hist[hist.length - 1] !== 'dashStats') {
