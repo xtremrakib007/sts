@@ -588,6 +588,7 @@ body.store-mode .adm-only{display:none!important}
 <script defer src="/vendor/qrcode.js"></script>
 <script defer src="/vendor/invoice-template.js"></script>
 <script defer src="/vendor/advance-core.js"></script>
+<script defer src="/vendor/product-import.js"></script>
 <script defer src="/vendor/read-excel-file.js"></script>
 <script defer src="/vendor/write-excel-file.js"></script>
 <script type="module">
@@ -4800,22 +4801,9 @@ function _parseCsv(text) {
   return rows.filter(r => r.some(v => String(v).trim() !== ''));
 }
 
-// Header text → field. Accepts our export headers and common variations.
-function _productField(h) {
-  const k = String(h || '').toLowerCase().replace(/[^a-z%]/g, '');
-  if (/^(name|product|productname|item|itemname)$/.test(k)) return 'name';
-  if (/^(sku|code|itemcode|productcode|barcode)$/.test(k)) return 'sku';
-  if (/^(category|cat|group)$/.test(k)) return 'category';
-  if (/^(unit|uom)$/.test(k)) return 'unit';
-  if (/^(price|pricerm|sellingprice|unitprice|pcsprice|retailprice)$/.test(k)) return 'price';
-  if (/^(cost|costrm|costprice|purchaseprice)$/.test(k)) return 'cost';
-  if (/^(pcspercarton|ctnsize|cartonsize|pcsperctn|packsize)$/.test(k)) return 'ctnSize';
-  if (/^(cartonprice|cartonpricerm|ctnprice|ctnpricerm)$/.test(k)) return 'ctnPrice';
-  if (/^(maxdiscount%?|maxdiscount|discountlimit|maxdisc%?)$/.test(k)) return 'maxDiscount';
-  if (/^(instockyesno|instock|stock|available|status)$/.test(k)) return 'stockStatus';
-  if (/^(notes|note|remarks|description)$/.test(k)) return 'notes';
-  return null;
-}
+// Reading the sheet, pairing "(Single)" rows with their bulk row and
+// working out prices from the purchase price: /vendor/product-import.js.
+window.__impRule = window.__impRule || { pct: 10, mode: 'markup', round: 0.01, apply: 'missing' };
 
 window.importProductsFile = async function(input) {
   const file = input.files && input.files[0]; input.value = '';
@@ -4830,46 +4818,50 @@ window.importProductsFile = async function(input) {
     else throw new Error('Choose an .xlsx or .csv file (old .xls: save it as .xlsx first)');
   } catch (e) { showToast('Could not read the file: ' + e.message, 'error'); return; }
   if (!rows || rows.length < 2) { showToast('The file has no product rows', 'error'); return; }
-  const fields = rows[0].map(_productField);
-  if (!fields.includes('name') || !fields.includes('price')) { showToast('The first row must have headers incl. "Name" and "Price" — download the template', 'error'); return; }
-  const existing = await _allProducts();
-  const bySku = new Map(existing.filter(p => p.sku).map(p => [String(p.sku).toLowerCase(), p]));
-  const byName = new Map(existing.map(p => [String(p.name || '').toLowerCase().trim(), p]));
-  const plan = [], errors = [], seen = new Set();
-  rows.slice(1).forEach((r, i) => {
-    const v = {}; fields.forEach((f, j) => { if (f) v[f] = r[j]; });
-    const line = i + 2, name = String(v.name ?? '').trim(), sku = String(v.sku ?? '').trim().replace(/^'/, '');
-    const num = x => { const n = parseFloat(String(x ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
-    if (!name) { errors.push(`Row ${line}: no name`); return; }
-    const price = num(v.price);
-    if (!(price > 0)) { errors.push(`Row ${line} (${name}): price must be above 0`); return; }
-    const key = (sku || name).toLowerCase();
-    if (seen.has(key)) { errors.push(`Row ${line} (${name}): duplicate in the file`); return; }
-    seen.add(key);
-    const match = (sku && bySku.get(sku.toLowerCase())) || byName.get(name.toLowerCase());
-    const ctnSize = num(v.ctnSize);
-    const st = String(v.stockStatus ?? '').trim().toLowerCase();
-    plan.push({ id: match ? match.id : null, before: match || null, data: {
-      name: name.replace(/^'/, ''), sku, category: String(v.category ?? (match?.category || 'General')).trim() || 'General',
-      unit: String(v.unit ?? (match?.unit || 'pcs')).trim() || 'pcs', price, cost: v.cost != null && v.cost !== '' ? num(v.cost) : _n(match?.cost),
-      ctnSize, ctnPrice: num(v.ctnPrice) || (ctnSize ? Math.round(price * ctnSize * 100) / 100 : 0),
-      maxDiscount: v.maxDiscount != null && v.maxDiscount !== '' ? num(v.maxDiscount) : _n(match?.maxDiscount),
-      stockStatus: ['no', 'n', 'false', '0', 'out', 'out_of_stock', 'out of stock'].includes(st) ? 'out_of_stock' : st ? 'in_stock' : (match?.stockStatus || 'in_stock'),
-      notes: String(v.notes ?? (match?.notes || match?.description || '')).trim(),
-    } });
-  });
-  window.__prodImport = plan;
-  const adds = plan.filter(p => !p.id).length, upd = plan.length - adds;
-  _stockModal('mProdImport', '⬆️ Import products', `
-    <div style="font-size:13px;margin-bottom:10px"><strong>${_esc(file.name)}</strong>: <span class="badge badge-green">${adds} new</span> <span class="badge badge-blue">${upd} update${upd === 1 ? '' : 's'}</span> ${errors.length ? `<span class="badge badge-red">${errors.length} skipped</span>` : ''}</div>
-    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched to existing products by SKU, then by name. Updates change only the columns in the file. New products start with zero stock — receive stock in Inventory.</div>
-    ${errors.length ? `<div style="font-size:12px;color:var(--red);max-height:110px;overflow:auto;margin-bottom:10px">${errors.slice(0, 50).map(_esc).join('<br>')}</div>` : ''}
-    <div class="twrap" style="max-height:300px;overflow:auto"><table><thead><tr><th></th><th>Name</th><th>SKU</th><th>Category</th><th style="text-align:right">Price</th><th style="text-align:right">Ctn</th></tr></thead><tbody>
-      ${plan.slice(0, 300).map(p => `<tr><td>${p.id ? '<span class="badge badge-blue">update</span>' : '<span class="badge badge-green">new</span>'}</td><td>${_esc(p.data.name)}</td><td style="font-size:11px">${_esc(p.data.sku || '—')}</td><td>${_esc(p.data.category)}</td>
-        <td style="text-align:right">${fmt(p.data.price)}${p.before && _n(p.before.price) !== p.data.price ? `<div style="font-size:10px;color:var(--tx3)">was ${fmt(p.before.price)}</div>` : ''}</td><td style="text-align:right;font-size:11px">${p.data.ctnSize ? _qty(p.data.ctnSize) + ' · ' + fmt(p.data.ctnPrice) : '—'}</td></tr>`).join('')}
-    </tbody></table></div>`,
-    `<button class="btn btn-ghost" onclick="closeModal('mProdImport')">Cancel</button><button class="btn btn-primary" id="prodImportGo" onclick="runProductImport()" ${plan.length ? '' : 'disabled'}>Import ${plan.length} product${plan.length === 1 ? '' : 's'}</button>`, true);
+  window.__impSrc = { rows, fileName: file.name, existing: await _allProducts() };
+  _renderImportPreview(true);
 };
+
+window._impRuleChanged = function() {
+  const g = id => document.getElementById(id);
+  window.__impRule = { pct: parseFloat(g('impPct').value) || 0, mode: g('impMode').value, round: parseFloat(g('impRound').value) || 0.01, apply: g('impApply').value };
+  _renderImportPreview(false);
+};
+
+function _renderImportPreview(open) {
+  const src = window.__impSrc; if (!src) return;
+  const rule = window.__impRule;
+  const res = window.ProductImport.buildImportPlan(src.rows, src.existing, rule);
+  if (res.error) { showToast(res.error, 'error'); return; }
+  const { plan, errors } = res;
+  window.__prodImport = plan;
+  const adds = plan.filter(p => !p.id).length, upd = plan.length - adds, priced = plan.filter(p => p.fromMargin).length;
+  const was = (p, k) => p.before && _n(p.before[k]) && _n(p.before[k]) !== p.data[k] ? `<div style="font-size:10px;color:var(--tx3)">was ${fmt(p.before[k])}</div>` : '';
+  const ruleBox = `<div class="card" style="padding:10px 12px;margin-bottom:10px;background:var(--s2)">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px">💲 Selling price from purchase price</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div><label class="flbl">Margin %</label><input class="finp" id="impPct" type="number" step="0.5" min="0" value="${rule.pct}" style="width:90px" onchange="_impRuleChanged()"></div>
+        <div><label class="flbl">Type</label><select class="finp" id="impMode" onchange="_impRuleChanged()"><option value="markup" ${rule.mode === 'markup' ? 'selected' : ''}>Markup on cost</option><option value="margin" ${rule.mode === 'margin' ? 'selected' : ''}>Margin on selling price</option></select></div>
+        <div><label class="flbl">Round up to</label><select class="finp" id="impRound" onchange="_impRuleChanged()">${[['0.01', '1 sen'], ['0.05', '5 sen'], ['0.1', '10 sen']].map(([v, l]) => `<option value="${v}" ${String(rule.round) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div><label class="flbl">Use it for</label><select class="finp" id="impApply" onchange="_impRuleChanged()"><option value="missing" ${rule.apply === 'missing' ? 'selected' : ''}>Rows without a selling price</option><option value="all" ${rule.apply === 'all' ? 'selected' : ''}>All rows (re-price everything)</option></select></div>
+      </div>
+      <div style="font-size:11px;color:var(--tx3);margin-top:6px">${priced} of ${plan.length} prices worked out from the purchase price${res.hasPrice ? '' : ' (the sheet has no selling price column)'}.</div></div>`;
+  const body = `
+    <div style="font-size:13px;margin-bottom:10px"><strong>${_esc(src.fileName)}</strong>: <span class="badge badge-green">${adds} new</span> <span class="badge badge-blue">${upd} update${upd === 1 ? '' : 's'}</span> ${res.singles ? `<span class="badge badge-gray">${res.singles} single-unit rows joined to their carton</span>` : ''} ${errors.length ? `<span class="badge badge-red">${errors.length} skipped</span>` : ''}</div>
+    ${ruleBox}
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched by SKU / barcode, then by name. A "(Single)" row becomes the unit price of its carton product. Stock levels in the sheet are not imported — receive stock in Inventory.</div>
+    ${errors.length ? `<div style="font-size:12px;color:var(--red);max-height:110px;overflow:auto;margin-bottom:10px">${errors.slice(0, 50).map(_esc).join('<br>')}</div>` : ''}
+    <div class="twrap" style="max-height:340px;overflow:auto"><table><thead><tr><th></th><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Carton</th></tr></thead><tbody>
+      ${plan.slice(0, 400).map(p => { const d = p.data; return `<tr><td>${p.id ? '<span class="badge badge-blue">update</span>' : '<span class="badge badge-green">new</span>'}</td>
+        <td>${_esc(d.name)}${p.paired ? '<div style="font-size:10px;color:var(--tx3)">carton + single</div>' : ''}</td><td style="font-size:11px">${_esc(d.sku || '—')}</td><td>${_esc(d.category)}</td><td>${_esc(d.unit)}</td>
+        <td style="text-align:right;font-size:11px">${d.cost ? fmt(d.cost) : '—'}${d.ctnCost ? `<div style="color:var(--tx3)">ctn ${fmt(d.ctnCost)}</div>` : ''}</td>
+        <td style="text-align:right">${fmt(d.price)}${was(p, 'price')}</td>
+        <td style="text-align:right;font-size:11px">${d.ctnSize ? `${_qty(d.ctnSize)} × · ${fmt(d.ctnPrice)}` : '—'}${d.ctnSize ? was(p, 'ctnPrice') : ''}</td></tr>`; }).join('')}
+    </tbody></table></div>`;
+  const foot = `<button class="btn btn-ghost" onclick="closeModal('mProdImport')">Cancel</button><button class="btn btn-primary" id="prodImportGo" onclick="runProductImport()" ${plan.length ? '' : 'disabled'}>Import ${plan.length} product${plan.length === 1 ? '' : 's'}</button>`;
+  if (open || !document.getElementById('mProdImport')) _stockModal('mProdImport', '⬆️ Import products', body, foot, true);
+  else { const m = document.getElementById('mProdImport'); m.querySelector('.mbody').innerHTML = body; m.querySelector('.mfoot').innerHTML = foot; }
+}
 
 window.runProductImport = async function() {
   const plan = window.__prodImport || []; if (!plan.length) return;
@@ -4883,10 +4875,10 @@ window.runProductImport = async function() {
       plan.slice(i, i + 120).forEach(p => {
         const id = p.id || doc(collection(_db, C('products'))).id, d = p.data, isNew = !p.id;
         batch.set(doc(_db, C('products'), id), { ...d, updatedAt: ts(), updatedBy: uid(), ...(isNew ? { createdAt: ts(), source: 'import' } : {}) }, { merge: true });
-        batch.set(doc(_db, 'products', id), { name: d.name, sku: d.sku, category: d.category, unit: d.unit, price: d.price, cost: d.cost, ctnSize: d.ctnSize,
-          ctnPrice: d.ctnPrice, stockStatus: d.stockStatus, description: d.notes, maxDiscount: d.maxDiscount, updatedAt: now, updatedBy: uid(),
+        batch.set(doc(_db, 'products', id), { name: d.name, sku: d.sku, barcode: d.barcode || '', category: d.category, unit: d.unit, price: d.price, cost: d.cost, ctnSize: d.ctnSize,
+          ctnPrice: d.ctnPrice, ctnCost: d.ctnCost || 0, stockStatus: d.stockStatus, description: d.notes, maxDiscount: d.maxDiscount, updatedAt: now, updatedBy: uid(),
           ...(isNew ? { createdAt: now, source: 'import' } : {}) }, { merge: true });
-        const inv = { name: d.name, sku: d.sku, unit: d.unit, category: d.category, ctnSize: d.ctnSize, ctnPrice: d.ctnPrice, costPrice: d.cost, sellingPrice: d.price, updatedAt: ts() };
+        const inv = { name: d.name, sku: d.sku, barcode: d.barcode || '', unit: d.unit, category: d.category, ctnSize: d.ctnSize, ctnPrice: d.ctnPrice, costPrice: d.cost, sellingPrice: d.price, updatedAt: ts() };
         if (invIds.has(id)) batch.update(doc(_db, C('inventory'), id), inv); else batch.set(doc(_db, C('inventory'), id), { ...inv, minStock: 0, createdAt: ts() });
       });
       await batch.commit();
@@ -4900,6 +4892,67 @@ window.runProductImport = async function() {
     showToast(`Stopped after ${done} product(s): ${e.message}`, 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
   }
+};
+
+
+// ── Bulk price margin: selling prices from cost for many products ──
+window.__pmRule = window.__pmRule || { pct: 10, mode: 'markup', round: 0.01, cat: '' };
+window.openPriceMargin = async function() {
+  window.__pmProds = await _allProducts();
+  _renderPriceMargin(true);
+};
+window._pmChanged = function() {
+  const g = id => document.getElementById(id);
+  window.__pmRule = { pct: parseFloat(g('pmPct').value) || 0, mode: g('pmMode').value, round: parseFloat(g('pmRound').value) || 0.01, cat: g('pmCat').value };
+  _renderPriceMargin(false);
+};
+function _renderPriceMargin(open) {
+  const all = window.__pmProds || [], rule = window.__pmRule;
+  const cats = [...new Set(all.map(p => p.category || 'General'))].sort();
+  const scope = all.filter(p => !rule.cat || (p.category || 'General') === rule.cat);
+  const rows = window.ProductImport.repriceByMargin(scope, rule);
+  window.__pmRows = rows;
+  const noCost = scope.length - rows.length, changed = rows.filter(r => r.price !== r.oldPrice || r.ctnPrice !== r.oldCtnPrice).length;
+  const body = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
+      <div><label class="flbl">Products</label><select class="finp" id="pmCat" onchange="_pmChanged()"><option value="">All categories (${all.length})</option>${cats.map(c => `<option value="${_esc(c)}" ${rule.cat === c ? 'selected' : ''}>${_esc(c)}</option>`).join('')}</select></div>
+      <div><label class="flbl">Margin %</label><input class="finp" id="pmPct" type="number" step="0.5" min="0" value="${rule.pct}" style="width:90px" onchange="_pmChanged()"></div>
+      <div><label class="flbl">Type</label><select class="finp" id="pmMode" onchange="_pmChanged()"><option value="markup" ${rule.mode === 'markup' ? 'selected' : ''}>Markup on cost</option><option value="margin" ${rule.mode === 'margin' ? 'selected' : ''}>Margin on selling price</option></select></div>
+      <div><label class="flbl">Round up to</label><select class="finp" id="pmRound" onchange="_pmChanged()">${[['0.01', '1 sen'], ['0.05', '5 sen'], ['0.1', '10 sen']].map(([v, l]) => `<option value="${v}" ${String(rule.round) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    </div>
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Markup 10%: cost RM 10.00 → RM 11.00. Margin 10%: cost RM 10.00 → RM 11.12 (10% of the selling price is profit). Carton prices use the carton cost.
+      <strong style="color:var(--tx)">${changed} price${changed === 1 ? '' : 's'} will change</strong>${noCost ? ` · ${noCost} product${noCost === 1 ? '' : 's'} without a cost are left as they are` : ''}.</div>
+    <div class="twrap" style="max-height:340px;overflow:auto"><table><thead><tr><th>Product</th><th style="text-align:right">Cost</th><th style="text-align:right">Price now</th><th style="text-align:right">New price</th><th style="text-align:right">Carton now</th><th style="text-align:right">New carton</th></tr></thead><tbody>
+      ${rows.slice(0, 400).map(r => `<tr><td>${_esc(r.name)}<div style="font-size:10px;color:var(--tx3)">${_esc(r.category || '')}</div></td><td style="text-align:right">${fmt(r.cost)}</td>
+        <td style="text-align:right;color:var(--tx3)">${fmt(r.oldPrice)}</td><td style="text-align:right"><strong style="color:${r.price !== r.oldPrice ? 'var(--acc)' : 'inherit'}">${fmt(r.price)}</strong></td>
+        <td style="text-align:right;color:var(--tx3)">${r.ctnSize ? fmt(r.oldCtnPrice) : '—'}</td><td style="text-align:right">${r.ctnSize ? `<strong style="color:${r.ctnPrice !== r.oldCtnPrice ? 'var(--acc)' : 'inherit'}">${fmt(r.ctnPrice)}</strong>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--tx3);padding:20px">No products with a cost in this group</td></tr>'}
+    </tbody></table></div>`;
+  const foot = `<button class="btn btn-ghost" onclick="closeModal('mPriceMargin')">Cancel</button><button class="btn btn-primary" id="pmGo" onclick="applyPriceMargin()" ${changed ? '' : 'disabled'}>Update ${changed} price${changed === 1 ? '' : 's'}</button>`;
+  if (open || !document.getElementById('mPriceMargin')) _stockModal('mPriceMargin', '💲 Price margin', body, foot, true);
+  else { const m = document.getElementById('mPriceMargin'); m.querySelector('.mbody').innerHTML = body; m.querySelector('.mfoot').innerHTML = foot; }
+}
+window.applyPriceMargin = async function() {
+  const rows = (window.__pmRows || []).filter(r => r.price !== r.oldPrice || r.ctnPrice !== r.oldCtnPrice);
+  if (!rows.length) return;
+  if (!confirm(`Update ${rows.length} selling price(s)? The Sales App shows the new prices straight away.`)) return;
+  const btn = document.getElementById('pmGo'); if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+  const now = new Date().toISOString(), r = window.__pmRule;
+  try {
+    const invIds = new Set((await getDocs(collection(_db, C('inventory')))).docs.map(d => d.id));
+    for (let i = 0; i < rows.length; i += 120) {
+      const batch = writeBatch(_db);
+      rows.slice(i, i + 120).forEach(x => {
+        const patch = { price: x.price, ...(x.ctnSize ? { ctnPrice: x.ctnPrice } : {}), priceRule: `${r.mode} ${r.pct}%`, updatedBy: uid() };
+        batch.set(doc(_db, C('products'), x.id), { ...patch, updatedAt: ts() }, { merge: true });
+        batch.set(doc(_db, 'products', x.id), { ...patch, updatedAt: now }, { merge: true });
+        if (invIds.has(x.id)) batch.update(doc(_db, C('inventory'), x.id), { sellingPrice: x.price, ...(x.ctnSize ? { ctnPrice: x.ctnPrice } : {}), updatedAt: ts() });
+      });
+      await batch.commit();
+    }
+    closeModal('mPriceMargin');
+    showToast(`${rows.length} price(s) updated ✓ — Sales App catalogue updated`, 'success');
+    if (window.__curPage === 'products') products();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Retry'; } }
 };
 
 async function erpProducts() {
@@ -4931,6 +4984,7 @@ async function erpProducts() {
         <button class="btn btn-ghost" onclick="exportProducts('xlsx')">⬇️ Excel</button>
         <button class="btn btn-ghost" onclick="exportProducts('csv')">⬇️ CSV</button>
         <button class="btn btn-ghost" onclick="downloadProductTemplate()" title="Empty sheet with the right columns">📄 Template</button>
+        <button class="btn btn-ghost" onclick="openPriceMargin()" title="Set selling prices from cost with a margin">💲 Price margin</button>
         <button class="btn btn-primary" onclick="newProduct()">+ Add Product</button></div></div>
       <div class="card"><div class="twrap"><table id="prodTbl"><thead><tr><th>Product</th><th>Category</th><th>Unit</th><th style="text-align:right">Price</th><th style="text-align:right">Cost</th><th style="text-align:right">Margin</th><th style="text-align:right">Max disc.</th><th style="text-align:right">Available</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="9" style="text-align:center;color:var(--tx3);padding:30px">No products yet</td></tr>'}</tbody></table></div></div>`;

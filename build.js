@@ -60,6 +60,7 @@ const VENDOR_FILES = {
   'node_modules/qrcode-generator/qrcode.js': 'vendor/qrcode.js',
   'js/invoice-template.js': 'vendor/invoice-template.js',
   'js/advance-core.js': 'vendor/advance-core.js',
+  'js/product-import.js': 'vendor/product-import.js',
   'node_modules/html2canvas/dist/html2canvas.min.js': 'vendor/html2canvas.js', // invoice PDF (loaded on use)
   'node_modules/jspdf/dist/jspdf.umd.min.js': 'vendor/jspdf.js',
   'node_modules/read-excel-file/bundle/read-excel-file.min.js': 'vendor/read-excel-file.js',
