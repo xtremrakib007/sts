@@ -120,8 +120,11 @@ function startLocationTracking() {
 
   console.log('[Location] Starting location tracking for', CU.role);
 
-  // Immediate fix on start
-  _captureAndSaveLocation();
+  // Admins see "app last open" on Live Locations even before a GPS fix.
+  _markSeen();
+
+  // Immediate fix on start (asks for location permission in the APK first)
+  _ensureNativePermission().then(_captureAndSaveLocation);
 
   // ── Capacitor APK: use native watch ─────────────────────────────────────
   if (_isCapacitor() && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
@@ -175,6 +178,27 @@ function startLocationTracking() {
 
   // Show green tracking dot in sidebar
   _showTrackingIndicator(true);
+}
+
+async function _markSeen() {
+  try { await window.__SF.updateDoc(rootDocRef('users', CU.uid), { lastSeen: new Date().toISOString() }); }
+  catch (e) { console.warn('[Location] lastSeen write failed:', e.message); }
+}
+
+// APK: ask for location if it hasn't been granted yet, and tell the user
+// once when it is off, since the admin can't see them without it.
+let _gpsWarned = false;
+async function _ensureNativePermission() {
+  const G = _isCapacitor() && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation;
+  if (!G || !G.checkPermissions) return;
+  try {
+    let st = await G.checkPermissions();
+    if (st.location !== 'granted' && st.coarseLocation !== 'granted') st = await G.requestPermissions();
+    if (st.location !== 'granted' && st.coarseLocation !== 'granted' && !_gpsWarned) {
+      _gpsWarned = true;
+      showToast('📍 Location is off for STSB. Allow it in phone Settings → Apps → STSB → Location so your admin can see you.', 'warn');
+    }
+  } catch (e) { console.warn('[Location] permission check failed:', e.message); }
 }
 
 function _startBrowserWatch() {
@@ -317,6 +341,7 @@ async function saveUserLocation(pos) {
       lastLng: lng,
       lastLocationAt: new Date().toISOString(),
       lastAccuracy: Math.round(pos.coords.accuracy || 0),
+      lastSeen: new Date().toISOString(),
     });
     _lastSavedLat = lat;
     _lastSavedLng = lng;

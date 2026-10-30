@@ -256,6 +256,7 @@ async function setOwnerZoneFilter(zid) {
     attendance: ()=>{ loadAttHistory(); },
     zones:      loadZones,
     outletstructure: loadOutletStructure,
+    liveLocations: ()=>window.__llReload&&window.__llReload(),
   };
   if(reloaders[pg]) reloaders[pg]();
 
@@ -267,7 +268,7 @@ async function setOwnerZoneFilter(zid) {
 }
 
 // ── Show/hide zone bar + export buttons on every page transition ──
-const _ZONE_BAR_PAGES = new Set(['dashboard','orders','outlets','collection','reports','monitoring','routes','users','attendance','products','deliveries','outletstructure']);
+const _ZONE_BAR_PAGES = new Set(['dashboard','orders','outlets','collection','reports','monitoring','routes','users','attendance','products','deliveries','outletstructure','liveLocations']);
 function _updateOwnerZoneBar(pg) {
   // Export buttons for any admin
   _showExportBtns(pg);

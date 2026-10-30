@@ -118,3 +118,17 @@ test('no automatic logout: no inactivity timer, logins are kept', () => {
   assert.match(portal, /await setPersistence\(_auth, browserLocalPersistence\)/, 'ERP keeps its login');
   assert.doesNotMatch(portal, /setTimeout\([^)]*signOut/, 'ERP has no timed sign-out');
 });
+
+test('Live Locations reads the GPS the app saves on each user profile, live', () => {
+  const html = read('index.html');
+  assert.doesNotMatch(html, /userLocations/, 'no separate collection (no rules for it; writes were refused)');
+  assert.match(html, /sf\(\)\.onSnapshot\(_usersQuery\(\)/);
+  assert.match(html, /const gpsTs = toDate\(u\.lastLocationAt\);/);
+  assert.match(html, /where\('zoneId', '==', CU\.zoneId\)/, 'zone admins query their own zone (rules)');
+  const t = read('js/tracking.js');
+  assert.match(t, /lastAccuracy: Math\.round\(pos\.coords\.accuracy \|\| 0\),\s+lastSeen: new Date\(\)\.toISOString\(\),/);
+  assert.match(t, /_ensureNativePermission\(\)\.then\(_captureAndSaveLocation\)/);
+  const rules = read('firestore.rules');
+  assert.match(rules, /'fcmToken','lastSeen','pushEnabled','name','phone','avatar',\s+'lastLat','lastLng','lastLocationAt','lastAccuracy'/, 'self-update of these fields is allowed');
+  assert.match(read('js/boot.js'), /liveLocations: \(\)=>window\.__llReload&&window\.__llReload\(\),/);
+});
