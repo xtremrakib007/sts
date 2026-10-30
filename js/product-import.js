@@ -26,6 +26,7 @@
     if (/^(cartonprice|cartonpricerm|ctnprice|ctnpricerm)$/.test(k)) return 'ctnPrice';
     if (/^(maxdiscount%?|maxdiscount|discountlimit|maxdisc%?)$/.test(k)) return 'maxDiscount';
     if (/^(instockyesno|instock|stock|status)$/.test(k)) return 'stockStatus';
+    if (/^(onhandbulk|onhand|onhandqty|qtyonhand|stockqty|quantity|qty|openingstock)$/.test(k)) return 'onHand';
     if (/^(notes|note|remarks|description)$/.test(k)) return 'notes';
     return null;
   }
@@ -139,8 +140,17 @@
       }
       if (!(price > 0)) { errors.push(`Row ${head.line} (${name}): no selling price and no purchase price to work it out from`); continue; }
 
+      // On-hand stock in the selling unit: the single row's count, or
+      // cartons × pack size for a carton sold by the unit.
+      const hasQty = (o) => o && o.onHand != null && String(o.onHand).trim() !== '';
+      let onHand = null;
+      if (s && b && hasQty(sv)) onHand = num(sv.onHand);
+      else if (b && hasQty(v)) onHand = soldByCarton ? num(v.onHand) * ctnSize : num(v.onHand);
+      else if (!b && hasQty(sv)) onHand = num(sv.onHand);
+      if (onHand != null) onHand = Math.max(0, r2(onHand));
+
       plan.push({
-        id: match ? match.id : null, before: match || null, line: head.line, paired: !!(b && s), fromMargin: !!useRule,
+        id: match ? match.id : null, before: match || null, line: head.line, paired: !!(b && s), fromMargin: !!useRule, onHand,
         data: {
           name, sku: sku || singleSku, barcode, category: String(v.category ?? (match?.category || 'General')).trim() || 'General',
           unit, price, cost, ctnSize, ctnPrice, ctnCost,
@@ -151,7 +161,7 @@
         },
       });
     }
-    return { plan, errors, hasPrice, singles: pairedSingles.size };
+    return { plan, errors, hasPrice, hasStock: fields.includes('onHand'), singles: pairedSingles.size };
   }
 
   // New prices for existing products from their cost (bulk margin tool).
@@ -164,7 +174,22 @@
     });
   }
 
-  const api = { productField, packSize, priceFromCost, buildImportPlan, repriceByMargin };
+  // Stock movements that bring each item to the sheet's on-hand count:
+  // opening stock for an empty item, a stock count when it already holds
+  // stock (so importing the same sheet twice never doubles it).
+  function stockMovesFor(plan, invQty, note) {
+    const moves = [];
+    for (const p of plan) {
+      if (p.onHand == null || !p.id) continue;
+      const cur = num(invQty[p.id]);
+      if (Math.abs(cur - p.onHand) < 0.005) continue;
+      if (cur === 0) { if (p.onHand > 0) moves.push({ type: 'opening', invId: p.id, qty: p.onHand, unitCost: num(p.data.cost), ref: note }); }
+      else moves.push({ type: 'count', invId: p.id, countedQty: p.onHand, reason: note, ref: note });
+    }
+    return moves;
+  }
+
+  const api = { productField, packSize, priceFromCost, buildImportPlan, repriceByMargin, stockMovesFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ProductImport = api;
 })(typeof window !== 'undefined' ? window : globalThis);

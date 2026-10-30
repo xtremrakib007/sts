@@ -4804,6 +4804,7 @@ function _parseCsv(text) {
 // Reading the sheet, pairing "(Single)" rows with their bulk row and
 // working out prices from the purchase price: /vendor/product-import.js.
 window.__impRule = window.__impRule || { pct: 10, mode: 'markup', round: 0.01, apply: 'missing' };
+window.__impStock = window.__impStock ?? true;
 
 window.importProductsFile = async function(input) {
   const file = input.files && input.files[0]; input.value = '';
@@ -4849,14 +4850,18 @@ function _renderImportPreview(open) {
   const body = `
     <div style="font-size:13px;margin-bottom:10px"><strong>${_esc(src.fileName)}</strong>: <span class="badge badge-green">${adds} new</span> <span class="badge badge-blue">${upd} update${upd === 1 ? '' : 's'}</span> ${res.singles ? `<span class="badge badge-gray">${res.singles} single-unit rows joined to their carton</span>` : ''} ${errors.length ? `<span class="badge badge-red">${errors.length} skipped</span>` : ''}</div>
     ${ruleBox}
-    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched by SKU / barcode, then by name. A "(Single)" row becomes the unit price of its carton product. Stock levels in the sheet are not imported — receive stock in Inventory.</div>
+    ${res.hasStock ? `<label class="card" style="display:flex;gap:8px;align-items:flex-start;padding:10px 12px;margin-bottom:10px;font-size:12px;cursor:pointer">
+      <input type="checkbox" id="impStock" ${window.__impStock ? 'checked' : ''} onchange="window.__impStock=this.checked" style="margin-top:2px">
+      <span><strong>📦 Set stock to the sheet's On Hand</strong> (${plan.filter(p => p.onHand > 0).length} products with stock)<br>
+      <span style="color:var(--tx3)">New items get <b>opening stock</b>; items that already hold stock get a <b>stock count</b> to the sheet's figure (never added twice). Counts worth RM 200+ wait in Stock Approvals for a second admin. Carton + single products count in single units.</span></span></label>` : ''}
+    <div style="font-size:12px;color:var(--tx3);margin-bottom:10px">Matched by SKU / barcode, then by name. A "(Single)" row becomes the unit price of its carton product.${res.hasStock ? '' : ' The sheet has no On Hand column, so stock is not changed.'}</div>
     ${errors.length ? `<div style="font-size:12px;color:var(--red);max-height:110px;overflow:auto;margin-bottom:10px">${errors.slice(0, 50).map(_esc).join('<br>')}</div>` : ''}
-    <div class="twrap" style="max-height:340px;overflow:auto"><table><thead><tr><th></th><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Carton</th></tr></thead><tbody>
+    <div class="twrap" style="max-height:340px;overflow:auto"><table><thead><tr><th></th><th>Product</th><th>SKU</th><th>Category</th><th>Unit</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Carton</th>${res.hasStock ? '<th style="text-align:right">On hand</th>' : ''}</tr></thead><tbody>
       ${plan.slice(0, 400).map(p => { const d = p.data; return `<tr><td>${p.id ? '<span class="badge badge-blue">update</span>' : '<span class="badge badge-green">new</span>'}</td>
         <td>${_esc(d.name)}${p.paired ? '<div style="font-size:10px;color:var(--tx3)">carton + single</div>' : ''}</td><td style="font-size:11px">${_esc(d.sku || '—')}</td><td>${_esc(d.category)}</td><td>${_esc(d.unit)}</td>
         <td style="text-align:right;font-size:11px">${d.cost ? fmt(d.cost) : '—'}${d.ctnCost ? `<div style="color:var(--tx3)">ctn ${fmt(d.ctnCost)}</div>` : ''}</td>
         <td style="text-align:right">${fmt(d.price)}${was(p, 'price')}</td>
-        <td style="text-align:right;font-size:11px">${d.ctnSize ? `${_qty(d.ctnSize)} × · ${fmt(d.ctnPrice)}` : '—'}${d.ctnSize ? was(p, 'ctnPrice') : ''}</td></tr>`; }).join('')}
+        <td style="text-align:right;font-size:11px">${d.ctnSize ? `${_qty(d.ctnSize)} × · ${fmt(d.ctnPrice)}` : '—'}${d.ctnSize ? was(p, 'ctnPrice') : ''}</td>${res.hasStock ? `<td style="text-align:right;font-size:11px">${p.onHand == null ? '—' : `${_qty(p.onHand)} ${_esc(d.unit)}`}</td>` : ''}</tr>`; }).join('')}
     </tbody></table></div>`;
   const foot = `<button class="btn btn-ghost" onclick="closeModal('mProdImport')">Cancel</button><button class="btn btn-primary" id="prodImportGo" onclick="runProductImport()" ${plan.length ? '' : 'disabled'}>Import ${plan.length} product${plan.length === 1 ? '' : 's'}</button>`;
   if (open || !document.getElementById('mProdImport')) _stockModal('mProdImport', '⬆️ Import products', body, foot, true);
@@ -4873,7 +4878,7 @@ window.runProductImport = async function() {
     for (let i = 0; i < plan.length; i += 120) {
       const batch = writeBatch(_db);
       plan.slice(i, i + 120).forEach(p => {
-        const id = p.id || doc(collection(_db, C('products'))).id, d = p.data, isNew = !p.id;
+        const isNew = !p.id, id = p.id || p.newId || (p.newId = doc(collection(_db, C('products'))).id), d = p.data;
         batch.set(doc(_db, C('products'), id), { ...d, updatedAt: ts(), updatedBy: uid(), ...(isNew ? { createdAt: ts(), source: 'import' } : {}) }, { merge: true });
         batch.set(doc(_db, 'products', id), { name: d.name, sku: d.sku, barcode: d.barcode || '', category: d.category, unit: d.unit, price: d.price, cost: d.cost, ctnSize: d.ctnSize,
           ctnPrice: d.ctnPrice, ctnCost: d.ctnCost || 0, stockStatus: d.stockStatus, description: d.notes, maxDiscount: d.maxDiscount, updatedAt: now, updatedBy: uid(),
@@ -4885,8 +4890,24 @@ window.runProductImport = async function() {
       done = Math.min(plan.length, i + 120);
       if (btn) btn.textContent = `Importing… ${done}/${plan.length}`;
     }
+    // Stock: bring each item to the sheet's on-hand count via the stock ledger.
+    let moves = [];
+    if (window.__impStock && plan.some(p => p.onHand != null)) {
+      if (btn) btn.textContent = 'Posting stock…';
+      const invSnap = await getDocs(collection(_db, C('inventory')));
+      const invQty = Object.fromEntries(invSnap.docs.map(d => [d.id, _n(d.data().qty)]));
+      const note = `Stock import ${(window.__impSrc?.fileName || '').slice(0, 60)}`.trim();
+      moves = window.ProductImport.stockMovesFor(plan.map(p => ({ ...p, id: p.id || p.newId })), invQty, note);
+      const by = { requestedBy: uid(), requestedByName: _user?.name || _user?.email || '', status: 'requested', createdAt: new Date().toISOString() };
+      for (let i = 0; i < moves.length; i += 200) {
+        const batch = writeBatch(_db);
+        moves.slice(i, i + 200).forEach(m => batch.set(doc(collection(_db, C('stock_requests'))), { ...m, ...by }));
+        await batch.commit();
+      }
+    }
     closeModal('mProdImport');
-    showToast(`Imported ${plan.length} product(s) ✓ — Sales App catalogue updated`, 'success');
+    const opens = moves.filter(m => m.type === 'opening').length, counts = moves.length - opens;
+    showToast(`Imported ${plan.length} product(s) ✓${moves.length ? ` · stock: ${opens} opening, ${counts} count${counts === 1 ? '' : 's'} posting` : ''} — Sales App catalogue updated`, 'success');
     if (window.__curPage === 'products') products();
   } catch (e) {
     showToast(`Stopped after ${done} product(s): ${e.message}`, 'error');
