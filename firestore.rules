@@ -488,6 +488,12 @@ service cloud.firestore {
       allow delete: if isSignedIn() && _isAdmin(ud());
     }
 
+    // Minimum selling price per product: admins and sub-admins only, so
+    // salesmen and portal users can never read it.
+    match /productMinPrices/{productId} {
+      allow read, write: if isSignedIn() && _isAdminOrSub(ud());
+    }
+
     match /attendance/{recordId} {
       allow read: if isSignedIn() && (_isAdminOrSub(ud()) || _isFieldUser(ud()));
       allow create: if isSignedIn()

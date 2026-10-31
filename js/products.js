@@ -2,6 +2,30 @@
 // ═══════════════ ZONE PRODUCT PRICE OVERRIDE ═══════════════
 
 // Owner can set overrides for any specific zone when viewing it via zone filter
+// ── Minimum price (admin-only) ─────────────────────────────────────────────
+// Stored in productMinPrices/{productId}; the rules let only admins and
+// sub-admins read or write it, so salesmen never see it (logic: price-floor.js).
+let _minPrices=null;
+async function loadMinPrices(force=false){
+  if(!isAdmin())return {};
+  if(_minPrices&&!force)return _minPrices;
+  try{
+    const snap=await window.__SF.getDocs(rootCol('productMinPrices'));
+    const m={};snap.docs.forEach(d=>{const v=Number(d.data().minPrice)||0;if(v>0)m[d.id]=v;});
+    _minPrices=m;
+  }catch(e){console.warn('[minPrice] load:',e.message);_minPrices=_minPrices||{};}
+  return _minPrices;
+}
+async function saveMinPrice(pid,raw){
+  if(!isAdmin()||!pid)return;
+  const v=PriceFloor.parseMinPrice(raw);
+  const cur=(_minPrices||{})[pid]||null;
+  if((v||null)===(cur||null))return;
+  await window.__SF.setDoc(rootDocRef('productMinPrices',pid),{minPrice:v||0,updatedAt:new Date().toISOString(),updatedBy:CU.uid,updatedByName:CU.name},{merge:true});
+  _minPrices=_minPrices||{};
+  if(v)_minPrices[pid]=v;else delete _minPrices[pid];
+}
+
 async function openZonePriceOverrideForZone(productId, zoneId) {
   const p=allProducts.find(x=>x.id===productId);
   if(!p)return;
@@ -21,6 +45,7 @@ async function openZonePriceOverrideForZone(productId, zoneId) {
   const sqEl=document.getElementById('zpoStockQty'); if(sqEl) sqEl.value=ov.stockQty??p.stockQty??p.stock_qty??0;
   const csEl=document.getElementById('zpoCtnSize');  if(csEl) csEl.value=ov.ctnSize??p.ctnSize??p.ctn_size??1;
   const cpEl=document.getElementById('zpoCtnPrice'); if(cpEl) cpEl.value=ov.ctnPrice??p.ctnPrice??p.ctn_price??'';
+  const mpEl=document.getElementById('zpoMinPrice'); if(mpEl){mpEl.value='';loadMinPrices().then(m=>{mpEl.value=m[productId]??'';});}
   openM('mZonePriceOverride');
 }
 
@@ -43,6 +68,7 @@ async function openZonePriceOverride(productId) {
   const sqEl=document.getElementById('zpoStockQty'); if(sqEl) sqEl.value=ov.stockQty??p.stockQty??p.stock_qty??0;
   const csEl=document.getElementById('zpoCtnSize');  if(csEl) csEl.value=ov.ctnSize??p.ctnSize??p.ctn_size??1;
   const cpEl=document.getElementById('zpoCtnPrice'); if(cpEl) cpEl.value=ov.ctnPrice??p.ctnPrice??p.ctn_price??'';
+  const mpEl=document.getElementById('zpoMinPrice'); if(mpEl){mpEl.value='';loadMinPrices().then(m=>{mpEl.value=m[productId]??'';});}
   openM('mZonePriceOverride');
 }
 
@@ -61,7 +87,10 @@ async function saveZonePriceOverride() {
   if(!productId){showToast('Error: no product','error');return;}
   if(!zid){showToast('Error: no zone','error');return;}
   if(!price||price<=0){showToast('Enter a valid price','error');return;}
+  const minRaw=document.getElementById('zpoMinPrice')?.value;
+  try{PriceFloor.parseMinPrice(minRaw);}catch(e){showToast(e.message,'error');return;}
   try{
+    await saveMinPrice(productId,minRaw);
     const now=new Date().toISOString();
     const ovPayload={price,cost,stockStatus,stockQty,ctnSize,ctnPrice,updatedAt:now,updatedBy:CU.uid,updatedByName:CU.name};
     const ovRef=window.__SF.doc(db(),`zones/${zid}/productOverrides/${productId}`);
@@ -322,7 +351,7 @@ async function loadProducts() {
   if(_ab) _ab.style.display=isOwner()?'':'none'; // only owner adds to global catalog
   if(_zb) _zb.style.display=(!isOwner()&&CU.zoneId)?'':'none';
   // Force fresh: ensures zone overrides for the current zone filter are applied
-  await loadCachedData(true);
+  await Promise.all([loadCachedData(true),loadMinPrices(true)]);
   const srch=(document.getElementById('prodSrch')?.value||'').toLowerCase();
   const catF=document.getElementById('prodCatFilter')?.value||'';
   const stockF=document.getElementById('prodStockFilter')?.value||'';
@@ -369,6 +398,7 @@ async function loadProducts() {
           ${p.cost?`<div style="font-size:10px;color:var(--tx3)">Cost: ${fmt(p.cost)}</div>`:''}
         </div>
         ${ctnPriceLine}
+        ${(_minPrices||{})[p.id]?`<div style="font-size:10px;color:${p.price<_minPrices[p.id]?'var(--red)':'var(--ylw)'};margin-top:2px">🔒 Min: ${fmt(_minPrices[p.id])}/pcs${p.price<_minPrices[p.id]?' — list price is below it':''}</div>`:''}
         <div style="display:flex;gap:6px;margin-top:10px">
           ${isOwner() && !_ownerZoneFilter
             ? `<button class="btn btn-ghost btn-xs" style="flex:1" onclick="editProduct('${p.id}')">✏️ Edit</button>
@@ -403,6 +433,7 @@ function openNewProduct() {
   const sqEl=document.getElementById('pStockQty'); if(sqEl) sqEl.value='0';
   const csEl=document.getElementById('pCtnSize');  if(csEl) csEl.value='1';
   const cpEl=document.getElementById('pCtnPrice'); if(cpEl) cpEl.value='';
+  const mpEl=document.getElementById('pMinPrice'); if(mpEl) mpEl.value='';
   document.getElementById('prodPhotoData').value='';
   const prev=document.getElementById('prodPhotoPreview');
   prev.innerHTML='📦';prev.style.cssText='width:80px;height:80px;border-radius:10px;background:var(--s2);border:2px dashed var(--bdr);display:flex;align-items:center;justify-content:center;font-size:28px;overflow:hidden;flex-shrink:0';
@@ -425,6 +456,7 @@ async function editProduct(id) {
   const sqEl=document.getElementById('pStockQty'); if(sqEl) sqEl.value=p.stockQty??p.stock_qty??0;
   const csEl=document.getElementById('pCtnSize');  if(csEl) csEl.value=p.ctnSize??p.ctn_size??1;
   const cpEl=document.getElementById('pCtnPrice'); if(cpEl) cpEl.value=p.ctnPrice??p.ctn_price??'';
+  const mpEl=document.getElementById('pMinPrice'); if(mpEl){mpEl.value='';loadMinPrices().then(m=>{mpEl.value=m[id]??'';});}
   document.getElementById('prodPhotoData').value=p.photo||'';
   const prev=document.getElementById('prodPhotoPreview');
   if(p.photo){prev.innerHTML=`<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover">`;prev.style.border='2px solid var(--grn)';}
@@ -450,6 +482,8 @@ async function saveProduct() {
   const price=parseFloat(document.getElementById('pPrice').value);
   if(!name){showToast('Product name is required','error');return;}
   if(!price||price<=0){showToast('Enter a valid price','error');return;}
+  const minRaw=document.getElementById('pMinPrice')?.value;
+  try{PriceFloor.parseMinPrice(minRaw);}catch(e){showToast(e.message,'error');return;}
   const editId=document.getElementById('pEditId').value;
   // Duplicate check — name must be unique (case-insensitive), excluding current record
   const nameLower=name.toLowerCase();
@@ -484,6 +518,7 @@ async function saveProduct() {
       savedId = newRef?.id || editId;
       showToast(`${name} added 🛒`,'success');
     }
+    try{await saveMinPrice(savedId,minRaw);}catch(e){showToast('Minimum price not saved: '+e.message,'error');}
     // ── Sync product to ERP stsb_inventory ───────────────────────────────
     // ERP is the master for stock — product record in stsb_inventory is source of truth
     try {
