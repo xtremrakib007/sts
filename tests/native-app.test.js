@@ -235,3 +235,12 @@ test('native push only on APKs built with Firebase (older APKs crash in register
   const guard = fcm.indexOf('< PUSH_MIN_NATIVE_BUILD'), reg = fcm.indexOf('await PushNotifications.register()');
   assert.ok(guard > 0 && guard < reg, 'build check comes before register()');
 });
+
+test('no "Confirm Navigation" box in the app; website warns only with an unfinished order', () => {
+  const boot = read('js/boot.js');
+  const i = boot.indexOf("addEventListener('beforeunload'");
+  assert.ok(i > 0);
+  const before = boot.slice(Math.max(0, i - 200), i);
+  assert.match(before, /if \(!\(window\.Capacitor && window\.Capacitor\.isNativePlatform && window\.Capacitor\.isNativePlatform\(\)\)\) \{/);
+  assert.match(boot.slice(i, i + 200), /if \(typeof ordItems === 'undefined' \|\| !ordItems\.length\) return;/);
+});
