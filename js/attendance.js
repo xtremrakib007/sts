@@ -268,11 +268,21 @@ async function loadAttHistory() {
   </tr>`).join('') || `<tr><td colspan="${isStrictAdmin()?9:8}" style="text-align:center;padding:24px;color:var(--tx3)">${emptyMsg}</td></tr>`;
 }
 
+// Full-screen photo inside the app (a new window has no way back in the APK).
+// Closes with ✕, a tap outside the photo, Escape or the phone's back button.
 function viewPhoto(src) {
-  const w=window.open('','_blank');
-  w.document.write(`<body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh">
-    <img src="${src}" style="max-width:100%;max-height:100vh;border-radius:8px"></body>`);
+  closePhotoViewer();
+  const el=document.createElement('div');
+  el.id='photoViewer';
+  el.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;padding:56px 12px 24px';
+  el.innerHTML=`<button type="button" aria-label="Close" onclick="closePhotoViewer()" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:22px;line-height:44px;cursor:pointer">✕</button>
+    <img alt="" style="max-width:100%;max-height:100%;border-radius:8px;object-fit:contain">`;
+  el.querySelector('img').src=src;
+  el.addEventListener('click',e=>{if(e.target===el)closePhotoViewer();});
+  document.body.appendChild(el);
 }
+function closePhotoViewer(){const el=document.getElementById('photoViewer');if(el){el.remove();return true;}return false;}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePhotoViewer();});
 
 function calcH(ci,co){const[ch,cm]=ci.split(':').map(Number);const[oh,om]=co.split(':').map(Number);const m=(oh*60+om)-(ch*60+cm);return`${Math.floor(m/60)}h ${m%60}m`;}
 function calcMins(ci,co){const[ch,cm]=ci.split(':').map(Number);const[oh,om]=co.split(':').map(Number);return(oh*60+om)-(ch*60+cm);}

@@ -168,6 +168,8 @@ window.addEventListener('load',()=>{
   if(!window.Capacitor?.isNativePlatform?.())return;
   const {App}=window.Capacitor.Plugins;
   App.addListener('backButton',()=>{
+    // A full-screen photo closes first
+    if(typeof closePhotoViewer==='function'&&closePhotoViewer())return;
     // If a modal is open, close it first
     const openModal=document.querySelector('.modal.show,.moverlay.show');
     if(openModal){openModal.classList.remove('show');return;}
