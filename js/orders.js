@@ -110,6 +110,8 @@ async function loadOrders() {
     : await sfGet('orders',[where('createdBy','==',CU.uid)]);
 
   let orders=ordDocs.map(d=>({_docId:d.id,...d.data()}));
+  // Admins: minimum prices to flag discount requests that go below them.
+  const minPrices=isAdmin()?await loadMinPrices():{};
   if(srch)orders=orders.filter(o=>(o.id||o._docId).toLowerCase().includes(srch)||outletName(o.outletId).toLowerCase().includes(srch)||userName(o.createdBy).toLowerCase().includes(srch));
   if(statusF)orders=orders.filter(o=>o.status===statusF);
   if(dateFrom)orders=orders.filter(o=>o.date>=dateFrom);
@@ -123,6 +125,7 @@ async function loadOrders() {
     const discPending=hasDiscount&&o.discount.status==='pending';
     const discApproved=hasDiscount&&o.discount.status==='approved';
     const discRejected=hasDiscount&&o.discount.status==='rejected';
+    const belowMin=isAdmin()&&discPending&&PriceFloor.priceCheck(o.items||[],minPrices,{}).belowMin.length>0;
     const creditPending=!!(o.creditHold&&o.creditHold.status==='pending');
     const discBadge=hasDiscount
       ?`<span class="bdg ${discApproved?'bdg-grn':discRejected?'bdg-red':'bdg-ylw'}" style="font-size:10px;margin-left:4px" title="Discount: ${o.discount.type==='percent'?o.discount.value+'%':fmt(o.discount.amount)}">🏷️${discPending?'?':discApproved?'✓':'✕'}</span>`:'';
@@ -138,7 +141,7 @@ async function loadOrders() {
     <td style="font-size:12px;color:var(--tx2)">${o.items?.length||0} item${(o.items?.length||0)!==1?'s':''}</td>
     <td><span style="font-family:'Syne',sans-serif;font-weight:700;color:var(--acc)">${fmt(o.total)}</span>${discBadge}</td>
     <td style="font-size:12px;color:var(--tx2)">${o.date||'—'}</td>
-    <td><span class="bdg ${sBadge[o.status]||'bdg-gry'}">${o.status}</span>${discPending?'<span class="bdg bdg-ylw" style="font-size:9px;margin-left:3px">🏷️ Disc?</span>':''}${creditPending?`<span class="bdg bdg-red" style="font-size:9px;margin-left:3px" title="Over credit limit by ${fmt(o.creditHold.exceededBy)}">💳 Credit?</span>`:''}</td>
+    <td><span class="bdg ${sBadge[o.status]||'bdg-gry'}">${o.status}</span>${discPending?'<span class="bdg bdg-ylw" style="font-size:9px;margin-left:3px">🏷️ Disc?</span>':''}${belowMin?'<span class="bdg bdg-red" style="font-size:9px;margin-left:3px" title="An item\'s price after discount is below its minimum price">🔒 Below min</span>':''}${creditPending?`<span class="bdg bdg-red" style="font-size:9px;margin-left:3px" title="Over credit limit by ${fmt(o.creditHold.exceededBy)}">💳 Credit?</span>`:''}</td>
     <td style="font-size:11px;color:var(--tx3)">ERP</td>
     <td>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
@@ -1133,6 +1136,30 @@ function addItem(){}
 function rmOrdItem(){}
 function updOrdItem(){}
 
+// Admin only: each item's price after discount next to its minimum price and
+// the last price this outlet paid, for the discount approval dialog.
+async function _discountPriceSummary(o){
+  try{
+    const {where}=window.__SF;
+    const [mins,prevDocs]=await Promise.all([
+      loadMinPrices(),
+      sfGet('orders',[where('outletId','==',o.outletId)]).catch(()=>[]),
+    ]);
+    const prev=prevDocs.map(d=>({_docId:d.id,...d.data()}));
+    const chk=PriceFloor.priceCheck(o.items||[],mins,PriceFloor.lastPrices(prev,o.id||o._docId));
+    const rows=chk.lines.slice(0,12).map(l=>{
+      const parts=[`${l.name}: ${l.netPrice===null?'—':fmt(l.netPrice)}/pcs`];
+      if(l.netPrice!==null&&l.netPrice!==l.listPrice)parts.push(`list ${fmt(l.listPrice)}`);
+      if(l.minPrice!==null)parts.push(`min ${fmt(l.minPrice)}${l.belowMin?' ⚠️':''}`);
+      if(l.lastPrice!==null)parts.push(`last ${fmt(l.lastPrice)}`);
+      return '• '+parts.join(' · ');
+    });
+    if(chk.lines.length>12)rows.push(`… and ${chk.lines.length-12} more`);
+    const head=chk.belowMin.length?`⚠️ ${chk.belowMin.length} item(s) BELOW MINIMUM PRICE\n`:'';
+    return `${head}Price after discount (per pcs):\n${rows.join('\n')}\n\n`;
+  }catch(e){console.warn('[minPrice] summary:',e.message);return '';}
+}
+
 // ── Discount-only approval (called from pending discount badge/button) ────────
 async function approveDiscount(id, approve=true) {
   if(!isAdmin()){showToast('Only admin can approve discounts','error');return;}
@@ -1147,7 +1174,8 @@ async function approveDiscount(id, approve=true) {
     :o.discount.type==='percent'?`${o.discount.value}% (${fmt(discAmt)})`:fmt(discAmt);
 
   const action=approve?'APPROVE':'REJECT';
-  if(!confirm(`${action} discount of ${discLabel} for order ${o.id||id}?\n\n${approve?'Discount will be applied and order sent to ERP.':'Order will proceed at full price and be sent to ERP.'}`))return;
+  const priceInfo=approve?await _discountPriceSummary(o):'';
+  if(!confirm(`${action} discount of ${discLabel} for order ${o.id||id}?\n\n${priceInfo}${approve?'Discount will be applied and order sent to ERP.':'Order will proceed at full price and be sent to ERP.'}`))return;
 
   const discStatus=approve?'approved':'rejected';
   const newTotal=approve?(o.subtotal||o.total)-discAmt:(o.subtotal||o.total);

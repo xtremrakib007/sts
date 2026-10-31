@@ -37,6 +37,7 @@ const JS_FILES = [
   'js/delete.js',
   'js/broadcast.js',
   'js/misc.js',
+  'js/price-floor.js',
   'js/advance-core.js',
   'js/advances.js',
   'js/boot.js'

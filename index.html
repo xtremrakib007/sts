@@ -1777,6 +1777,9 @@
                             type="number" min="0" step="0.01" class="finp" placeholder="0.00"></div>
                     <div class="fgrp" style="margin:0 0 12px"><label class="flbl">Cost Price (৳)</label><input
                             id="pCost" type="number" min="0" step="0.01" class="finp" placeholder="0.00"></div>
+                    <div class="fgrp" style="margin:0 0 12px"><label class="flbl">🔒 Minimum Price (RM/pcs) <span style="font-weight:400;color:var(--tx3)">— admins only</span></label><input
+                            id="pMinPrice" type="number" min="0" step="0.01" class="finp" placeholder="No minimum">
+                        <div style="font-size:10px;color:var(--tx3);margin-top:3px">Lowest price after discount. Salesmen never see it; you are warned when approving a discount below it.</div></div>
                     <div class="fgrp" style="margin:0 0 12px"><label class="flbl">Stock Status</label> <select
                             id="pStock" class="finp">
                             <option value="in_stock">✅ In Stock</option>
@@ -1811,6 +1814,8 @@
                     <div class="fgrp" style="margin:0"><label class="flbl">Zone Cost (RM)</label> <input id="zpoCost"
                             type="number" min="0" step="0.01" class="finp" placeholder="0.00"></div>
                 </div>
+                <div class="fgrp" style="margin:0 0 12px"><label class="flbl">🔒 Minimum Price (RM/pcs) <span style="font-weight:400;color:var(--tx3)">— admins only, all zones</span></label><input
+                        id="zpoMinPrice" type="number" min="0" step="0.01" class="finp" placeholder="No minimum"></div>
                 <div class="fgrp" style="margin:0"><label class="flbl">Stock Status</label> <select id="zpoStock"
                         class="finp">
                         <option value="in_stock">✅ In Stock</option>
@@ -2311,6 +2316,7 @@
     <script src="js/delete.js"></script>
     <script src="js/broadcast.js"></script>
     <script src="js/misc.js"></script>
+    <script src="js/price-floor.js"></script>
     <script src="js/advance-core.js"></script>
     <script src="js/advances.js"></script>
     <script src="js/boot.js"></script>
