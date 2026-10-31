@@ -244,3 +244,15 @@ test('no "Confirm Navigation" box in the app; website warns only with an unfinis
   assert.match(before, /if \(!\(window\.Capacitor && window\.Capacitor\.isNativePlatform && window\.Capacitor\.isNativePlatform\(\)\)\) \{/);
   assert.match(boot.slice(i, i + 200), /if \(typeof ordItems === 'undefined' \|\| !ordItems\.length\) return;/);
 });
+
+test('owner, all zones: zone-only records are read too; outlet list has zone chips', () => {
+  const core = read('js/core.js'), boot = read('js/boot.js'), out = read('js/outlets.js'), fn = read('functions/index.js');
+  assert.match(core, /function _ownerAllZones\(colName\) \{\s*return !!\(isOwner\(\) && !_ownerZoneFilter && MIRROR_COLS\.has\(colName\) && colName !== 'products'\);/);
+  assert.match(core, /const docs = await _withZoneOnlyDocs\(colName, snap\.docs, getDocs, constraints\);/, 'sfGet');
+  assert.match(boot, /_withZoneOnlyDocs\(n, s\.docs, get\)/, 'start-up load');
+  assert.match(core, /return _ownerZoneOf\.get\(colName \+ '\/' \+ docId\) \|\| null;/, 'owner edits reach zone-only records');
+  assert.match(out, /function _outletZoneBar\(\)/);
+  assert.match(out, /let base=allOutlets\.filter\(_inOutletZone\);/);
+  assert.match(fn, /collection\(`zones\/\$\{z\.id\}\/outlets`\)\.where\('portalToken', '==', t\)/, 'customer page finds zone-only outlets');
+  assert.match(fn, /exports\.shopRegisterCustomerZone = functions\.firestore\.document\('zones\/\{zoneId\}\/outlets\/\{outletId\}'\)/);
+});

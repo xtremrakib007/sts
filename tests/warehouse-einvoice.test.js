@@ -216,7 +216,7 @@ test('outlets: every role gets a Nearby list sorted by distance', () => {
   const o = read('js/outlets.js');
   assert.match(o, /let _outletView=\(\(\)=>\{try\{return localStorage\.getItem\('stsb-outlet-view'\)\|\|'near';/, 'Nearby is the default');
   const near = o.slice(o.indexOf("if(_outletView==='near'){"), o.indexOf('// Sort helper: by distance'));
-  assert.match(near, /let base=allOutlets;/, 'all outlets the user can access (allOutlets is already scoped per role)');
+  assert.match(near, /let base=allOutlets\.filter\(_inOutletZone\);/, 'all outlets the user can access (allOutlets is already scoped per role), owner zone chip applied');
   assert.match(near, /if\(isDeliveryMan\(\)\)\{ \/\/ only today's working stops/, 'delivery men: working stops only');
   assert.match(near, /const list=base\.filter\(/);
   assert.match(near, /sort\(\(x,y\)=>\(x\.km-y\.km\)/, 'nearest first');

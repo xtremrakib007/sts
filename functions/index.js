@@ -982,13 +982,32 @@ exports.customerPortal = functions.https.onRequest(async (req, res) => {
   const t = String(req.query.t || '');
   if (!portal.isValidToken(t)) { res.status(404).json({ error: 'This link is not valid.' }); return; }
   try {
+    // Most outlets have a root copy; some exist only in their zone.
+    let od = null, zid = null;
     const os = await db().collection('outlets').where('portalToken', '==', t).limit(1).get();
-    if (os.empty) { res.status(404).json({ error: 'This link is not valid any more — ask your salesman for a new one.' }); return; }
-    const od = os.docs[0], outlet = od.data();
+    if (!os.empty) od = os.docs[0];
+    else {
+      for (const z of (await db().collection('zones').get()).docs) {
+        const zs = await db().collection(`zones/${z.id}/outlets`).where('portalToken', '==', t).limit(1).get();
+        if (!zs.empty) { od = zs.docs[0]; zid = z.id; break; }
+      }
+    }
+    if (!od) { res.status(404).json({ error: 'This link is not valid any more — ask your salesman for a new one.' }); return; }
+    const outlet = od.data();
+    zid = zid || outlet._zoneId || outlet.zoneId || null;
     const repId = outlet.assignedRepId || outlet.assignedTo || outlet.repId || outlet.createdBy || '';
+    // Root and zone copies share ids: merge both, root first.
+    const both = async (col) => {
+      const lists = await Promise.all([
+        db().collection(col).where('outletId', '==', od.id).get(),
+        zid ? db().collection(`zones/${zid}/${col}`).where('outletId', '==', od.id).get().catch(() => ({ docs: [] })) : { docs: [] },
+      ]);
+      const seen = new Set();
+      return { docs: lists.flatMap((l) => l.docs).filter((d) => !seen.has(d.id) && seen.add(d.id)) };
+    };
     const [ords, cols, co, erpCo, rep] = await Promise.all([
-      db().collection('orders').where('outletId', '==', od.id).get(),
-      db().collection('collections').where('outletId', '==', od.id).get(),
+      both('orders'),
+      both('collections'),
       db().doc('config/company').get().catch(() => null),
       db().doc(`${erp.erpCol('config')}/company`).get().catch(() => null),
       repId ? db().doc(`users/${repId}`).get().catch(() => null) : null,
@@ -1234,7 +1253,14 @@ async function _registerShopCustomer(cfg, outlet, nowIso) {
 }
 
 async function _registerAllShopCustomers(cfg) {
-  const snap = await db().collection('outlets').get();
+  // Root outlets plus those that exist only in a zone (same ids).
+  const root = await db().collection('outlets').get();
+  const seen = new Set(root.docs.map(d => d.id));
+  const docs = [...root.docs];
+  for (const z of (await db().collection('zones').get()).docs) {
+    (await db().collection(`zones/${z.id}/outlets`).get()).docs.forEach(d => { if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); } });
+  }
+  const snap = { docs };
   const nowIso = new Date().toISOString();
   const count = { created: 0, updated: 0, no_mobile: 0, skipped: 0, failed: 0 };
   for (const d of snap.docs) {
@@ -1245,7 +1271,7 @@ async function _registerAllShopCustomers(cfg) {
   return count;
 }
 
-exports.shopRegisterCustomer = functions.firestore.document('outlets/{outletId}').onWrite(async (change, ctx) => {
+async function _shopRegisterOnWrite(change, ctx) {
   if (!change.after.exists) return null;
   const b = change.before.exists ? change.before.data() : {};
   const a = change.after.data();
@@ -1255,7 +1281,10 @@ exports.shopRegisterCustomer = functions.firestore.document('outlets/{outletId}'
   try { await _registerShopCustomer(cfg, { id: ctx.params.outletId, ...a }, new Date().toISOString()); }
   catch (e) { console.error('[shop customers]', ctx.params.outletId, e.message); await _shopStatus({ ok: false, error: `Customer account: ${e.message}` }); }
   return null;
-});
+}
+exports.shopRegisterCustomer = functions.firestore.document('outlets/{outletId}').onWrite(_shopRegisterOnWrite);
+// Outlets added in a zone only (the same account is found by phone).
+exports.shopRegisterCustomerZone = functions.firestore.document('zones/{zoneId}/outlets/{outletId}').onWrite(_shopRegisterOnWrite);
 
 exports.shopSyncProduct = functions.firestore.document('products/{productId}').onWrite(async (change, ctx) => {
   const cfg = await _shopCfg();

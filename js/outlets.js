@@ -6,6 +6,20 @@ const _outletOpen={rep:null, route:null};
 let _outletView=(()=>{try{return localStorage.getItem('stsb-outlet-view')||'near';}catch(e){return 'near';}})();
 let _outletNearLimit=60, _outletLocAt=0, _outletLocBusy=false, _outletLocErr=false;
 
+// Owner viewing all zones: pick one zone's outlets in the list ('' = all).
+let _outletZone='';
+function setOutletZone(z){ _outletZone=z; _outletNearLimit=60; loadOutlets(); }
+const _outletZoneOf=o=>o._zoneId||o.zoneId||'';
+function _outletZoneBar(){
+  if(!isOwner()||_ownerZoneFilter||allZones.length<2)return '';
+  const counts={};allOutlets.forEach(o=>{const z=_outletZoneOf(o);counts[z]=(counts[z]||0)+1;});
+  const chip=(z,label,n)=>`<button class="ol-zchip${_outletZone===z?' on':''}" onclick="setOutletZone('${escH(z)}')">${escH(label)} <span>${n}</span></button>`;
+  return `<div class="ol-zbar">${chip('','All zones',allOutlets.length)}${allZones.map(z=>chip(z.id,z.name||z.id,counts[z.id]||0)).join('')}${counts['']?chip('_none','No zone',counts['']):''}</div>`;
+}
+function _inOutletZone(o){
+  if(!_outletZone||!isOwner()||_ownerZoneFilter)return true;
+  return _outletZone==='_none'?!_outletZoneOf(o):_outletZoneOf(o)===_outletZone;
+}
 function setOutletView(v){
   _outletView=v; _outletNearLimit=60;
   try{localStorage.setItem('stsb-outlet-view',v);}catch(e){}
@@ -93,7 +107,7 @@ async function loadOutlets() {
         <div class="olx-thumb" ${thumbSrc?`onclick="event.stopPropagation();openOutletPhoto('${o.id}','${sign?'sign':'cover'}')" role="button" aria-label="View photo"`:''}>${thumb}</div>
         <div class="olx-title">
           <div class="ol-name">${escH(o.name)}</div>
-          <div class="olx-meta"><span class="olx-status ${due>0?'due':'ok'}">${due>0?'Due '+fmt(due):'Settled'}</span>
+          <div class="olx-meta"><span class="olx-status ${due>0?'due':'ok'}">${due>0?'Due '+fmt(due):'Settled'}</span>${isOwner()&&!_ownerZoneFilter&&_outletZoneOf(o)?`<span class="ol-zlbl">${escH(zoneName(_outletZoneOf(o)))}</span>`:''}
             ${km!==Infinity?`<span class="ol-dist">📍 ${fmtDist(km)}</span>`:`<span class="olx-nopin">No location</span>`}</div>
         </div>
       </div>
@@ -125,11 +139,11 @@ async function loadOutlets() {
   const viewBar=`<div class="ol-viewbar"><div class="ol-seg">
       <button class="${_outletView==='near'?'on':''}" onclick="setOutletView('near')">📍 Nearby</button>
       <button class="${_outletView==='group'?'on':''}" onclick="setOutletView('group')">🗂️ ${isAdmin()?'By rep & route':isDeliveryMan()?'My deliveries':'By route'}</button>
-    </div><div class="ol-locrow">${locLine}</div></div>`;
+    </div><div class="ol-locrow">${locLine}</div></div>`+_outletZoneBar();
 
   if(_outletView==='near'){
     const q=srch.trim();
-    let base=allOutlets;
+    let base=allOutlets.filter(_inOutletZone);
     if(isDeliveryMan()){ // only today's working stops (see _dmActiveOutletIds)
       try{const myO=await sfGet('orders',[window.__SF.where('deliveryManId','==',CU.uid)]);const ids=_dmActiveOutletIds(myO.map(d=>d.data()));base=allOutlets.filter(o=>ids.has(o.id));}catch(e){}
     }
@@ -201,7 +215,7 @@ async function loadOutlets() {
   // Owner with a zone picked: only that zone's reps.
   const reps=allUsers.filter(u=>u.role==='sales_rep'&&u.status!=='disabled'&&(!isOwner()||!_ownerZoneFilter||u.zoneId===_ownerZoneFilter));
   const repIds=new Set(reps.map(u=>u.uid));
-  const allSrchOutlets=allOutlets.filter(o=>!srch||o.name.toLowerCase().includes(srch)||(o.route||'').toLowerCase().includes(srch));
+  const allSrchOutlets=allOutlets.filter(o=>_inOutletZone(o)&&(!srch||o.name.toLowerCase().includes(srch)||(o.route||'').toLowerCase().includes(srch)));
 
   let html=reps.map((rep,ri)=>{
     const repOutlets=allSrchOutlets.filter(o=>o.createdBy===rep.uid||o.assignedRepId===rep.uid);

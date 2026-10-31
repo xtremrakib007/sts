@@ -232,7 +232,7 @@ async function setOwnerZoneFilter(zid) {
       lbl.textContent = `Showing zone: ${z ? z.name : _ownerZoneFilter}`;
       lbl.style.color = 'var(--ylw)';
     } else {
-      lbl.textContent = 'Viewing root — combined data from all zones';
+      lbl.textContent = 'Every zone combined';
       lbl.style.color = 'var(--tx3)';
     }
   }
@@ -427,7 +427,8 @@ async function _bootLoad(source) {
     .catch(e => { if (!fromCache) console.warn('[boot]', e.message); return { docs: [] }; });
   const names = ['outlets', 'orders', 'collections', 'attendance', 'routes', 'zones'];
   const [snaps, prSnap, uSnap, ovMap] = await Promise.all([
-    Promise.all(names.map(n => get(colR(n)))),
+    // Owner with all zones: plus records that exist only in a zone.
+    Promise.all(names.map(n => get(colR(n)).then(s => _withZoneOnlyDocs(n, s.docs, get).then(docs => ({ docs }))))),
     get(rootCol('products')),   // always the root global catalog
     isAdmin() ? get(_usersRef()) : Promise.resolve(_selfOnly()), // field staff may only read themselves
     fromCache ? Promise.resolve({}) : _loadZoneProductOverrides(),
