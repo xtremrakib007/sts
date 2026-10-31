@@ -88,12 +88,18 @@ async function bootApp() {
       goPage(lastPg);
     }
 
-    // ★ Exit confirmation — warn before leaving the app
-    window.addEventListener('beforeunload', e=>{
-      e.preventDefault();
-      e.returnValue='Are you sure you want to leave STSB?';
-      return e.returnValue;
-    });
+    // Warn before leaving only on the website, and only with an order half
+    // entered. In the Android app the page reloads for app updates and opens
+    // other pages (storeman), where Android's "Confirm Navigation" box only
+    // confused people; the back button is handled separately there.
+    if (!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) {
+      window.addEventListener('beforeunload', e=>{
+        if (typeof ordItems === 'undefined' || !ordItems.length) return;
+        e.preventDefault();
+        e.returnValue='You have an unfinished order. Leave anyway?';
+        return e.returnValue;
+      });
+    }
 
     // NEW: start real-time broadcast listener + location tracking + sales target
     startBroadcastListener();
