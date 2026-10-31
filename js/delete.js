@@ -282,6 +282,7 @@ async function _executeDelete(itemType, itemId) {
       throw new Error('Unknown item type: '+itemType);
   }
 }
-function outletName(id) { return (allOutlets.find(o=>o.id===id)||{name:'Unknown'}).name; }
+// No outlet: walk-in invoices and online shop orders (their customer is on the order).
+function outletName(id) { if(!id) return 'Walk-in / online shop'; return (allOutlets.find(o=>o.id===id)||{name:'Unknown'}).name; }
 function userName(id) { return (allUsers.find(u=>u.uid===id)||{name:'Unknown'}).name; }
 function routeName(id) { return (allRoutes.find(r=>r.id===id)||{name:id||'—'}).name; }
