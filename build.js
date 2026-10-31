@@ -178,6 +178,12 @@ async function build() {
     }
   }
 
+  // The ERP portal also ships inside the app: storemen work in its
+  // warehouse pages (js/boot.js _openWarehouse). public/portal is its source.
+  fs.mkdirSync(path.join('www', 'portal'), { recursive: true });
+  fs.copyFileSync(path.join('public', 'portal', 'index.html'), path.join('www', 'portal', 'index.html'));
+  console.log('   📋 www/portal/index.html');
+
   // Remove stale source maps so previous builds cannot leak original source code.
   for (const dir of TARGET_DIRS) {
     const jsDir = path.join(dir, 'js');
@@ -203,7 +209,7 @@ async function build() {
   // vendor/ holds libraries the app loads on use (PDF: html2canvas, jsPDF);
   // without them an updated phone could not make or share invoice PDFs.
   const vendorFiles = fs.existsSync(path.join('www', 'vendor')) ? fs.readdirSync(path.join('www', 'vendor')).map(f => 'vendor/' + f) : [];
-  for (const file of ['index.html', 'js/app.min.js', ...COPY_FILES, ...vendorFiles]) {
+  for (const file of ['index.html', 'js/app.min.js', ...COPY_FILES, ...vendorFiles, 'portal/index.html']) {
     const src = path.join('www', file);
     if (fs.existsSync(src)) zip.addLocalFile(src, path.dirname(file) === '.' ? '' : path.dirname(file));
   }

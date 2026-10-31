@@ -165,7 +165,7 @@ test('outlet statement: delivered value, order-tied payments first, then oldest 
 
 test('over-the-air package carries vendor/ (invoice PDF and share need html2canvas + jsPDF)', () => {
   const build = read('build.js');
-  assert.match(build, /for \(const file of \['index\.html', 'js\/app\.min\.js', \.\.\.COPY_FILES, \.\.\.vendorFiles\]\)/);
+  assert.match(build, /for \(const file of \['index\.html', 'js\/app\.min\.js', \.\.\.COPY_FILES, \.\.\.vendorFiles, 'portal\/index\.html'\]\)/);
   assert.match(read('js/orders.js'), /_loadScriptOnce\('vendor\/html2canvas\.js'\), _loadScriptOnce\('vendor\/jspdf\.js'\)/);
 });
 

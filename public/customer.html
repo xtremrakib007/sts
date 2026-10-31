@@ -2,94 +2,281 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>My orders — Sairah Trading</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My account — Sairah Trading</title>
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#0f7a4f">
 <style>
-  :root{--bg:#f4f6f5;--card:#fff;--tx:#14201b;--tx2:#4b5a54;--tx3:#7d8a85;--bdr:#dfe5e2;--acc:#15935f;--red:#c62828;--ylw:#b7791f}
-  @media (prefers-color-scheme:dark){:root{--bg:#0f1513;--card:#17201c;--tx:#e9f0ed;--tx2:#b3c0bb;--tx3:#83918b;--bdr:#2a3631;--acc:#2cc483;--red:#ef6b6b;--ylw:#e8b04b}}
+  :root{
+    --bg:#f2f5f3;--card:#fff;--tx:#13201a;--tx2:#4a5a53;--tx3:#7f8c86;--bdr:#e3e9e6;
+    --brand:#0f7a4f;--brand2:#18a36a;--brand-soft:#e7f5ee;--red:#c62828;--red-soft:#fdecec;
+    --amber:#b26a00;--amber-soft:#fff4e0;--blue:#1d5fbf;--blue-soft:#e8f0fc;
+    --shadow:0 1px 2px rgba(16,40,30,.06),0 6px 20px rgba(16,40,30,.06);
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0d1411;--card:#16201b;--tx:#e8f0ec;--tx2:#b2c0b9;--tx3:#83928b;--bdr:#26332d;
+    --brand:#2cc483;--brand2:#2cc483;--brand-soft:#173327;--red:#ef6b6b;--red-soft:#3a1d1d;
+    --amber:#e8b04b;--amber-soft:#3a2d14;--blue:#7aa9f0;--blue-soft:#1a2740;--shadow:none;
+  }}
   *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
   body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.45}
-  main{max-width:640px;margin:0 auto;padding:18px 16px 40px}
-  .card{background:var(--card);border:1px solid var(--bdr);border-radius:16px;padding:16px;margin-bottom:12px}
-  h1{font-size:20px;margin:0}
-  .sub{color:var(--tx2);font-size:13px}
-  .bal{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
-  .bal div{background:var(--bg);border-radius:12px;padding:10px 12px}
-  .bal b{display:block;font-size:20px}
-  .bal span{font-size:11px;color:var(--tx3)}
-  .tabs{display:flex;gap:6px;margin:4px 0 10px}
-  .tabs button{flex:1;font:inherit;font-weight:700;font-size:13px;padding:9px;border-radius:10px;border:1px solid var(--bdr);background:var(--card);color:var(--tx2);cursor:pointer}
-  .tabs button.on{border-color:var(--acc);color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
-  .row{display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-top:1px solid var(--bdr)}
-  .row:first-child{border-top:0}
+  button{font:inherit;color:inherit}
+  .wrap{max-width:560px;margin:0 auto;padding:0 16px calc(32px + env(safe-area-inset-bottom))}
+
+  /* Header */
+  .hero{background:linear-gradient(135deg,#0b6b45 0%,#15955f 60%,#1fb174 100%);color:#fff;padding:calc(16px + env(safe-area-inset-top)) 0 64px}
+  .top{display:flex;align-items:center;gap:10px}
+  .logo{width:40px;height:40px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;font-weight:800;color:#0f7a4f}
+  .logo img{width:100%;height:100%;object-fit:contain}
+  .co{font-weight:700;font-size:15px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lang{border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.12);color:#fff;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer}
+  .hi{margin-top:18px;font-size:13px;opacity:.85}
+  .shop{font-size:22px;font-weight:800;letter-spacing:-.01em;margin-top:2px;line-height:1.2}
+  .addr{font-size:12.5px;opacity:.85;margin-top:6px}
+
+  /* Balance card */
+  .bal{background:var(--card);border-radius:20px;box-shadow:var(--shadow);margin-top:-48px;padding:18px;position:relative}
+  .bal-lbl{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx3)}
+  .bal-amt{font-size:34px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+  .bal-amt.due{color:var(--red)} .bal-amt.ok{color:var(--brand)}
+  .bal-sub{font-size:13px;color:var(--tx2);margin-top:2px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+  .stat{background:var(--bg);border-radius:12px;padding:9px 10px}
+  .stat b{display:block;font-size:16px}
+  .stat span{font-size:11px;color:var(--tx3)}
+  .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+  .act{display:flex;align-items:center;justify-content:center;gap:6px;padding:11px 8px;border-radius:12px;font-weight:700;font-size:14px;text-decoration:none;border:1px solid var(--bdr);background:var(--card);color:var(--tx)}
+  .act.wa{background:#25d366;border-color:#25d366;color:#fff}
+  .act svg{width:18px;height:18px;flex-shrink:0}
+
+  /* Tabs */
+  .tabs{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 0 10px;display:flex;gap:6px}
+  .tab{flex:1;border:0;background:var(--card);border-radius:12px;padding:10px 6px;font-weight:700;font-size:13px;color:var(--tx2);cursor:pointer;box-shadow:var(--shadow)}
+  .tab.on{background:var(--brand);color:#fff}
+  .tab .n{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;font-size:11px;margin-left:4px;background:rgba(127,140,134,.18)}
+  .tab.on .n{background:rgba(255,255,255,.25)}
+
+  /* Orders */
+  .card{background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:14px 14px 12px;margin-bottom:10px}
+  .row1{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .num{font-weight:800;font-size:15px}
+  .date{font-size:12px;color:var(--tx3);margin-top:1px}
+  .amt{text-align:right;font-weight:800;font-size:16px;white-space:nowrap}
+  .chip{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;margin-top:4px;white-space:nowrap}
+  .chip.due{background:var(--red-soft);color:var(--red)} .chip.paid{background:var(--brand-soft);color:var(--brand)}
+  .chip.part{background:var(--amber-soft);color:var(--amber)} .chip.cxl{background:var(--bg);color:var(--tx3)}
+  .steps{display:flex;align-items:center;margin:14px 2px 4px}
+  .dot{width:12px;height:12px;border-radius:50%;background:var(--bdr);flex-shrink:0;position:relative}
+  .dot.done{background:var(--brand)} .dot.now{background:var(--brand);box-shadow:0 0 0 4px var(--brand-soft)}
+  .dot.fail{background:var(--amber);box-shadow:0 0 0 4px var(--amber-soft)}
+  .bar{flex:1;height:3px;background:var(--bdr);margin:0 2px;border-radius:2px}
+  .bar.done{background:var(--brand)}
+  .step-lbls{display:flex;justify-content:space-between;font-size:10.5px;color:var(--tx3);margin:4px -4px 0}
+  .step-lbls span{flex:1;text-align:center} .step-lbls span:first-child{text-align:left} .step-lbls span:last-child{text-align:right}
+  .step-lbls .cur{color:var(--brand);font-weight:700}
+  .stat-line{font-size:13px;font-weight:600;margin-top:10px;display:flex;align-items:center;gap:6px}
+  .stat-line.fail{color:var(--amber)} .stat-line.cxl{color:var(--tx3)} .stat-line.ok{color:var(--brand)}
+  .more{width:100%;margin-top:10px;border:0;border-top:1px dashed var(--bdr);background:none;padding:10px 0 0;color:var(--brand);font-weight:700;font-size:13px;cursor:pointer;text-align:left;display:flex;justify-content:space-between}
+  .items{margin-top:8px;font-size:13px}
+  .item{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--bdr)}
+  .item:last-child{border-bottom:0}
+  .item .q{color:var(--tx3);font-size:12px}
+
+  /* Payments */
+  .pay{display:flex;align-items:center;gap:12px}
+  .pay-ic{width:40px;height:40px;border-radius:12px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
   .grow{flex:1;min-width:0}
-  .num{font-weight:700;font-size:14px}
-  .meta{font-size:12px;color:var(--tx3)}
-  .amt{text-align:right;white-space:nowrap;font-weight:700}
-  .due{color:var(--red);font-size:12px;font-weight:700}
-  .paid{color:var(--acc);font-size:12px}
-  .st{display:inline-block;font-size:11px;font-weight:700;border-radius:20px;padding:1px 8px;background:var(--bg);color:var(--tx2);margin-left:4px}
-  details summary{cursor:pointer;color:var(--acc);font-size:12px;margin-top:4px}
-  .items{font-size:12px;color:var(--tx2);margin-top:4px}
-  .msg{text-align:center;color:var(--tx2);padding:40px 10px}
-  .foot{text-align:center;color:var(--tx3);font-size:11px;margin-top:16px}
+
+  .empty{text-align:center;padding:36px 16px;color:var(--tx2)}
+  .empty .big{font-size:40px;margin-bottom:6px}
+  .empty b{display:block;color:var(--tx);font-size:16px;margin-bottom:4px}
+  .foot{text-align:center;color:var(--tx3);font-size:12px;margin-top:18px}
+  .refresh{border:1px solid var(--bdr);background:var(--card);border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;color:var(--tx2);cursor:pointer;margin-bottom:8px}
+
+  /* Loading / error */
+  .sk{background:linear-gradient(90deg,var(--bdr) 25%,var(--bg) 50%,var(--bdr) 75%);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:10px}
+  @keyframes sk{to{background-position:-200% 0}}
+  .msg{background:var(--card);border-radius:20px;box-shadow:var(--shadow);margin-top:-48px;padding:28px 20px;text-align:center;color:var(--tx2)}
+  .msg .big{font-size:40px}
+  @media (prefers-reduced-motion:reduce){.sk{animation:none}}
 </style>
 </head>
 <body>
-<main id="app"><div class="msg">Loading your orders…</div></main>
+<div class="hero"><div class="wrap" id="hero">
+  <div class="top"><div class="logo">S</div><div class="co">Sairah Trading</div></div>
+  <div class="hi">&nbsp;</div><div class="sk" style="height:26px;width:70%;margin-top:6px;opacity:.35"></div>
+</div></div>
+<main class="wrap" id="app">
+  <div class="bal"><div class="sk" style="height:14px;width:40%"></div><div class="sk" style="height:36px;width:60%;margin-top:10px"></div><div class="sk" style="height:56px;margin-top:16px"></div></div>
+</main>
 <script>
 (function () {
-  const app = document.getElementById('app');
+  const T = {
+    en: {
+      hello: 'Welcome back', due: 'Amount to pay', allPaid: 'All paid up — thank you!', credit: 'Paid in advance',
+      unpaidInv: 'unpaid', orders: 'Orders', unpaid: 'Unpaid', payments: 'Payments', thisMonth: 'bought this month',
+      chat: 'WhatsApp', call: 'Call office', callRep: 'Call', showItems: 'Show items', hideItems: 'Hide items',
+      steps: ['Received', 'Confirmed', 'Packing', 'On the way', 'Delivered'],
+      paid: 'Paid', dueX: 'Due', partPaid: 'Part paid', cancelled: 'Cancelled',
+      failed: 'Delivery missed — we will bring it again', partial: 'Delivered (some items not available)', delivered: 'Delivered',
+      noOrders: ['No orders yet', 'Your orders and invoices will show here after your first order.'],
+      noUnpaid: ['Nothing to pay 🎉', 'All your invoices are paid. Thank you!'],
+      noPays: ['No payments yet', 'Payments you make to our salesman or by bank transfer show here.'],
+      payment: 'Payment', updated: 'Updated', refresh: 'Refresh', private: 'This link is private to your shop — please don’t share it.',
+      bad: 'This link is not complete. Ask your salesman to send it again.', offline: 'No connection. Check your internet and try again.',
+      tryAgain: 'Try again', items: (n) => n + (n === 1 ? ' item' : ' items'), salesmanIs: 'Your salesman',
+    },
+    ms: {
+      hello: 'Selamat kembali', due: 'Jumlah perlu dibayar', allPaid: 'Semua sudah dibayar — terima kasih!', credit: 'Bayaran pendahuluan',
+      unpaidInv: 'belum bayar', orders: 'Pesanan', unpaid: 'Belum bayar', payments: 'Bayaran', thisMonth: 'dibeli bulan ini',
+      chat: 'WhatsApp', call: 'Telefon pejabat', callRep: 'Telefon', showItems: 'Lihat barang', hideItems: 'Tutup senarai',
+      steps: ['Diterima', 'Disahkan', 'Dibungkus', 'Dalam perjalanan', 'Dihantar'],
+      paid: 'Dibayar', dueX: 'Baki', partPaid: 'Dibayar sebahagian', cancelled: 'Dibatalkan',
+      failed: 'Penghantaran terlepas — kami akan hantar semula', partial: 'Dihantar (sebahagian barang tiada)', delivered: 'Dihantar',
+      noOrders: ['Tiada pesanan lagi', 'Pesanan dan invois anda akan dipaparkan di sini selepas pesanan pertama.'],
+      noUnpaid: ['Tiada bayaran tertunggak 🎉', 'Semua invois sudah dibayar. Terima kasih!'],
+      noPays: ['Tiada bayaran lagi', 'Bayaran kepada jurujual kami atau pindahan bank dipaparkan di sini.'],
+      payment: 'Bayaran', updated: 'Dikemas kini', refresh: 'Muat semula', private: 'Pautan ini khas untuk kedai anda — jangan kongsi.',
+      bad: 'Pautan ini tidak lengkap. Minta jurujual hantar semula.', offline: 'Tiada sambungan. Semak internet dan cuba lagi.',
+      tryAgain: 'Cuba lagi', items: (n) => n + ' barang', salesmanIs: 'Jurujual anda',
+    },
+  };
+  const ICON = {
+    wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.2 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-3.9-4.7-4.1-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.6c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.7-.1l1.9.9c.3.1.5.2.5.4.1.1.1.7-.1 1.3z"/></svg>',
+    call: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>',
+  };
+  const app = document.getElementById('app'), hero = document.getElementById('hero');
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const rm = (v) => 'RM ' + (Number(v) || 0).toLocaleString('en-MY', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   const t = new URLSearchParams(location.search).get('t') || '';
+  let lang = 'en';
+  try { lang = localStorage.getItem('cp_lang') || (/^ms|^id/i.test(navigator.language || '') ? 'ms' : 'en'); } catch (e) {}
   let data = null, tab = 'orders';
+  const open = new Set();
+  const L = () => T[lang];
+  const fmtDate = (d) => {
+    if (!d) return '';
+    const x = new Date(d + (d.length === 10 ? 'T00:00:00' : ''));
+    return isNaN(x) ? d : x.toLocaleDateString(lang === 'ms' ? 'ms-MY' : 'en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
+  };
+  // Malaysian number → wa.me / tel format
+  const intl = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.startsWith('0')) d = '6' + d; return d; };
+
+  function header(d) {
+    const co = d ? d.company : {name: 'Sairah Trading'};
+    const logo = co.logo ? `<img src="${esc(co.logo)}" alt="">` : esc((co.name || 'S').trim().charAt(0));
+    return `<div class="top"><div class="logo">${logo}</div><div class="co">${esc(co.name)}</div>
+      <button class="lang" id="langBtn" aria-label="Language">${lang === 'en' ? 'BM' : 'EN'}</button></div>
+      ${d ? `<div class="hi">${L().hello}</div><div class="shop">${esc(d.outlet.name)}</div>${d.outlet.address ? `<div class="addr">📍 ${esc(d.outlet.address)}</div>` : ''}` : ''}`;
+  }
+
+  function stepsHtml(o) {
+    const labels = L().steps, cur = o.step;
+    let h = '<div class="steps">';
+    for (let i = 0; i < 5; i++) {
+      const cls = i < cur ? 'done' : i === cur ? (o.failed ? 'fail' : 'now') : '';
+      h += `<div class="dot ${cls}"></div>` + (i < 4 ? `<div class="bar ${i < cur ? 'done' : ''}"></div>` : '');
+    }
+    return h + '</div><div class="step-lbls">' + labels.map((l, i) => `<span class="${i === cur ? 'cur' : ''}">${l}</span>`).join('') + '</div>';
+  }
+
+  function orderCard(o, i) {
+    const l = L();
+    const chip = o.cancelled ? `<span class="chip cxl">${l.cancelled}</span>`
+      : o.due > 0.009 ? (o.due < o.total - 0.009 ? `<span class="chip part">${l.dueX} ${rm(o.due)}</span>` : `<span class="chip due">${l.dueX} ${rm(o.due)}</span>`)
+      : `<span class="chip paid">✓ ${l.paid}</span>`;
+    let progress = '';
+    if (o.cancelled) progress = `<div class="stat-line cxl">✕ ${l.cancelled}</div>`;
+    else if (o.step === 4) progress = `<div class="stat-line ok">✓ ${o.partial ? l.partial : l.delivered}</div>`;
+    else if (o.step >= 0) progress = stepsHtml(o) + (o.failed ? `<div class="stat-line fail">⚠ ${l.failed}</div>` : '');
+    const isOpen = open.has(o.number + i);
+    const items = o.items.length ? `<button class="more" data-o="${esc(o.number + i)}"><span>${l.items(o.items.length)}</span><span>${isOpen ? l.hideItems + ' ▴' : l.showItems + ' ▾'}</span></button>
+      ${isOpen ? `<div class="items">${o.items.map((it) => `<div class="item"><div>${esc(it.name)}<div class="q">× ${esc(it.display || it.qty)}</div></div>${it.amount ? `<div>${rm(it.amount)}</div>` : ''}</div>`).join('')}</div>` : ''}` : '';
+    return `<div class="card"><div class="row1"><div><div class="num">${esc(o.number)}</div><div class="date">${fmtDate(o.date)}</div></div>
+      <div><div class="amt">${o.cancelled ? '<s>' + rm(o.total) + '</s>' : rm(o.total)}</div><div style="text-align:right">${chip}</div></div></div>
+      ${progress}${items}</div>`;
+  }
+
+  function empty(e) { return `<div class="card empty"><div class="big">${tab === 'payments' ? '💳' : tab === 'unpaid' ? '🎉' : '🧾'}</div><b>${e[0]}</b>${e[1]}</div>`; }
 
   function render() {
-    const d = data;
+    const d = data, l = L();
+    hero.innerHTML = header(d);
     const unpaid = d.orders.filter((o) => o.due > 0.009);
-    const list = tab === 'orders' ? d.orders : tab === 'unpaid' ? unpaid : d.payments;
-    const rows = tab === 'payments'
-      ? list.map((p) => `<div class="row"><div class="grow"><div class="num">${esc(p.method || 'Payment')}</div><div class="meta">${esc(p.date)}</div></div><div class="amt" style="color:var(--acc)">${rm(p.amount)}</div></div>`)
-      : list.map((o) => `<div class="row"><div class="grow">
-          <div class="num">${esc(o.number)} <span class="st">${esc(o.status)}</span></div>
-          <div class="meta">${esc(o.date)}</div>
-          ${o.items.length ? `<details><summary>${o.items.length} item${o.items.length === 1 ? '' : 's'}</summary><div class="items">${o.items.map((it) => esc(it.name) + ' — ' + esc(it.display || it.qty)).join('<br>')}</div></details>` : ''}
-        </div><div class="amt">${o.cancelled ? '<span class="meta">cancelled</span>' : rm(o.total)}
-          ${o.cancelled ? '' : o.due > 0.009 ? `<div class="due">due ${rm(o.due)}</div>` : '<div class="paid">✓ paid</div>'}</div></div>`);
+    const month = new Date().toISOString().slice(0, 7);
+    const monthTotal = d.orders.filter((o) => !o.cancelled && String(o.date).startsWith(month)).reduce((s, o) => s + o.total, 0);
+    const rep = d.salesman, coPhone = d.company.phone;
+    const waNum = intl(rep && rep.phone) || intl(coPhone);
+    const waText = encodeURIComponent((lang === 'ms' ? 'Salam, saya dari ' : 'Hi, this is ') + d.outlet.name + '.');
+    const acts = [
+      waNum ? `<a class="act wa" href="https://wa.me/${waNum}?text=${waText}" target="_blank" rel="noopener">${ICON.wa} ${l.chat}${rep && rep.name ? ' ' + esc(rep.name) : ''}</a>` : '',
+      coPhone ? `<a class="act" href="tel:+${intl(coPhone)}">${ICON.call} ${l.call}</a>` : (rep && rep.phone ? `<a class="act" href="tel:+${intl(rep.phone)}">${ICON.call} ${l.callRep}</a>` : ''),
+    ].filter(Boolean);
+    let list;
+    if (tab === 'payments') {
+      list = d.payments.length ? d.payments.map((p) => `<div class="card pay"><div class="pay-ic">${/cheque/i.test(p.method) ? '🧾' : /cash|tunai/i.test(p.method) ? '💵' : '🏦'}</div>
+        <div class="grow"><div class="num" style="font-size:14px">${esc(p.method || l.payment)}</div><div class="date">${fmtDate(p.date)}</div></div>
+        <div class="amt" style="color:var(--brand)">+ ${rm(p.amount)}</div></div>`).join('') : empty(l.noPays);
+    } else {
+      const src = tab === 'unpaid' ? unpaid : d.orders;
+      list = src.length ? src.map(orderCard).join('') : empty(tab === 'unpaid' ? l.noUnpaid : l.noOrders);
+    }
     app.innerHTML = `
-      <div class="card">
-        <div class="sub">${esc(d.company.name)}</div>
-        <h1>${esc(d.outlet.name)}</h1>
-        ${d.outlet.address ? `<div class="sub">${esc(d.outlet.address)}</div>` : ''}
-        <div class="bal">
-          <div><span>Balance to pay</span><b style="color:${d.balance > 0.009 ? 'var(--red)' : 'var(--acc)'}">${rm(d.balance)}</b></div>
-          <div><span>Unpaid invoices</span><b>${unpaid.length}</b></div>
+      <div class="bal">
+        <div class="bal-lbl">${l.due}</div>
+        <div class="bal-amt ${d.balance > 0.009 ? 'due' : 'ok'}">${rm(d.balance)}</div>
+        <div class="bal-sub">${d.balance > 0.009 ? unpaid.length + ' ' + l.unpaidInv : l.allPaid}${d.credit > 0.009 ? ' · ' + l.credit + ' ' + rm(d.credit) : ''}</div>
+        <div class="stats">
+          <div class="stat"><b>${d.orders.filter((o) => !o.cancelled).length}</b><span>${l.orders}</span></div>
+          <div class="stat"><b>${unpaid.length}</b><span>${l.unpaid}</span></div>
+          <div class="stat"><b style="font-size:14px">${rm(monthTotal)}</b><span>${l.thisMonth}</span></div>
         </div>
-        ${d.credit > 0.009 ? `<div class="sub" style="margin-top:8px">Paid in advance: ${rm(d.credit)}</div>` : ''}
+        ${acts.length ? `<div class="acts" style="${acts.length === 1 ? 'grid-template-columns:1fr' : ''}">${acts.join('')}</div>` : ''}
       </div>
       <div class="tabs">
-        <button class="${tab === 'orders' ? 'on' : ''}" data-tab="orders">Orders (${d.orders.length})</button>
-        <button class="${tab === 'unpaid' ? 'on' : ''}" data-tab="unpaid">Unpaid (${unpaid.length})</button>
-        <button class="${tab === 'payments' ? 'on' : ''}" data-tab="payments">Payments (${d.payments.length})</button>
+        <button class="tab ${tab === 'orders' ? 'on' : ''}" data-tab="orders">${l.orders}<span class="n">${d.orders.length}</span></button>
+        <button class="tab ${tab === 'unpaid' ? 'on' : ''}" data-tab="unpaid">${l.unpaid}<span class="n">${unpaid.length}</span></button>
+        <button class="tab ${tab === 'payments' ? 'on' : ''}" data-tab="payments">${l.payments}<span class="n">${d.payments.length}</span></button>
       </div>
-      <div class="card">${rows.join('') || '<div class="msg" style="padding:20px">Nothing here yet.</div>'}</div>
-      <div class="foot">Questions? ${d.company.phone ? 'Call ' + esc(d.company.phone) + ' or a' : 'A'}sk your salesman. · This link is private to your shop.</div>`;
-    app.querySelectorAll('.tabs button').forEach((b) => { b.onclick = () => { tab = b.dataset.tab; render(); }; });
+      ${list}
+      <div class="foot"><button class="refresh" id="refreshBtn">↻ ${l.refresh}</button><br>
+        ${l.updated} ${new Date(d.updatedAt || Date.now()).toLocaleTimeString(lang === 'ms' ? 'ms-MY' : 'en-GB', {hour: '2-digit', minute: '2-digit'})} · ${l.private}</div>`;
+    app.querySelectorAll('.tab').forEach((b) => { b.onclick = () => { tab = b.dataset.tab; render(); }; });
+    app.querySelectorAll('.more').forEach((b) => { b.onclick = () => { const k = b.dataset.o; open.has(k) ? open.delete(k) : open.add(k); render(); }; });
+    document.getElementById('refreshBtn').onclick = load;
+    bindLang();
   }
 
-  if (!/^[a-f0-9]{32}$/.test(t)) {
-    app.innerHTML = '<div class="msg">This link is not complete. Ask your salesman to send it again.</div>';
-    return;
+  function bindLang() {
+    const b = document.getElementById('langBtn');
+    if (b) b.onclick = () => { lang = lang === 'en' ? 'ms' : 'en'; try { localStorage.setItem('cp_lang', lang); } catch (e) {} if (data) render(); else if (lastMsg) showMsg(lastMsg); else { hero.innerHTML = header(null); bindLang(); } };
   }
-  fetch('/api/customer-portal?t=' + encodeURIComponent(t), {cache: 'no-store'})
-    .then((r) => r.json().then((j) => ({ok: r.ok, j})))
-    .then(({ok, j}) => {
-      if (!ok) { app.innerHTML = `<div class="msg">${esc(j.error || 'Could not load your orders.')}</div>`; return; }
-      data = j; document.title = j.outlet.name + ' — orders'; render();
-    })
-    .catch(() => { app.innerHTML = '<div class="msg">No connection. Please try again.</div>'; });
+
+  let lastMsg = null;
+  function showMsg(kind, text) {
+    lastMsg = kind;
+    hero.innerHTML = header(null); bindLang();
+    const l = L();
+    const m = kind === 'bad' ? l.bad : kind === 'offline' ? l.offline : text || l.offline;
+    app.innerHTML = `<div class="msg"><div class="big">${kind === 'bad' ? '🔗' : '📶'}</div><p>${esc(m)}</p>
+      ${kind !== 'bad' ? `<button class="refresh" id="retryBtn">↻ ${l.tryAgain}</button>` : ''}</div>`;
+    const r = document.getElementById('retryBtn'); if (r) r.onclick = load;
+  }
+
+  function load() {
+    fetch('/api/customer-portal?t=' + encodeURIComponent(t), {cache: 'no-store'})
+      .then((r) => r.json().then((j) => ({ok: r.ok, j})))
+      .then(({ok, j}) => {
+        if (!ok) { showMsg('error', j.error); return; }
+        data = j; document.title = j.outlet.name + ' — ' + (j.company.name || 'Sairah Trading'); render();
+      })
+      .catch(() => showMsg('offline'));
+  }
+
+  if (!/^[a-f0-9]{32}$/.test(t)) { showMsg('bad'); return; }
+  hero.innerHTML = header(null); bindLang();
+  load();
 })();
 </script>
 </body>
