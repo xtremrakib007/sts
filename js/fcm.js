@@ -152,6 +152,7 @@ function _navigateToScreen(screen) {
 }
 
 // ── Native Capacitor push (Android/iOS APK) ──────────────────
+const PUSH_MIN_NATIVE_BUILD = 6;
 async function _initCapacitorPush() {
   // ─────────────────────────────────────────────────────────────
   // FIX (Capacitor): Capacitor plugins are injected asynchronously
@@ -184,15 +185,22 @@ async function _initCapacitorPush() {
   const isReady = await _capacitorReady();
   if (!isReady) return false;
 
-  // Native push needs Firebase configured for this APK's app id. Without it
+  // Native push needs Firebase built into the installed APK. Without it
   // PushNotifications.register() crashes the whole app (FirebaseApp not
   // initialised), so skip native push and stay quiet instead.
+  // __PUSH_APP_IDS only says what the web bundle was built with; this code
+  // also reaches older APKs over the air, so check the APK's own build too:
+  // APK 1.5 (build 6) is the first with Firebase for com.sairah.stfm.
   try {
     const info = await window.Capacitor.Plugins.App?.getInfo?.();
     const ids = window.__PUSH_APP_IDS || [];
     if (!info?.id || !ids.includes(info.id)) {
       console.warn('[FCM] Push disabled: no Firebase config for app id', info?.id);
       return true; // native app — don't fall through to web push
+    }
+    if ((parseInt(info.build, 10) || 0) < PUSH_MIN_NATIVE_BUILD) {
+      console.warn('[FCM] Push disabled: APK build', info.build, 'has no Firebase (needs', PUSH_MIN_NATIVE_BUILD + ')');
+      return true;
     }
   } catch (e) {
     console.warn('[FCM] Push disabled: app id check failed:', e.message);

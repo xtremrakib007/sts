@@ -224,3 +224,14 @@ test('custom domains: erp.* opens the ERP, customer links use sales.stfreshmart.
   assert.match(read('js/orders.js'), /\$\{PUBLIC_APP_URL\}\/einvoice\.html\?i=/);
   assert.match(read('js/boot.js'), /const OTA_BASE = 'https:\/\/stfm-sales\.web\.app\/ota\/';/, 'phones keep updating from the default domain');
 });
+
+test('native push only on APKs built with Firebase (older APKs crash in register())', () => {
+  const fcm = fs.readFileSync(path.join(__dirname, '..', 'js', 'fcm.js'), 'utf8');
+  assert.match(fcm, /const PUSH_MIN_NATIVE_BUILD = (\d+);/);
+  const min = Number(fcm.match(/const PUSH_MIN_NATIVE_BUILD = (\d+);/)[1]);
+  const gradle = fs.readFileSync(path.join(__dirname, '..', 'android', 'app', 'build.gradle'), 'utf8');
+  assert.ok(Number(gradle.match(/versionCode (\d+)/)[1]) >= min, 'the current APK has push');
+  assert.ok(min >= 6, 'APK 1.4 (build 5) had no Firebase');
+  const guard = fcm.indexOf('< PUSH_MIN_NATIVE_BUILD'), reg = fcm.indexOf('await PushNotifications.register()');
+  assert.ok(guard > 0 && guard < reg, 'build check comes before register()');
+});
