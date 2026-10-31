@@ -183,6 +183,43 @@ function _ownerWriteZone(colName) {
 }
 const _zoneName = (zid) => (allZones.find(z=>z.id===zid)||{}).name||zid;
 
+// ── Owner, all zones: root copies plus records that exist only in a zone ──
+// Zone users' records are mirrored to root, but some (created before the
+// mirror existed, imported or copied into a zone) live only in their zone.
+// With no zone picked, the owner's reads add those, so every zone shows.
+// Root and zone copies share the doc id; the root copy wins.
+const _ownerZoneOf = new Map(); // 'col/id' → zone, for zone-only records
+function _ownerAllZones(colName) {
+  return !!(isOwner() && !_ownerZoneFilter && MIRROR_COLS.has(colName) && colName !== 'products');
+}
+async function _knownZoneIds() {
+  if (allZones.length) return allZones.map(z => z.id);
+  const s = await window.__SF.getDocs(rootCol('zones'));
+  return s.docs.map(d => d.id);
+}
+function _zoneOnlyDoc(d, zid) {
+  const data = d.data();
+  return { id: d.id, ref: d.ref, exists: () => true, data: () => ({ ...data, _zoneId: data._zoneId || zid, zoneId: data.zoneId || zid }) };
+}
+async function _withZoneOnlyDocs(colName, rootDocs, getter, constraints = []) {
+  if (!_ownerAllZones(colName)) return rootDocs;
+  let zids = [];
+  try { zids = await _knownZoneIds(); } catch (e) { return rootDocs; }
+  const seen = new Set(rootDocs.map(d => d.id));
+  const out = [...rootDocs];
+  const snaps = await Promise.all(zids.map(z => {
+    const ref = constraints.length ? window.__SF.query(zoneColRef(z, colName), ...constraints) : zoneColRef(z, colName);
+    return getter(ref).catch(() => ({ docs: [] }));
+  }));
+  snaps.forEach((snap, i) => snap.docs.forEach(d => {
+    if (seen.has(d.id)) return;
+    seen.add(d.id);
+    _ownerZoneOf.set(colName + '/' + d.id, zids[i]);
+    out.push(_zoneOnlyDoc(d, zids[i]));
+  }));
+  return out;
+}
+
 // addDoc with mirror: returns the zone doc ref (primary)
 async function sfAdd(colName, data) {
   const oz = _ownerWriteZone(colName);
@@ -214,8 +251,10 @@ async function _ownerDocZone(colName, docId) {
   if(!isOwner() || !MIRROR_COLS.has(colName) || colName === 'products') return null;
   try {
     const s = await window.__SF.getDoc(rootDocRef(colName, docId));
-    return s.exists() ? (s.data()._zoneId || s.data().zoneId || null) : null;
-  } catch(e){ return null; }
+    if (s.exists()) return s.data()._zoneId || s.data().zoneId || _ownerZoneOf.get(colName + '/' + docId) || null;
+  } catch(e){}
+  // A record that exists only in its zone (see _withZoneOnlyDocs).
+  return _ownerZoneOf.get(colName + '/' + docId) || null;
 }
 
 // updateDoc with mirror
@@ -276,8 +315,9 @@ async function sfGet(colName, constraints=[]) {
     const ref = colR(colName); // colR respects _ownerZoneFilter for reads
     const q = constraints.length ? query(ref, ...constraints) : ref;
     const snap = await getDocs(q);
-    if (key) _sfMemo.set(key, { t: Date.now(), docs: snap.docs });
-    return snap.docs;
+    const docs = await _withZoneOnlyDocs(colName, snap.docs, getDocs, constraints);
+    if (key) _sfMemo.set(key, { t: Date.now(), docs });
+    return docs;
   } catch(e) {
     console.warn('sfGet', colName, e.message);
     return [];

@@ -148,6 +148,47 @@ function customerUserDoc(outlet, cur, nowIso) {
   return doc;
 }
 
+// ── Which salesman looks after a shop customer ─────────────────
+/**
+ * The salesman an outlet belongs to (same order of fields as the app).
+ * @param {object|null} outlet
+ * @return {string} user id or ''
+ */
+function outletSalesmanId(outlet) {
+  return (outlet && (outlet.assignedRepId || outlet.assignedTo || outlet.repId || outlet.createdBy)) || '';
+}
+
+/**
+ * Outlets by normalised mobile number.
+ * @param {object[]} outlets with id
+ * @return {Map<string, object[]>}
+ */
+function outletPhoneIndex(outlets) {
+  const idx = new Map();
+  for (const o of outlets) {
+    const d = normalizePhone(o.phone);
+    if (!d) continue;
+    if (!idx.has(d)) idx.set(d, []);
+    idx.get(d).push(o);
+  }
+  return idx;
+}
+
+/**
+ * A guest's phone number matched to an outlet. Several outlets with the
+ * number count as a match only when they all have the same salesman.
+ * @param {Map<string, object[]>} idx
+ * @param {string} phone
+ * @return {{outlet: object, salesmanId: string, others: number}|null}
+ */
+function matchOutletByPhone(idx, phone) {
+  const list = idx.get(normalizePhone(phone)) || [];
+  if (!list.length) return null;
+  const reps = new Set(list.map(outletSalesmanId));
+  if (reps.size !== 1) return null;
+  return {outlet: list[0], salesmanId: [...reps][0], others: list.length - 1};
+}
+
 /** What a shop product the ERP no longer has becomes (kept for old orders). */
 const removedShopProduct = (nowIso) => ({status: 'hidden', stock: 0, erpSyncedAt: nowIso});
 
@@ -217,9 +258,12 @@ const myDate = (ms) => new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10)
  * @param {Object<string, object>} p.shopProducts shop products by SKU (for erpProductId).
  * @param {number} p.nowMs
  * @param {object|null} [p.outlet] The customer's Sales App outlet (registered customers).
+ * @param {object|null} [p.salesman] {id, name, by: 'account'|'phone', outletId, outletName}: who looks
+ *   after this customer. Shown on the order only; it is not the order's creator, so it does not
+ *   count in that salesman's sales.
  * @return {object}
  */
-function appOrderFromShop({shopOrderId, order: o, shopProducts = {}, nowMs, outlet = null}) {
+function appOrderFromShop({shopOrderId, order: o, shopProducts = {}, nowMs, outlet = null, salesman = null}) {
   const c = o.customer || {};
   const d = o.delivery || {};
   const pickup = o.method === 'SELF PICKUP';
@@ -262,6 +306,11 @@ function appOrderFromShop({shopOrderId, order: o, shopProducts = {}, nowMs, outl
     status: 'Confirmed',
     notes: ['Online shop order', pickup ? `Pickup by ${d.collector || c.name || ''}${d.collectorPhone ? ' (' + d.collectorPhone + ')' : ''}` : '',
       when ? 'When: ' + when : '', d.instructions || d.notes || '', `Phone: ${c.phone || ''}`].filter(Boolean).join(' · '),
+    outletRepId: salesman && salesman.id ? salesman.id : undefined,
+    outletRepName: salesman && salesman.name ? salesman.name : undefined,
+    repMatchedBy: salesman && salesman.id ? salesman.by : undefined,
+    matchedOutletId: salesman && salesman.by === 'phone' ? salesman.outletId : undefined,
+    matchedOutletName: salesman && salesman.by === 'phone' ? salesman.outletName : undefined,
     createdBy: '',
     createdByName: 'Online shop', repName: 'Online shop',
     approvedBy: '', approvedByName: 'Online shop', approvedAt: nowIso,
@@ -297,6 +346,7 @@ function shopStatusPatch(appOrder, shopOrder) {
 
 module.exports = {
   DEFAULT_CONFIG, shopSku, shopPrice, memberPrice, DEFAULT_PASSWORD, CUSTOMER_EMAIL_DOMAIN,
-  normalizePhone, customerEmail, customerUid, customerUserDoc, availableStock, shopProduct, removedShopProduct, sameShopProduct,
+  normalizePhone, customerEmail, customerUid, customerUserDoc,
+  outletSalesmanId, outletPhoneIndex, matchOutletByPhone, availableStock, shopProduct, removedShopProduct, sameShopProduct,
   pendingShopReservations, shouldImport, appOrderFromShop, shopStatusPatch, SHOP_STATUS, toMillis,
 };

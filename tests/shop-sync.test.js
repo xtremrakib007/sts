@@ -173,3 +173,26 @@ test('a registered customer\'s shop order goes on their outlet', () => {
   assert.equal(a.outletName, 'Kedai A');
   assert.equal(a.zoneId, 'z1');
 });
+
+test('which salesman looks after a shop customer', () => {
+  assert.equal(S.outletSalesmanId({assignedRepId: 'r1', createdBy: 'r9'}), 'r1');
+  assert.equal(S.outletSalesmanId({createdBy: 'r9'}), 'r9');
+  assert.equal(S.outletSalesmanId(null), '');
+  const idx = S.outletPhoneIndex([
+    {id: 'o1', name: 'Kedai A', phone: '012-345 6789', assignedRepId: 'r1'},
+    {id: 'o2', name: 'Kedai A2', phone: '0123456789', assignedRepId: 'r1'},
+    {id: 'o3', name: 'Kedai B', phone: '0111111111', assignedRepId: 'r2'},
+    {id: 'o4', name: 'Kedai C', phone: '0111111111', assignedRepId: 'r3'},
+    {id: 'o5', name: 'No mobile', phone: '05-2541234'},
+  ]);
+  const m = S.matchOutletByPhone(idx, '+60 12-345 6789');
+  assert.equal(m.salesmanId, 'r1'); assert.equal(m.outlet.id, 'o1'); assert.equal(m.others, 1);
+  assert.equal(S.matchOutletByPhone(idx, '0111111111'), null, 'two outlets, two salesmen: no guess');
+  assert.equal(S.matchOutletByPhone(idx, '0199999999'), null);
+  const a = S.appOrderFromShop({shopOrderId: 's1', nowMs: 0, salesman: {id: 'r1', name: 'Hafiz', by: 'phone', outletId: 'o1', outletName: 'Kedai A'},
+    order: {customer: {name: 'Ali', phone: '0123456789'}, method: 'SELF PICKUP', delivery: {}, items: [{sku: 'A', qty: 1, price: 2}], total: 2}});
+  assert.deepEqual([a.outletRepId, a.outletRepName, a.repMatchedBy, a.matchedOutletId, a.matchedOutletName, a.createdBy, a.outletId],
+    ['r1', 'Hafiz', 'phone', 'o1', 'Kedai A', '', ''], 'shown only; not the creator, not charged to the outlet');
+  const e = erp.buildErpOrder({order: a, docId: 'shop_s1', zoneId: null, outlet: {}, nowIso: 'n'});
+  assert.equal(e.outletRepName, 'Hafiz'); assert.equal(e.matchedOutletName, 'Kedai A'); assert.equal(e.repId, '');
+});
