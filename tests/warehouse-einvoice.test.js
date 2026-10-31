@@ -304,3 +304,14 @@ test('out-of-stock products: shown, requestable, never on the charged order', ()
   assert.match(portal, /window\.addRequestedToOrder = async function\(i\)/);
   assert.match(portal, /const reqHtml = await _requestedItemsHtml\(orderId, o\);/);
 });
+
+test('storemen log in to the app and land on the warehouse pages shipped with it', () => {
+  const boot = read('js/boot.js'), build = read('build.js'), portal = read('public/portal/index.html');
+  assert.match(boot, /if \(CU\.role === 'storeman'\) \{\s*_openWarehouse\(\);/);
+  assert.match(boot, /location\.replace\('\/portal\/index\.html'/);
+  assert.match(build, /copyFileSync\(path\.join\('public', 'portal', 'index\.html'\), path\.join\('www', 'portal', 'index\.html'\)\)/);
+  assert.match(build, /'portal\/index\.html'\]\)/, 'the ERP page travels in app updates');
+  assert.match(portal, /sessionStorage\.removeItem\('stfm_handoff'\)/, 'handed-over password is deleted at once');
+  assert.match(portal, /notifyAppReady\(\)/);
+  assert.match(portal, /location\.replace\('\/index\.html'\)/, 'sign-out returns to the app sign-in');
+});

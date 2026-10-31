@@ -21,8 +21,7 @@ async function bootApp() {
 
     // ★ Storemen work in the ERP portal (picking, stock), not the Sales App
     if (CU.role === 'storeman') {
-      showStoremanScreen();
-      await window.__SF.signOut(window.__SF.auth).catch(() => {});
+      _openWarehouse();
       return;
     }
 
@@ -613,22 +612,21 @@ function _fieldStaffBlockedOnWeb(user) {
   return !isNativeApp() && !!user && (user.role === 'sales_rep' || user.role === 'delivery_man');
 }
 
-function showStoremanScreen() {
+// Storemen work in the ERP's warehouse pages (picking, packing, stock),
+// which ship with the app at /portal/. The Sales App session stays, so the
+// app opens straight there next time; signing out there signs out here too.
+// A password just typed is handed over once (same tab, read and deleted by
+// the portal at once) so the storeman is not asked to sign in twice.
+function _openWarehouse() {
   _hideSplash();
-  document.getElementById('loader')?.classList.add('hidden');
-  const app = document.getElementById('app');
-  if (app) app.style.display = 'none';
-  const login = document.getElementById('loginPage');
-  if (login) login.style.display = 'none';
-  const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)';
-  el.innerHTML = '<div style="max-width:340px;text-align:center;background:var(--s1);border:1px solid var(--bdr);border-radius:20px;padding:28px 24px">' +
-    '<div style="font-size:44px;margin-bottom:12px">🏬</div>' +
-    '<div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:800;margin-bottom:8px;color:var(--tx)">Storeman account</div>' +
-    '<div style="font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:18px">Picking, packing and stock are in the ERP. Sign in there with the same email and password.</div>' +
-    '<a class="btn btn-primary" style="width:100%;display:block;margin-bottom:8px" href="' + PUBLIC_ERP_URL + '" target="_system">Open the ERP</a>' +
-    '<button class="btn btn-ghost" style="width:100%" onclick="location.reload()">Back to sign in</button></div>';
-  document.body.appendChild(el);
+  try {
+    const pw = document.getElementById('lpwd')?.value;
+    if (pw && CU.email) sessionStorage.setItem('stfm_handoff', JSON.stringify({ e: CU.email, p: pw, at: Date.now() }));
+  } catch (e) {}
+  const go = () => location.replace('/portal/index.html' + (CU.email ? '?email=' + encodeURIComponent(CU.email) : ''));
+  // Let a running app-update check finish first (at most 4 s).
+  const t0 = Date.now();
+  (function wait() { (typeof _otaBusy !== 'undefined' && _otaBusy && Date.now() - t0 < 4000) ? setTimeout(wait, 200) : go(); })();
 }
 
 function showNativeAppOnlyScreen() {

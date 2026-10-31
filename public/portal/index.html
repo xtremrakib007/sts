@@ -5865,6 +5865,53 @@ document.getElementById('authPwd').addEventListener('keydown', e => {
   window.selectTenant('tenant_stsb');
 })();
 
+// ═══════════════════════════════════════════
+//  INSIDE THE ANDROID APP (storemen)
+//  The Sales App opens this page for storemen (js/boot.js _openWarehouse),
+//  with ?email= and, right after a fresh sign-in, a one-time handoff of the
+//  password in sessionStorage so they are not asked twice.
+// ═══════════════════════════════════════════
+(function() {
+  const params = new URLSearchParams(location.search);
+  let handoff = null;
+  try {
+    handoff = JSON.parse(sessionStorage.getItem('stfm_handoff') || 'null');
+    sessionStorage.removeItem('stfm_handoff');
+  } catch (e) {}
+  if (handoff && !(Date.now() - handoff.at < 2 * 60 * 1000)) handoff = null;
+  const email = (handoff && handoff.e) || params.get('email') || '';
+  (async () => {
+    try { if (_auth && _auth.authStateReady) await _auth.authStateReady(); } catch (e) {}
+    if (_auth && _auth.currentUser) return; // already signed in here
+    if (email) document.getElementById('authEmail').value = email;
+    if (handoff && handoff.p) { document.getElementById('authPwd').value = handoff.p; window.doLogin(); }
+    else if (email) document.getElementById('authPwd').focus();
+  })();
+
+  const C = window.Capacitor;
+  if (!(C && C.isNativePlatform && C.isNativePlatform())) return;
+  // This page started fine: keep the app update that brought it.
+  try { C.Plugins.CapacitorUpdater && C.Plugins.CapacitorUpdater.notifyAppReady(); } catch (e) {}
+  // Back: close an open window first, otherwise put the app in the background.
+  try {
+    C.Plugins.App && C.Plugins.App.addListener('backButton', () => {
+      const m = [...document.querySelectorAll('.moverlay.open')].pop();
+      if (m) { m.classList.remove('open'); return; }
+      C.Plugins.App.minimizeApp();
+    });
+  } catch (e) {}
+  // Signing out here signs out of the app too and returns to its sign-in.
+  const portalLogout = window.doLogout;
+  window.doLogout = async () => {
+    try { await portalLogout(); } catch (e) {}
+    try {
+      const appDefault = getApps().find(a => a.name === '[DEFAULT]') || initializeApp(SHARED_CONFIG);
+      await signOut(getAuth(appDefault));
+    } catch (e) {}
+    location.replace('/index.html');
+  };
+})();
+
 </script>
 </body>
 </html>

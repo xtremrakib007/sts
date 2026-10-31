@@ -98,3 +98,4 @@ public/ota/
 # Vendor browser files copied from node_modules by build.js
 public/vendor/
 www/vendor/
+www/portal/
