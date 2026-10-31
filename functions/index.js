@@ -1130,6 +1130,7 @@ async function _importShopOrders(cfg) {
   const snap = await sdb.collection('orders').where('createdAt', '>=', since).get();
   const todo = snap.docs.filter(d => shop.shouldImport(d.data(), cfg));
   let imported = 0;
+  let phoneIdx = null; // outlets by mobile number, loaded once when a guest order needs it
   for (const d of todo) {
     try {
       const o = d.data();
@@ -1141,12 +1142,23 @@ async function _importShopOrders(cfg) {
       if (o.customerUid) {
         const u = await sdb.doc(`users/${o.customerUid}`).get();
         const oid = u.exists && u.data().role === 'customer' ? u.data().erpOutletId : '';
-        if (oid) {
-          const os = await db().doc(`outlets/${oid}`).get();
-          if (os.exists) outlet = { id: os.id, ...os.data() };
-        }
+        if (oid) outlet = await _outletAnywhere(oid);
       }
-      const appOrder = shop.appOrderFromShop({ shopOrderId: d.id, order: o, shopProducts, nowMs: Date.now(), outlet });
+      // Who looks after this customer: their outlet's salesman, or for a
+      // guest the salesman of the outlet with the same mobile number.
+      let salesman = null;
+      if (outlet) {
+        salesman = { id: shop.outletSalesmanId(outlet), by: 'account' };
+      } else {
+        phoneIdx = phoneIdx || shop.outletPhoneIndex(await _allOutlets());
+        const m = shop.matchOutletByPhone(phoneIdx, o.customer && o.customer.phone);
+        if (m) salesman = { id: m.salesmanId, by: 'phone', outletId: m.outlet.id, outletName: m.outlet.name || '' };
+      }
+      if (salesman && salesman.id) {
+        const r = await db().doc(`users/${salesman.id}`).get().catch(() => null);
+        salesman.name = r && r.exists ? (r.data().name || '') : '';
+      }
+      const appOrder = shop.appOrderFromShop({ shopOrderId: d.id, order: o, shopProducts, nowMs: Date.now(), outlet, salesman });
       const appRef = db().doc(`orders/shop_${d.id}`);
       await appRef.create({ ...appOrder, createdAt: FieldValue.serverTimestamp() }).catch((e) => {
         if (e.code !== 6) throw e; // ALREADY_EXISTS: imported before, mark the shop order below
@@ -1252,15 +1264,29 @@ async function _registerShopCustomer(cfg, outlet, nowIso) {
   return created ? 'created' : 'updated';
 }
 
-async function _registerAllShopCustomers(cfg) {
-  // Root outlets plus those that exist only in a zone (same ids).
+// Root outlets plus those that exist only in a zone (same ids).
+async function _allOutletDocs() {
   const root = await db().collection('outlets').get();
   const seen = new Set(root.docs.map(d => d.id));
   const docs = [...root.docs];
   for (const z of (await db().collection('zones').get()).docs) {
     (await db().collection(`zones/${z.id}/outlets`).get()).docs.forEach(d => { if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); } });
   }
-  const snap = { docs };
+  return docs;
+}
+const _allOutlets = async () => (await _allOutletDocs()).map(d => ({ id: d.id, ...d.data() }));
+async function _outletAnywhere(id) {
+  const r = await db().doc(`outlets/${id}`).get();
+  if (r.exists) return { id: r.id, ...r.data() };
+  for (const z of (await db().collection('zones').get()).docs) {
+    const zs = await db().doc(`zones/${z.id}/outlets/${id}`).get();
+    if (zs.exists) return { id: zs.id, ...zs.data() };
+  }
+  return null;
+}
+
+async function _registerAllShopCustomers(cfg) {
+  const snap = { docs: await _allOutletDocs() };
   const nowIso = new Date().toISOString();
   const count = { created: 0, updated: 0, no_mobile: 0, skipped: 0, failed: 0 };
   for (const d of snap.docs) {

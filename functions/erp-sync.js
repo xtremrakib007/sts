@@ -178,6 +178,12 @@ function buildErpOrder({order: o, erpCurrent = null, docId, zoneId, outlet = {},
     hasProof: !!o.hasProof,
     source: o.source === 'shop' ? 'online_shop' : 'sales_app',
     shopOrderId: o.shopOrderId || undefined,
+    // Online shop: the salesman who looks after this customer (information only).
+    outletRepId: o.outletRepId || undefined,
+    outletRepName: o.outletRepName || undefined,
+    repMatchedBy: o.repMatchedBy || undefined,
+    matchedOutletId: o.matchedOutletId || undefined,
+    matchedOutletName: o.matchedOutletName || undefined,
     updatedAt: nowIso,
     _syncedFromSales: true,
   };
