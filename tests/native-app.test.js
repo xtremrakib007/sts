@@ -256,3 +256,11 @@ test('owner, all zones: zone-only records are read too; outlet list has zone chi
   assert.match(fn, /collection\(`zones\/\$\{z\.id\}\/outlets`\)\.where\('portalToken', '==', t\)/, 'customer page finds zone-only outlets');
   assert.match(fn, /exports\.shopRegisterCustomerZone = functions\.firestore\.document\('zones\/\{zoneId\}\/outlets\/\{outletId\}'\)/);
 });
+
+test('ERP Sales Orders: salesmen orders and customer (online shop) orders are separate options', () => {
+  const html = read('public/portal/index.html');
+  assert.match(html, /const isCust = v => v\.source === 'online_shop';/);
+  assert.match(html, /all\.filter\(d => \(tab === 'customer'\) === isCust\(d\.data\(\)\)\)/);
+  assert.match(html, /🛒 Customer orders/);
+  assert.match(html, /onclick="window\.__soTab='customer';goPage\('salesOrders'\)"/);
+});
