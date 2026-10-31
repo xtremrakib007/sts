@@ -4728,13 +4728,13 @@ window.loadShopSync = async function() {
       <button class="btn btn-ghost" onclick="runShopSyncNow()">🔄 Sync now</button>
     </div>
     <div style="font-size:12px;color:var(--tx3);margin-top:16px;border-top:1px solid var(--bdr);padding-top:12px">${st
-      ? (st.ok === false ? `<span style="color:var(--red)">Problem (${_esc(new Date(st.at).toLocaleString())}): ${_esc(st.error || '')}</span>${/PERMISSION_DENIED|permission/i.test(st.error || '') ? '<br>The shop project has not given this ERP access yet — see the setup steps.' : ''}`
+      ? (st.ok === false ? `<span style="color:var(--red)">Problem (${_esc(new Date(st.at).toLocaleString())}): ${_esc(st.error || '')}</span>${/serviceusage|USER_PROJECT_DENIED/i.test(st.error || '') ? '<br>Add the role <strong>Service Usage Consumer</strong> to stfm-sales@appspot.gserviceaccount.com in the shop project (see the setup steps), wait a few minutes, then Sync now.' : /PERMISSION_DENIED|permission/i.test(st.error || '') ? '<br>The shop project has not given this ERP access yet — see the setup steps.' : ''}`
         : `Last sync ${_esc(new Date(st.at).toLocaleString())} (${_esc(st.reason || '')}): ${st.products || 0} products, ${st.changed || 0} updated${st.hidden ? `, ${st.hidden} removed` : ''}.`)
       : 'Not synced yet.'}${cu ? `<br>Customer logins (${_esc(new Date(cu.at).toLocaleString())}): ${cu.created || 0} new, ${cu.updated || 0} updated, ${cu.no_mobile || 0} outlets without a mobile number${cu.failed ? `, <span style="color:var(--red)">${cu.failed} failed</span>` : ''}.` : ''}</div>
     <details style="margin-top:12px;font-size:12px;color:var(--tx2)"><summary style="cursor:pointer;font-weight:600">Setup (once)</summary>
       <ol style="padding-left:18px;line-height:1.6">
         <li>Sign in to Google Cloud console with the account that owns <strong>${_esc(c.projectId || 'stfreshperak')}</strong> → IAM &amp; Admin → IAM → <strong>Grant access</strong>.</li>
-        <li>New principal: <code>stfm-sales@appspot.gserviceaccount.com</code> · Roles: <strong>Cloud Datastore User</strong> and, for customer logins, <strong>Firebase Authentication Admin</strong> → Save.</li>
+        <li>New principal: <code>stfm-sales@appspot.gserviceaccount.com</code> · Roles: <strong>Cloud Datastore User</strong> and, for customer logins, <strong>Firebase Authentication Admin</strong> and <strong>Service Usage Consumer</strong> → Save.</li>
         <li>Tick "Link the shop" above, set the markup and Save. Products appear in the shop within a minute.</li>
       </ol>No key or password is needed or stored.</details>`;
   window.shopEx();
