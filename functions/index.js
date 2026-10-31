@@ -985,16 +985,23 @@ exports.customerPortal = functions.https.onRequest(async (req, res) => {
     const os = await db().collection('outlets').where('portalToken', '==', t).limit(1).get();
     if (os.empty) { res.status(404).json({ error: 'This link is not valid any more — ask your salesman for a new one.' }); return; }
     const od = os.docs[0], outlet = od.data();
-    const [ords, cols, co] = await Promise.all([
+    const repId = outlet.assignedRepId || outlet.assignedTo || outlet.repId || outlet.createdBy || '';
+    const [ords, cols, co, erpCo, rep] = await Promise.all([
       db().collection('orders').where('outletId', '==', od.id).get(),
       db().collection('collections').where('outletId', '==', od.id).get(),
       db().doc('config/company').get().catch(() => null),
+      db().doc(`${erp.erpCol('config')}/company`).get().catch(() => null),
+      repId ? db().doc(`users/${repId}`).get().catch(() => null) : null,
     ]);
+    // The ERP's company profile (name, phone, logo) wins over the app's.
+    const company = { ...(co && co.exists ? co.data() : {}), ...(erpCo && erpCo.exists ? erpCo.data() : {}) };
+    const r = rep && rep.exists ? rep.data() : null;
     res.json(portal.buildCustomerPortal({
       outlet,
       orders: ords.docs.map((d) => ({ _docId: d.id, ...d.data() })),
       collections: cols.docs.map((d) => d.data()),
-      company: co && co.exists ? co.data() : {},
+      company,
+      salesman: r && ['sales_rep', 'admin', 'sub_admin', 'super_admin'].includes(r.role) && r.active !== false ? { name: r.name, phone: r.phone } : null,
     }));
   } catch (e) {
     console.error('[customerPortal]', e);

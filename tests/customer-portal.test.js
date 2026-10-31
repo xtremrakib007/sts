@@ -42,3 +42,22 @@ test('the app shares the hosted link (never the app address); hosting serves pag
   assert.match(read('functions/index.js'), /exports\.customerPortal = functions\.https\.onRequest/);
   assert.match(read('public/customer.html'), /fetch\('\/api\/customer-portal\?t=' \+ encodeURIComponent\(t\)/);
 });
+
+test('redesigned page data: address shown once, delivery step, line amounts, salesman first name', () => {
+  assert.equal(P.cleanAddress('NO 5, JALAN A,, PERAK, NO 5, JALAN A,, PERAK'), 'NO 5, JALAN A, PERAK');
+  assert.equal(P.cleanAddress('Teluk Intan, Perak'), 'Teluk Intan, Perak');
+  const d = P.buildCustomerPortal({
+    outlet: { name: 'Kedai', address: 'A, B, A, B', portalToken: 'secret' },
+    orders: [{ id: 'O1', status: 'In Transit', total: 30, date: '2026-10-01', items: [{ name: 'Tea', qty: 2, price: 5 }, { name: 'Rice', qty: 1, price: 20, _lineTotal: 20 }] },
+      { id: 'O2', status: 'Failed', total: 5, date: '2026-10-02', items: [] }],
+    collections: [], company: { name: 'Sairah', phone: '05-1', logo: 'https://x/logo.png' }, salesman: { name: 'Hafiz Rahman', phone: '0123' },
+  });
+  assert.equal(d.outlet.address, 'A, B');
+  const o1 = d.orders.find((o) => o.number === 'O1'), o2 = d.orders.find((o) => o.number === 'O2');
+  assert.equal(o1.step, 3); assert.equal(o2.step, 3); assert.equal(o2.failed, true);
+  assert.deepEqual(o1.items.map((i) => i.amount), [10, 20]);
+  assert.deepEqual(d.salesman, { name: 'Hafiz', phone: '0123' });
+  assert.equal(d.company.logo, 'https://x/logo.png');
+  assert.equal(P.buildCustomerPortal({ outlet: {}, orders: [], collections: [] }).salesman, null);
+  assert.equal(JSON.stringify(d).includes('secret'), false);
+});
