@@ -84,7 +84,7 @@ function buildCustomerPortal({outlet, orders, collections, company = {}, salesma
   return {
     outlet: {name: outlet.name || '', address: cleanAddress(outlet.address), route: outlet.route || ''},
     company: {
-      name: company.name || 'Sairah Trading', phone: company.phone || '',
+      name: company.name || 'Sairah Trading Sdn Bhd', phone: company.phone || '',
       // Only a hosted image or a small embedded one (keeps the reply light).
       logo: typeof company.logo === 'string' && (company.logo.startsWith('https://') || company.logo.length < 200000) ? company.logo : '',
     },
