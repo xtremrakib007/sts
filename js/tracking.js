@@ -210,7 +210,13 @@ async function _ensureNativePermission() {
 
 // ── Background tracking (APK 1.5+: @capacitor-community/background-geolocation)
 let _bgWatcherId = null, _bgStarting = false, _bgStopAsked = false;
+// Switched off: APK 1.5 closed with Android's "STSB has a bug" screen right
+// after a sales rep or delivery man logged in, the only point where this
+// native plugin starts. Field staff use the in-app watch (as on APK 1.4)
+// until the plugin is fixed in a new APK.
+const BG_TRACKING_ENABLED = false;
 function _bgGeo() {
+  if (!BG_TRACKING_ENABLED) return null;
   const C = window.Capacitor;
   if (!C || !C.isNativePlatform || !C.isNativePlatform() || !C.isPluginAvailable || !C.isPluginAvailable('BackgroundGeolocation')) return null;
   return C.Plugins.BackgroundGeolocation || (C.registerPlugin ? C.registerPlugin('BackgroundGeolocation') : null);
