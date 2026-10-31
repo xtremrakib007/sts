@@ -932,15 +932,23 @@ async function onUserPhotoFile(type, input) {
   input.value='';
 }
 
+// data: URL → Blob without fetch (the page's CSP has no data: in connect-src)
+function _dataUrlToBlob(dataUrl){
+  const [head,b64]=dataUrl.split(',');
+  const bin=atob(b64),bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  return new Blob([bytes],{type:(head.match(/data:([^;]+)/)||[])[1]||'image/jpeg'});
+}
+
 // Capacitor: pick from gallery or camera for profile/cover photo
 async function pickUserPhoto(type, source) {
   const isCapacitor=!!(window.Capacitor?.isNativePlatform?.());
   if(isCapacitor){
     try{
-      const {Camera,CameraSource,CameraResultType}=window.Capacitor.Plugins;
-      const src=source==='camera'?CameraSource.Camera:CameraSource.Photos;
-      const photo=await Camera.getPhoto({resultType:CameraResultType.Blob,source:src,quality:85,width:1024,correctOrientation:true});
-      if(photo&&photo.blob) await _uploadUserPhoto(type, photo.blob);
+      // Option values are plain strings: the enums are not on Capacitor.Plugins.
+      const {Camera}=window.Capacitor.Plugins;
+      const photo=await Camera.getPhoto({resultType:'dataUrl',source:source==='camera'?'CAMERA':'PHOTOS',quality:85,width:1024,correctOrientation:true});
+      if(photo&&photo.dataUrl) await _uploadUserPhoto(type, _dataUrlToBlob(photo.dataUrl));
     }catch(e){
       if(e&&e.message&&e.message.toLowerCase().includes('cancel'))return;
       showToast('Could not open '+(source==='camera'?'camera':'gallery')+': '+e.message,'error');

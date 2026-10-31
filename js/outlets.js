@@ -517,8 +517,9 @@ async function pickOutletPhotoFromGallery(which){
   const isCapacitor=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
   if(isCapacitor){
     try{
-      const {Camera,CameraSource,CameraResultType}=window.Capacitor.Plugins;
-      const photo=await Camera.getPhoto({resultType:CameraResultType.DataUrl,source:CameraSource.Photos,quality:80,width:1024});
+      // Option values are plain strings: the enums are not on Capacitor.Plugins.
+      const {Camera}=window.Capacitor.Plugins;
+      const photo=await Camera.getPhoto({resultType:'dataUrl',source:'PHOTOS',quality:80,width:1024});
       if(photo&&photo.dataUrl) _setOutletPhoto(which,photo.dataUrl);
     }catch(e){
       if(e&&e.message&&e.message.toLowerCase().includes('cancel'))return;
@@ -559,8 +560,8 @@ async function captureOutletPhoto(which){
   const isCapacitor=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
   if(isCapacitor){
     try{
-      const {Camera,CameraSource,CameraResultType}=window.Capacitor.Plugins;
-      const photo=await Camera.getPhoto({resultType:CameraResultType.DataUrl,source:CameraSource.Camera,quality:80,width:1024,correctOrientation:true});
+      const {Camera}=window.Capacitor.Plugins;
+      const photo=await Camera.getPhoto({resultType:'dataUrl',source:'CAMERA',quality:80,width:1024,correctOrientation:true});
       if(photo&&photo.dataUrl) _setOutletPhoto(which,photo.dataUrl);
     }catch(e){
       if(e&&e.message&&e.message.toLowerCase().includes('cancel'))return;
